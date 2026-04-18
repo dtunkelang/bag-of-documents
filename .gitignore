@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Data (hosted on HuggingFace, not in repo)
+combined_index/
+bags.jsonl
+bags_threshold_*.jsonl
+queries.jsonl
+esci/
+full_catalog/
+models/
+query_model/
+query_model_*/
+retrieval_model
+round1/
+
+# Misc
+memory/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# OS
+.DS_Store

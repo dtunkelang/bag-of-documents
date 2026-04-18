@@ -1,0 +1,13 @@
+sentence-transformers>=5.0
+faiss-cpu>=1.13
+tantivy>=0.25
+numpy>=2.0
+pandas>=2.0
+fastapi>=0.100
+uvicorn>=0.20
+torch>=2.0
+
+# Development
+ruff>=0.15
+mypy>=1.0
+pytest>=9.0
