@@ -26,7 +26,7 @@ Stack:
 ### 3. GitHub Repository (`dtunkelang/bag-of-documents`)
 
 Include:
-- `recompute_bags.py` — bag computation (hybrid retrieval + CE scoring)
+- `compute_bags.py` — bag computation (hybrid retrieval + CE scoring)
 - `rebuild_index.py` — Build FAISS HNSW + tantivy indexes with validation
 - `download_full_catalog.py` — Download and sample McAuley Lab product catalog
 - `finetune_query_model.py` — fine-tune on bag centroids

@@ -45,7 +45,7 @@ No changes. `finetune_query_model.py` and `eval_finetuned.py` work on (query, ce
 
 ## What stays the same
 
-- `recompute_bags.py` — hybrid retrieval → CE score all → threshold → centroid
+- `compute_bags.py` — hybrid retrieval → CE score all → threshold → centroid
 - `finetune_query_model.py` — MSE loss on (query text → bag centroid)
 - `eval_finetuned.py` — ESCI benchmark evaluation
 - `demo.py` — works with any FAISS index type (has HNSW/non-HNSW code paths)

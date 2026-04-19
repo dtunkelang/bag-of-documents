@@ -15,7 +15,7 @@ python download_full_catalog.py
 python rebuild_index.py
 
 # Compute bags from ESCI queries — takes ~19 hours on Apple Silicon
-python recompute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
+python compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
 
 # Fine-tune the query model
 python finetune_query_model.py bags.jsonl query_model/
@@ -59,7 +59,7 @@ The cross-encoder alone produces higher quality bags than the combination of heu
 
 | File | Purpose |
 |------|---------|
-| `recompute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
+| `compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
 | `rebuild_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
 | `download_full_catalog.py` | Download and sample McAuley Lab product catalog |
 | `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids |

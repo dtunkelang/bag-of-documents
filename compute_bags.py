@@ -8,7 +8,7 @@ For each query:
 3. Compute bag centroid (mean of normalized vectors) and specificity
 
 Usage:
-    python recompute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
+    python compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
 """
 
 import argparse

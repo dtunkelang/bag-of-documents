@@ -29,7 +29,7 @@ fi
 
 # Step 2: Compute bags
 echo "[$(date)] Computing bags..."
-$VENV -u recompute_bags.py $QUERIES $BAGS \
+$VENV -u compute_bags.py $QUERIES $BAGS \
     --model ${MODEL_DIR:-all-MiniLM-L6-v2} --ce-rerank $CE_MODEL --ce-threshold 0.3
 echo "[$(date)] Bags complete."
 

@@ -22,7 +22,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "demo.py" = ["E402"]  # FastAPI imports after setup code
-"recompute_bags.py" = ["SIM115"]  # Long-lived file handle for JSONL append
+"compute_bags.py" = ["SIM115"]  # Long-lived file handle for JSONL append
 
 [tool.ruff.format]
 quote-style = "double"

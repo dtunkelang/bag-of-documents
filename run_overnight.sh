@@ -13,8 +13,8 @@ echo "=== Overnight pipeline started: $(date) ==="
 command -v caffeinate > /dev/null && caffeinate -i -w $$ &
 
 # --- Step 0: Wait for bag computation to finish ---
-echo "Waiting for recompute_bags.py to finish..."
-while pgrep -f recompute_bags > /dev/null 2>&1; do
+echo "Waiting for compute_bags.py to finish..."
+while pgrep -f compute_bags > /dev/null 2>&1; do
     sleep 60
 done
 echo "Bag computation finished: $(date)"
