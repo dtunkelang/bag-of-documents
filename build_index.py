@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Rebuild FAISS + tantivy indexes by re-encoding all titles with current model.
+Build FAISS + tantivy indexes by encoding all titles with the current model.
 
 Encodes titles in batches with validation, builds HNSW index and tantivy
 full-text index.
 
 Usage:
-    python rebuild_index.py
-    python rebuild_index.py --model query_model/
+    python build_index.py
+    python build_index.py --model query_model/
 """
 
 import argparse

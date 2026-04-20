@@ -25,7 +25,7 @@ Options:
 - **IVF + HNSW coarse quantizer + PQ**: better recall than plain IVF, still compressed.
 - **HNSW on a large-memory instance**: 128GB+ RAM. Simplest, most accurate, but expensive.
 
-`rebuild_index.py` builds both FAISS HNSW and tantivy indexes. For larger-than-memory indexes, would need to support IVF/PQ variants.
+`build_index.py` builds both FAISS HNSW and tantivy indexes. For larger-than-memory indexes, would need to support IVF/PQ variants.
 
 **Note**: PQ was previously observed to corrupt ranking order. If using PQ, validate retrieval quality carefully.
 

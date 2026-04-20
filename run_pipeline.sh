@@ -21,7 +21,7 @@ echo "[$(date)] Preflight passed."
 # Step 1: Build indexes (FAISS + tantivy) if needed
 if [ ! -f combined_index/index.faiss ]; then
     echo "[$(date)] Building FAISS + tantivy indexes..."
-    $VENV -u rebuild_index.py --model ${MODEL_DIR:-all-MiniLM-L6-v2}
+    $VENV -u build_index.py --model ${MODEL_DIR:-all-MiniLM-L6-v2}
     echo "[$(date)] Indexes built."
 else
     echo "[$(date)] Indexes already exist, skipping build."
