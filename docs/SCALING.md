@@ -46,7 +46,7 @@ No changes. `finetune_query_model.py` and `eval_model.py` work on (query, centro
 ## What stays the same
 
 - `compute_bags.py` — hybrid retrieval → CE score all → threshold → centroid
-- `finetune_query_model.py` — MSE loss on (query text → bag centroid)
+- `finetune_query_model.py` — cosine distance loss on (query text → bag centroid)
 - `eval_model.py` — ESCI benchmark evaluation
 - `demo.py` — works with any FAISS index type (has HNSW/non-HNSW code paths)
 - CE threshold (0.3), batch size (32), candidate multiplier (4×)

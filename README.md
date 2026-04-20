@@ -48,7 +48,7 @@ The pipeline is intentionally simple — no hand-crafted heuristics, just retrie
 1. **Hybrid retrieval**: tantivy keyword AND-matching (with relaxation) + FAISS embedding similarity. Both sources are essential — keyword retrieval uniquely contributes ~35% of bag members (brand/model queries), FAISS contributes ~58% (semantic matches), with only ~7% overlap.
 2. **Cross-encoder scoring**: ESCI RoBERTa CE scores all candidates; only results scoring >= 0.3 are kept. Uses MPS (Apple Silicon GPU) with batch size 32 for optimal throughput.
 3. **Bag construction**: top 50 passing candidates → encode → spherical mean centroid + specificity
-4. **Fine-tuning**: train MiniLM to predict bag centroids from query text (MSE loss)
+4. **Fine-tuning**: train MiniLM to predict bag centroids from query text (cosine distance loss)
 5. **Iterative refinement**: rebuild index with fine-tuned model → recompute bags
 
 ### Pipeline evolution

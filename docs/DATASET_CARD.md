@@ -78,7 +78,7 @@ Earlier pipeline versions included a rule filter and heuristic relevance scorer.
 The bag centroids serve as training targets for a query encoder:
 
 - **Base model**: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
-- **Loss**: MSE between model output and bag centroid (cosine distance)
+- **Loss**: cosine distance between model output and bag centroid
 - **Result**: cosine similarity to ground-truth centroids improved from 0.787 to 0.914
 
 ## Considerations

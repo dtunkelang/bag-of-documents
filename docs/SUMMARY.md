@@ -70,6 +70,6 @@ Products → embed with fine-tuned MiniLM → FAISS HNSW index
 Queries → hybrid retrieval (keyword + FAISS)
   → ESCI RoBERTa CE scores all candidates, keep those >= 0.3
   → top 50 → encode → bag centroid + specificity
-Bags → fine-tune MiniLM (query text → centroid, MSE loss)
+Bags → fine-tune MiniLM (query text → centroid, cosine distance loss)
 Fine-tuned model → rebuild index → iterate
 ```
