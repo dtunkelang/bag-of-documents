@@ -60,8 +60,8 @@ def split_train_val(pairs, val_fraction=0.2, seed=42):
     return pairs[:split], pairs[split:]
 
 
-def make_mse_examples(pairs):
-    """Create InputExamples for MSE loss (query text → target vector)."""
+def make_supervised_examples(pairs):
+    """Create InputExamples pairing each query text with its target centroid vector."""
     examples = []
     for p in pairs:
         examples.append(
@@ -103,7 +103,7 @@ def make_mnrl_examples(pairs, seed=42):
     return examples
 
 
-class MSEEmbeddingLoss(torch.nn.Module):
+class CosineDistanceLoss(torch.nn.Module):
     """Loss that minimizes cosine distance between model output and target vector."""
 
     def __init__(self, model):
@@ -231,10 +231,10 @@ def main():
     )
     parser.add_argument(
         "--loss",
-        choices=["mse", "mnrl"],
-        default="mse",
-        help="Loss function: mse (cosine to target vector) or "
-        "mnrl (multiple negatives ranking) (default: mse)",
+        choices=["cos", "mnrl"],
+        default="cos",
+        help="Loss function: cos (cosine distance to target vector) or "
+        "mnrl (multiple negatives ranking) (default: cos)",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     parser.add_argument(
@@ -297,10 +297,10 @@ def main():
     evaluator(model)
 
     # Prepare training data and loss
-    if args.loss == "mse":
-        train_examples = make_mse_examples(train_pairs)
+    if args.loss == "cos":
+        train_examples = make_supervised_examples(train_pairs)
         train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=args.batch_size)
-        train_loss = MSEEmbeddingLoss(model)
+        train_loss = CosineDistanceLoss(model)
     elif args.loss == "mnrl":
         train_examples = make_mnrl_examples(train_pairs, seed=args.seed)
         train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=args.batch_size)
