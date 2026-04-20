@@ -13,7 +13,7 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 pip install -r requirements.txt
 
 # Download product catalog (20% sample, ~6M products)
-python download_full_catalog.py
+python download_catalog.py
 
 # Build indexes (FAISS + tantivy) — takes ~2-3 hours
 python build_index.py
@@ -65,9 +65,9 @@ The cross-encoder alone produces higher quality bags than the combination of heu
 |------|---------|
 | `compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
 | `build_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
-| `download_full_catalog.py` | Download and sample McAuley Lab product catalog |
+| `download_catalog.py` | Download and sample McAuley Lab product catalog |
 | `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids |
-| `eval_finetuned.py` | Evaluate against Amazon ESCI benchmark |
+| `eval_model.py` | Evaluate against Amazon ESCI benchmark |
 | `demo.py` | Web demo: fine-tuned vs base model, optional bag search |
 | `preflight.py` | Pre-run validation (index consistency, disk, memory) |
 | `query_index.py` | CLI for querying the product index |

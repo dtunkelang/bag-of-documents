@@ -88,7 +88,7 @@ def main():
     ml_procs = [
         l
         for l in result.stdout.split("\n")
-        if any(k in l for k in ["compute_bags", "build_index", "finetune", "demo.py"])
+        if any(k in l for k in ["compute_bags", "build_index", "finetune", "eval_model", "demo.py"])
         and "preflight" not in l
         and "grep" not in l
     ]

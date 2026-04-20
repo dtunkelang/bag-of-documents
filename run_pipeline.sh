@@ -33,22 +33,37 @@ $VENV -u compute_bags.py $QUERIES $BAGS \
     --model ${MODEL_DIR:-all-MiniLM-L6-v2} --ce-rerank $CE_MODEL --ce-threshold 0.3
 echo "[$(date)] Bags complete."
 
-# Step 3: Eval current model
+# Step 3: Strip empty bags (queries for which retrieval found nothing)
+echo "[$(date)] Removing empty bags..."
+$VENV -c "
+import json
+kept = 0
+with open('$BAGS') as f:
+    lines = f.readlines()
+with open('$BAGS', 'w') as f:
+    for line in lines:
+        if json.loads(line)['num_results'] > 0:
+            f.write(line)
+            kept += 1
+print(f'  Kept {kept} non-empty bags (removed {len(lines) - kept} empty)')
+"
+
+# Step 4: Eval current model
 if [ -d "$MODEL_DIR" ]; then
     echo "[$(date)] Evaluating current model ($MODEL_DIR)..."
-    $VENV eval_finetuned.py $MODEL_DIR/ --base
+    $VENV eval_model.py $MODEL_DIR/ --base
 fi
 
-# Step 4: Fine-tune new model (to temp dir, then swap)
+# Step 5: Fine-tune new model (to temp dir, then swap)
 echo "[$(date)] Fine-tuning on $BAGS..."
 rm -rf query_model_tmp
 $VENV finetune_query_model.py $BAGS query_model_tmp
 
-# Step 5: Eval new model
+# Step 6: Eval new model
 echo "[$(date)] Evaluating new model..."
-$VENV eval_finetuned.py query_model_tmp/ --base
+$VENV eval_model.py query_model_tmp/ --base
 
-# Step 6: Install new model
+# Step 7: Install new model
 echo "[$(date)] Installing new model..."
 rm -rf query_model
 mv query_model_tmp query_model

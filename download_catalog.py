@@ -7,9 +7,9 @@ Downloads metadata files one at a time, extracts titles, then deletes
 the compressed file to minimize disk usage.
 
 Usage:
-    python download_full_catalog.py
-    python download_full_catalog.py --sample-pct 20  # default
-    python download_full_catalog.py --sample-pct 100  # keep everything
+    python download_catalog.py
+    python download_catalog.py --sample-pct 20  # default
+    python download_catalog.py --sample-pct 100  # keep everything
 """
 
 import argparse

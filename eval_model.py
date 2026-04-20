@@ -6,8 +6,8 @@ Loads the fine-tuned model, encodes ESCI queries, retrieves from FAISS,
 and compares against human E/S/C/I labels.
 
 Usage:
-    python eval_finetuned.py query_model/
-    python eval_finetuned.py query_model/ --base  # also eval base model for comparison
+    python eval_model.py query_model/
+    python eval_model.py query_model/ --base  # also eval base model for comparison
 """
 
 import argparse

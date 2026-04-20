@@ -28,15 +28,14 @@ Stack:
 Include:
 - `compute_bags.py` — bag computation (hybrid retrieval + CE scoring)
 - `build_index.py` — Build FAISS HNSW + tantivy indexes with validation
-- `download_full_catalog.py` — Download and sample McAuley Lab product catalog
+- `download_catalog.py` — Download and sample McAuley Lab product catalog
 - `finetune_query_model.py` — fine-tune on bag centroids
-- `eval_finetuned.py` — ESCI evaluation
+- `eval_model.py` — ESCI evaluation
 - `demo.py` — web demo (fine-tuned vs base, optional bag search)
 - `preflight.py` — pre-run validation
 - `query_index.py` — CLI for querying the index
-- `download_full_catalog.py` — download and sample McAuley catalog
+- `download_catalog.py` — download and sample McAuley catalog
 - `run_pipeline.sh` — pipeline orchestration
-- `run_overnight.sh` — overnight eval + fine-tune automation
 - `tests/` — unit tests
 - `README.md`, `LICENSE` (MIT), `requirements.txt`, `pyproject.toml`
 - `SCALING.md` — guide for scaling to the full 30M product catalog

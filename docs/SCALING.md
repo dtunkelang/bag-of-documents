@@ -41,13 +41,13 @@ No code changes needed. With 75K ESCI queries (up from 18K in-scope today):
 
 ### 5. Fine-tuning and evaluation
 
-No changes. `finetune_query_model.py` and `eval_finetuned.py` work on (query, centroid) pairs regardless of catalog size.
+No changes. `finetune_query_model.py` and `eval_model.py` work on (query, centroid) pairs regardless of catalog size.
 
 ## What stays the same
 
 - `compute_bags.py` — hybrid retrieval → CE score all → threshold → centroid
 - `finetune_query_model.py` — MSE loss on (query text → bag centroid)
-- `eval_finetuned.py` — ESCI benchmark evaluation
+- `eval_model.py` — ESCI benchmark evaluation
 - `demo.py` — works with any FAISS index type (has HNSW/non-HNSW code paths)
 - CE threshold (0.3), batch size (32), candidate multiplier (4×)
 
