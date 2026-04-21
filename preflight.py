@@ -104,8 +104,7 @@ def main():
             else:
                 check(
                     True,
-                    f"Embeddings ~{embeddings_gb:.1f} GB on {total_ram_gb:.0f} GB RAM "
-                    f"({pct:.0f}%)",
+                    f"Embeddings ~{embeddings_gb:.1f} GB on {total_ram_gb:.0f} GB RAM ({pct:.0f}%)",
                 )
         else:
             print("  [SKIP] titles.json not yet written")
