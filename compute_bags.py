@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import gc
 import json
 import os
 import random
@@ -366,6 +367,11 @@ def main():
             batch_buf = []
             continue
         batch_buf = []
+
+        # Release per-batch transient state to keep long runs from growing in memory
+        gc.collect()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
         for n_candidates, bag in results:
             write_bag(bag, n_candidates)
