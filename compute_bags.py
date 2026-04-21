@@ -12,7 +12,6 @@ Usage:
 """
 
 import argparse
-import gc
 import json
 import os
 import random
@@ -75,6 +74,13 @@ def main():
         "--ce-rerank",
         required=True,
         help="Cross-encoder model path (e.g., models/esci-cross-encoder)",
+    )
+    parser.add_argument(
+        "--ce-device",
+        choices=["auto", "mps", "cuda", "cpu"],
+        default="auto",
+        help="Device for CE inference. 'cpu' avoids MPS memory spikes on long documents "
+        "(default: auto — uses MPS/CUDA if available)",
     )
     parser.add_argument(
         "--ce-threshold",
@@ -146,8 +152,15 @@ def main():
     faiss_index = faiss.read_index(os.path.join(index_path, "index.faiss"))
     with open(os.path.join(index_path, "titles.json")) as f:
         all_titles = json.load(f)
-    faiss_index.hnsw.efSearch = 64  # lower = fewer page faults, minimal recall loss
-    print(f"  FAISS: {faiss_index.ntotal:,} products (efSearch=64)")
+    # Tune per index type
+    if hasattr(faiss_index, "hnsw"):
+        faiss_index.hnsw.efSearch = 64  # lower = fewer page faults, minimal recall loss
+        print(f"  FAISS HNSW: {faiss_index.ntotal:,} vectors (efSearch=64)")
+    elif hasattr(faiss_index, "nprobe"):
+        faiss_index.nprobe = 32
+        print(f"  FAISS IVFPQ: {faiss_index.ntotal:,} vectors (nprobe=32)")
+    else:
+        print(f"  FAISS: {faiss_index.ntotal:,} vectors")
 
     print("Loading tantivy index...")
     import tantivy
@@ -163,12 +176,15 @@ def main():
     # Cross-encoder for scoring candidates
     from sentence_transformers import CrossEncoder
 
-    if torch.backends.mps.is_available():
-        ce_device = "mps"
-    elif torch.cuda.is_available():
-        ce_device = "cuda"
+    if args.ce_device == "auto":
+        if torch.backends.mps.is_available():
+            ce_device = "mps"
+        elif torch.cuda.is_available():
+            ce_device = "cuda"
+        else:
+            ce_device = "cpu"
     else:
-        ce_device = "cpu"
+        ce_device = args.ce_device
     print(f"Loading cross-encoder from {args.ce_rerank} (device={ce_device})...")
     ce_model = CrossEncoder(args.ce_rerank, device=ce_device)
     print("  Cross-encoder loaded")
@@ -367,11 +383,6 @@ def main():
             batch_buf = []
             continue
         batch_buf = []
-
-        # Release per-batch transient state to keep long runs from growing in memory
-        gc.collect()
-        if torch.backends.mps.is_available():
-            torch.mps.empty_cache()
 
         for n_candidates, bag in results:
             write_bag(bag, n_candidates)
