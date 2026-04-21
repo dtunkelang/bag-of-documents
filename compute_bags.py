@@ -55,7 +55,16 @@ def main():
     parser.add_argument("input", help="Queries JSONL file")
     parser.add_argument("output", help="Bags JSONL output file")
     parser.add_argument(
-        "--shuffle", action="store_true", help="Random order (disables cache-locality sorting)"
+        "--shuffle",
+        action="store_true",
+        help="Randomize query order before applying --limit (for random sampling)",
+    )
+    parser.add_argument(
+        "--sort-queries",
+        action="store_true",
+        help="Sort pending queries by embedding similarity for FAISS cache locality. "
+        "Requires encoding all pending queries up front; on memory-constrained "
+        "machines (16 GB) this can trigger swap thrashing. Off by default.",
     )
     parser.add_argument("--limit", type=int, default=0, help="Only process N queries (0=all)")
     parser.add_argument(
@@ -104,9 +113,11 @@ def main():
         print("All bags computed.")
         return
 
-    # Sort pending queries by embedding similarity for FAISS cache locality
+    # Optionally sort pending queries by embedding similarity for FAISS cache locality.
+    # Off by default because the up-front encoding of all pending queries can consume
+    # hundreds of MB and trigger swap thrashing on 16 GB machines.
     model_id = args.model
-    if len(pending) > 100 and not args.shuffle:
+    if len(pending) > 100 and args.sort_queries:
         print("Sorting queries by embedding similarity for cache locality...")
         _sort_model = SentenceTransformer(model_id)
         _sort_vecs = _sort_model.encode(
