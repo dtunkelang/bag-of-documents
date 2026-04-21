@@ -242,10 +242,13 @@ def main():
         for item, (start, end) in zip(batch_items, pair_offsets):
             if not item["candidates"]:
                 item["relevant_titles"] = []
+                item["relevant_scores"] = []
                 continue
             scores = all_ce_scores[start:end]
             ce_ranked = sorted(zip(scores, item["candidates"]), key=lambda x: -x[0])
-            item["relevant_titles"] = [t for s, t in ce_ranked if s >= args.ce_threshold][:K]
+            passing = [(float(s), t) for s, t in ce_ranked if s >= args.ce_threshold][:K]
+            item["relevant_titles"] = [t for _, t in passing]
+            item["relevant_scores"] = [s for s, _ in passing]
 
         # --- Batched embedding encode for centroids ---
         all_rel_titles = []
@@ -270,7 +273,10 @@ def main():
                     "num_results": len(item["relevant_titles"]),
                     "query_vector": centroid.tolist(),
                     "specificity": specificity,
-                    "results": [{"title": t} for t in item["relevant_titles"]],
+                    "results": [
+                        {"title": t, "ce_score": s}
+                        for t, s in zip(item["relevant_titles"], item["relevant_scores"])
+                    ],
                 }
             else:
                 bag = {
