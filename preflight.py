@@ -4,6 +4,7 @@ Preflight checks before any long pipeline run.
 
 Validates:
 1. Disk space sufficient
+1b. Memory headroom for encoding (warning only)
 2. No competing ML processes
 3. Required files exist
 4. FAISS index consistency (stored vectors match current model)
@@ -81,6 +82,35 @@ def main():
         check(free_gb >= 10, f"{free_gb} GB available (need >= 10 GB)")
     except Exception:
         check(False, "Could not determine disk space")
+
+    # 1b. Memory headroom for encoding (warning only, not a hard fail)
+    print("\n1b. Memory headroom for encoding")
+    try:
+        titles_probe = os.path.join(INDEX_DIR, "titles.json")
+        if os.path.exists(titles_probe):
+            with open(titles_probe) as f:
+                n_titles = len(json.load(f))
+            # Assume 384-dim float32 (matches all-MiniLM-L6-v2 default)
+            embeddings_gb = n_titles * 384 * 4 / (1024**3)
+            total_ram_gb = (os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")) / (1024**3)
+            pct = embeddings_gb / total_ram_gb * 100
+            if pct > 25:
+                print(
+                    f"  [WARN] Embeddings file will be ~{embeddings_gb:.1f} GB "
+                    f"({pct:.0f}% of {total_ram_gb:.0f} GB RAM). "
+                    f"Close memory-heavy apps (Chrome, Slack, etc.) before running "
+                    f"or lower --batch-size to avoid swap thrashing."
+                )
+            else:
+                check(
+                    True,
+                    f"Embeddings ~{embeddings_gb:.1f} GB on {total_ram_gb:.0f} GB RAM "
+                    f"({pct:.0f}%)",
+                )
+        else:
+            print("  [SKIP] titles.json not yet written")
+    except Exception as e:
+        print(f"  [SKIP] Memory check failed: {e}")
 
     # 2. Competing processes
     print("\n2. Competing ML processes")

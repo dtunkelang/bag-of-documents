@@ -31,9 +31,16 @@ HNSW_EF_CONSTRUCTION = 200
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Rebuild FAISS + tantivy indexes")
+    parser = argparse.ArgumentParser(description="Build FAISS + tantivy indexes")
     parser.add_argument(
         "--model", default=EMBED_MODEL_ID, help=f"Model to encode with (default: {EMBED_MODEL_ID})"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=128,
+        help="GPU batch size for sentence-transformer encoding (default: 128). "
+        "Lower (e.g., 64) on memory-constrained machines if you see swap pressure.",
     )
     args = parser.parse_args()
 
@@ -138,7 +145,10 @@ def main():
 
             # Inner batch_size controls model forward pass; outer BATCH_SIZE controls I/O chunking
             vecs = model.encode(
-                batch, normalize_embeddings=True, batch_size=128, show_progress_bar=False
+                batch,
+                normalize_embeddings=True,
+                batch_size=args.batch_size,
+                show_progress_bar=False,
             )
 
             # Per-batch sanity: check for NaN or zero vectors
