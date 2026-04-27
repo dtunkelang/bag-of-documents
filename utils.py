@@ -1,5 +1,6 @@
 """Shared utilities."""
 
+import math
 import re
 from itertools import combinations
 
@@ -20,21 +21,36 @@ def tokenize_query(query):
     return [w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 1]
 
 
-def generate_keyword_combos(words, max_relaxation_combos=3):
+def generate_keyword_combos(words, max_relaxation_combos=3, idf=None, n_docs=None):
     """Generate keyword combinations for tantivy AND-matching with relaxation.
 
-    Tries full AND first, then drops words one at a time, returning the
-    longest combos first. Returns a list of (n_required, combos) pairs.
+    Tries full AND first, then progressively drops tokens. Returns a list of
+    (n_required, combos) pairs.
+
+    Combos at each relaxation level are ranked and capped at
+    max_relaxation_combos. If `idf` (token -> doc_frequency dict) and
+    `n_docs` are provided, ranks by IDF-sum (keeps rare/distinctive tokens,
+    drops common ones first). Otherwise falls back to token-length sum.
     """
     if not words:
         return []
+
+    if idf is not None and n_docs is not None:
+
+        def score(combo):
+            return sum(math.log((n_docs + 1) / (idf.get(w, 0) + 1)) for w in combo)
+    else:
+
+        def score(combo):
+            return sum(len(w) for w in combo)
+
     result = []
     for n_required in range(len(words), 0, -1):
         if n_required == len(words):
             combos = [words]
         else:
             combos = [list(c) for c in combinations(words, n_required)]
-            combos.sort(key=lambda c: -sum(len(w) for w in c))
+            combos.sort(key=lambda c: -score(c))
             combos = combos[:max_relaxation_combos]
         result.append((n_required, combos))
     return result

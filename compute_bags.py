@@ -88,6 +88,14 @@ def main():
         default=0.3,
         help="Minimum CE score to include a result in the bag (default: 0.3)",
     )
+    parser.add_argument(
+        "--idf-combo-ranking",
+        action="store_true",
+        help="Rank keyword combos by IDF-sum (rare tokens kept) instead of token length. "
+        "Requires <index>/idf.json (build with compute_idf.py). Helps multi-token brand "
+        "queries (e.g. 'tom ford ...') but can regress queries where rare tokens diverge "
+        "from user intent. Off by default.",
+    )
     args = parser.parse_args()
 
     # Load queries from JSONL
@@ -173,6 +181,20 @@ def main():
     tv_searcher = tantivy_index.searcher()
     print("  Tantivy index loaded")
 
+    # Optionally load IDF for combo ranking (off by default)
+    idf_dict = None
+    idf_n_docs = None
+    if args.idf_combo_ranking:
+        idf_path = os.path.join(index_path, "idf.json")
+        if not os.path.exists(idf_path):
+            raise SystemExit(f"--idf-combo-ranking requires {idf_path} (build with compute_idf.py)")
+        print(f"Loading IDF from {idf_path}...")
+        with open(idf_path) as f:
+            idf_data = json.load(f)
+        idf_dict = idf_data["df"]
+        idf_n_docs = idf_data["n_docs"]
+        print(f"  IDF loaded ({len(idf_dict):,} terms, {idf_n_docs:,} docs)")
+
     # Cross-encoder for scoring candidates
     from sentence_transformers import CrossEncoder
 
@@ -201,7 +223,7 @@ def main():
         seen_titles = set()
         raw_candidates = []
 
-        for n_required, combos in generate_keyword_combos(words):
+        for n_required, combos in generate_keyword_combos(words, idf=idf_dict, n_docs=idf_n_docs):
             for combo in combos:
                 try:
                     parsed = tantivy_index.parse_query(" AND ".join(combo), ["title"])
