@@ -96,6 +96,11 @@ def main():
         "queries (e.g. 'tom ford ...') but can regress queries where rare tokens diverge "
         "from user intent. Off by default.",
     )
+    parser.add_argument(
+        "--index-dir",
+        default=INDEX_DIR,
+        help=f"Index directory (default: {INDEX_DIR})",
+    )
     args = parser.parse_args()
 
     # Load queries from JSONL
@@ -151,7 +156,7 @@ def main():
 
     # Load models and indexes
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    index_path = os.path.join(script_dir, INDEX_DIR)
+    index_path = os.path.join(script_dir, args.index_dir)
 
     print(f"Loading embedding model ({model_id})...")
     embed_model = SentenceTransformer(model_id)

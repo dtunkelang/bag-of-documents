@@ -1,0 +1,45 @@
+{"query": "patio dining set", "tokens": ["patio", "dining", "set"], "entity_token": "dining", "category_tokens": ["patio", "set"], "and_at_100": 95, "and_at_10": 10, "regime": "easy"}
+{"query": "king sheet sets", "tokens": ["king", "sheet", "sets"], "entity_token": "sheet", "category_tokens": ["king", "sets"], "and_at_100": 90, "and_at_10": 9, "regime": "easy"}
+{"query": "100 inch projector screen", "tokens": ["100", "inch", "projector", "screen"], "entity_token": "projector", "category_tokens": ["100", "inch", "screen"], "and_at_100": 94, "and_at_10": 10, "regime": "easy"}
+{"query": "baby girl crib sheets", "tokens": ["baby", "girl", "crib", "sheets"], "entity_token": "crib", "category_tokens": ["baby", "girl", "sheets"], "and_at_100": 90, "and_at_10": 10, "regime": "easy"}
+{"query": "xbox one controller", "tokens": ["xbox", "one", "controller"], "entity_token": "xbox", "category_tokens": ["one", "controller"], "and_at_100": 96, "and_at_10": 9, "regime": "easy"}
+{"query": "wrist brace with copper", "tokens": ["wrist", "brace", "with", "copper"], "entity_token": "brace", "category_tokens": ["wrist", "with", "copper"], "and_at_100": 88, "and_at_10": 10, "regime": "easy"}
+{"query": "samsung galaxy j3 emerge", "tokens": ["samsung", "galaxy", "j3", "emerge"], "entity_token": "emerge", "category_tokens": ["samsung", "galaxy", "j3"], "and_at_100": 95, "and_at_10": 10, "regime": "easy"}
+{"query": "iphone 6s plus", "tokens": ["iphone", "6s", "plus"], "entity_token": "6s", "category_tokens": ["iphone", "plus"], "and_at_100": 92, "and_at_10": 8, "regime": "easy"}
+{"query": "mini crock pot", "tokens": ["mini", "crock", "pot"], "entity_token": "crock", "category_tokens": ["mini", "pot"], "and_at_100": 80, "and_at_10": 9, "regime": "easy"}
+{"query": "dark privacy screen", "tokens": ["dark", "privacy", "screen"], "entity_token": "privacy", "category_tokens": ["dark", "screen"], "and_at_100": 76, "and_at_10": 9, "regime": "easy"}
+{"query": "apple watch band plaid 38mm silicone", "tokens": ["apple", "watch", "band", "plaid", "38mm", "silicone"], "entity_token": "38mm", "category_tokens": ["apple", "watch", "band", "plaid", "silicone"], "and_at_100": 77, "and_at_10": 9, "regime": "easy"}
+{"query": "hot chocolate cups for keurig", "tokens": ["hot", "chocolate", "cups", "for", "keurig"], "entity_token": "keurig", "category_tokens": ["hot", "chocolate", "cups", "for"], "and_at_100": 89, "and_at_10": 10, "regime": "easy"}
+{"query": "travel car seat", "tokens": ["travel", "car", "seat"], "entity_token": "seat", "category_tokens": ["travel", "car"], "and_at_100": 97, "and_at_10": 10, "regime": "easy"}
+{"query": "knee high stockings for women", "tokens": ["knee", "high", "stockings", "for", "women"], "entity_token": "stockings", "category_tokens": ["knee", "high", "for", "women"], "and_at_100": 71, "and_at_10": 10, "regime": "easy"}
+{"query": "chunky heel ankle boots", "tokens": ["chunky", "heel", "ankle", "boots"], "entity_token": "chunky", "category_tokens": ["heel", "ankle", "boots"], "and_at_100": 91, "and_at_10": 10, "regime": "easy"}
+{"query": "womens earth boots", "tokens": ["womens", "earth", "boots"], "entity_token": "earth", "category_tokens": ["womens", "boots"], "and_at_100": 19, "and_at_10": 6, "regime": "mid"}
+{"query": "auto stir offee cup", "tokens": ["auto", "stir", "offee", "cup"], "entity_token": "offee", "category_tokens": ["auto", "stir", "cup"], "and_at_100": 51, "and_at_10": 8, "regime": "mid"}
+{"query": "elephant necklace", "tokens": ["elephant", "necklace"], "entity_token": "elephant", "category_tokens": ["necklace"], "and_at_100": 65, "and_at_10": 10, "regime": "mid"}
+{"query": "entry way shoe cabinet", "tokens": ["entry", "way", "shoe", "cabinet"], "entity_token": "entry", "category_tokens": ["way", "shoe", "cabinet"], "and_at_100": 54, "and_at_10": 7, "regime": "mid"}
+{"query": "hot tub", "tokens": ["hot", "tub"], "entity_token": "tub", "category_tokens": ["hot"], "and_at_100": 28, "and_at_10": 5, "regime": "mid"}
+{"query": "face mask for cold weather", "tokens": ["face", "mask", "for", "cold", "weather"], "entity_token": "weather", "category_tokens": ["face", "mask", "for", "cold"], "and_at_100": 33, "and_at_10": 6, "regime": "mid"}
+{"query": "sleevey wonders 3/4 sleeve", "tokens": ["sleevey", "wonders", "sleeve"], "entity_token": "sleevey", "category_tokens": ["wonders", "sleeve"], "and_at_100": 11, "and_at_10": 2, "regime": "mid"}
+{"query": "mens bracelet", "tokens": ["mens", "bracelet"], "entity_token": "bracelet", "category_tokens": ["mens"], "and_at_100": 37, "and_at_10": 5, "regime": "mid"}
+{"query": "08 chevy silverado led headlights", "tokens": ["08", "chevy", "silverado", "led", "headlights"], "entity_token": "headlights", "category_tokens": ["08", "chevy", "silverado", "led"], "and_at_100": 68, "and_at_10": 6, "regime": "mid"}
+{"query": "boys scratch art", "tokens": ["boys", "scratch", "art"], "entity_token": "scratch", "category_tokens": ["boys", "art"], "and_at_100": 45, "and_at_10": 6, "regime": "mid"}
+{"query": "twilight book set", "tokens": ["twilight", "book", "set"], "entity_token": "twilight", "category_tokens": ["book", "set"], "and_at_100": 32, "and_at_10": 5, "regime": "mid"}
+{"query": "lcp 380 extended magazine", "tokens": ["lcp", "380", "extended", "magazine"], "entity_token": "lcp", "category_tokens": ["380", "extended", "magazine"], "and_at_100": 10, "and_at_10": 1, "regime": "mid"}
+{"query": "baby fan for carseat", "tokens": ["baby", "fan", "for", "carseat"], "entity_token": "carseat", "category_tokens": ["baby", "fan", "for"], "and_at_100": 18, "and_at_10": 1, "regime": "mid"}
+{"query": "rifle paper co", "tokens": ["rifle", "paper", "co"], "entity_token": "rifle", "category_tokens": ["paper", "co"], "and_at_100": 19, "and_at_10": 4, "regime": "mid"}
+{"query": "18 month red sweater", "tokens": ["18", "month", "red", "sweater"], "entity_token": "month", "category_tokens": ["18", "red", "sweater"], "and_at_100": 40, "and_at_10": 6, "regime": "mid"}
+{"query": "spots and dots baby book", "tokens": ["spots", "and", "dots", "baby", "book"], "entity_token": "spots", "category_tokens": ["and", "dots", "baby", "book"], "and_at_100": 2, "and_at_10": 0, "regime": "hard"}
+{"query": "decopro chainette tassel", "tokens": ["decopro", "chainette", "tassel"], "entity_token": "decopro", "category_tokens": ["chainette", "tassel"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
+{"query": "electronics available on payments", "tokens": ["electronics", "available", "on", "payments"], "entity_token": "payments", "category_tokens": ["electronics", "available", "on"], "and_at_100": 1, "and_at_10": 0, "regime": "hard"}
+{"query": "galaxy s8 plus otterbox defender", "tokens": ["galaxy", "s8", "plus", "otterbox", "defender"], "entity_token": "otterbox", "category_tokens": ["galaxy", "s8", "plus", "defender"], "and_at_100": 9, "and_at_10": 4, "regime": "hard"}
+{"query": "criminological theory 7th edition", "tokens": ["criminological", "theory", "7th", "edition"], "entity_token": "criminological", "category_tokens": ["theory", "7th", "edition"], "and_at_100": 8, "and_at_10": 6, "regime": "hard"}
+{"query": "reef boys sandals", "tokens": ["reef", "boys", "sandals"], "entity_token": "reef", "category_tokens": ["boys", "sandals"], "and_at_100": 8, "and_at_10": 2, "regime": "hard"}
+{"query": "laundry orhanizer", "tokens": ["laundry", "orhanizer"], "entity_token": "orhanizer", "category_tokens": ["laundry"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
+{"query": "bra without wire", "tokens": ["bra", "without", "wire"], "entity_token": "without", "category_tokens": ["bra", "wire"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
+{"query": "real simple 3 in 1 charging", "tokens": ["real", "simple", "in", "charging"], "entity_token": "simple", "category_tokens": ["real", "in", "charging"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
+{"query": "mypillow sheets giza queen", "tokens": ["mypillow", "sheets", "giza", "queen"], "entity_token": "mypillow", "category_tokens": ["sheets", "giza", "queen"], "and_at_100": 7, "and_at_10": 6, "regime": "hard"}
+{"query": "pocket folders with brads", "tokens": ["pocket", "folders", "with", "brads"], "entity_token": "brads", "category_tokens": ["pocket", "folders", "with"], "and_at_100": 1, "and_at_10": 1, "regime": "hard"}
+{"query": "salada green tea bags decaffeinated", "tokens": ["salada", "green", "tea", "bags", "decaffeinated"], "entity_token": "salada", "category_tokens": ["green", "tea", "bags", "decaffeinated"], "and_at_100": 6, "and_at_10": 5, "regime": "hard"}
+{"query": "boot trees", "tokens": ["boot", "trees"], "entity_token": "trees", "category_tokens": ["boot"], "and_at_100": 7, "and_at_10": 3, "regime": "hard"}
+{"query": "vitamix ascent", "tokens": ["vitamix", "ascent"], "entity_token": "vitamix", "category_tokens": ["ascent"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
+{"query": "riley green cd", "tokens": ["riley", "green", "cd"], "entity_token": "riley", "category_tokens": ["green", "cd"], "and_at_100": 0, "and_at_10": 0, "regime": "hard"}
