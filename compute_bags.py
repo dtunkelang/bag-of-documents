@@ -166,7 +166,7 @@ def main():
     import tantivy
 
     schema_builder = tantivy.SchemaBuilder()
-    schema_builder.add_text_field("title", stored=True)
+    schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
     schema = schema_builder.build()
     tantivy_index = tantivy.Index(schema, path=os.path.join(index_path, "tantivy_index"))
     tantivy_index.reload()

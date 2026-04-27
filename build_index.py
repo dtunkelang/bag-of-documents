@@ -326,7 +326,7 @@ def main():
     tantivy_path = os.path.join(index_path, "tantivy_index")
     os.makedirs(tantivy_path, exist_ok=True)
     schema_builder = tantivy.SchemaBuilder()
-    schema_builder.add_text_field("title", stored=True)
+    schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
     schema = schema_builder.build()
 
     tv_index = tantivy.Index(schema, path=tantivy_path)

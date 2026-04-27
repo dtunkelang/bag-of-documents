@@ -81,7 +81,7 @@ def load_resources():
         import tantivy
 
         schema_builder = tantivy.SchemaBuilder()
-        schema_builder.add_text_field("title", stored=True)
+        schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
         schema = schema_builder.build()
         tv_index = tantivy.Index(schema, path=tantivy_path)
         tv_index.reload()
