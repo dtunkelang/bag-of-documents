@@ -100,26 +100,34 @@ def load_resources(data_dir):
     }
 
 
+def _faiss_dist_to_sim(d, metric):
+    """FAISS distance → cosine similarity for normalized vectors.
+
+    METRIC_INNER_PRODUCT returns inner product == cosine directly.
+    METRIC_L2 returns L2 squared, so cosine = 1 - L2²/2.
+    """
+    if metric == faiss.METRIC_INNER_PRODUCT:
+        return float(d)
+    return float(1 - d / 2)
+
+
 def base_top_k(query, R, k):
     vec = R["base_model"].encode(query, normalize_embeddings=True)
     vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(vec)
     try:
         R["index"].hnsw.efSearch = 128
-        is_hnsw = True
     except Exception:
-        is_hnsw = False
+        pass
+    metric = R["index"].metric_type
     D, I = R["index"].search(vec, k)
     out = []
     for d, i in zip(D[0], I[0]):
         if i < 0:
             continue
-        sim = float(1 - d / 2) if is_hnsw else float(d)
-        out.append((R["titles"][i], round(sim, 4)))
-    # FAISS HNSW on this index returns hits with smallest similarity first;
-    # explicit sort guarantees the displayed Sim column is descending.
+        out.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
     out.sort(key=lambda x: -x[1])
-    return out, D, I, is_hnsw
+    return out, D, I, metric
 
 
 def retrieval_top_k(query, R, k):
@@ -128,16 +136,15 @@ def retrieval_top_k(query, R, k):
     faiss.normalize_L2(vec)
     try:
         R["index"].hnsw.efSearch = 128
-        is_hnsw = True
     except Exception:
-        is_hnsw = False
+        pass
+    metric = R["index"].metric_type
     D, I = R["index"].search(vec, k)
     out = []
     for d, i in zip(D[0], I[0]):
         if i < 0:
             continue
-        sim = float(1 - d / 2) if is_hnsw else float(d)
-        out.append((R["titles"][i], round(sim, 4)))
+        out.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
     out.sort(key=lambda x: -x[1])
     return out
 
@@ -147,7 +154,7 @@ def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
 
     Uses precomputed cached vecs — only the query is encoded live.
     """
-    base_results, D, I, is_hnsw = base_top_k(query, R, k_retrieve)
+    base_results, D, I, metric = base_top_k(query, R, k_retrieve)
     valid = [int(i) for i in I[0] if i >= 0]
     if not valid:
         return []

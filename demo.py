@@ -188,9 +188,9 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     faiss.normalize_L2(qv)
     try:
         index.hnsw.efSearch = 128
-        is_hnsw = True
     except Exception:
-        is_hnsw = False
+        pass
+    metric = index.metric_type
     D, I = index.search(qv, k_retrieve)
     timings["base_retrieve_ms"] = (_time.perf_counter() - t0) * 1000
 
@@ -235,7 +235,7 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     for idx in order:
         t = cand_titles[int(idx)]
         d = base_dist_by_title.get(t, 0.0)
-        base_sim = float(1 - d / 2) if is_hnsw else float(d)
+        base_sim = float(d) if metric == faiss.METRIC_INNER_PRODUCT else float(1 - d / 2)
         rerank_score = float(avg_sim[idx])
         results.append(
             {
@@ -265,19 +265,20 @@ def search_products(query, resources, model_key="retrieval_model", k=50, ef_sear
     vec = np.array(vec, dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(vec)
 
-    # HNSW uses L2 distance (score = 1 - dist/2)
     try:
         index.hnsw.efSearch = ef_search
-        is_hnsw = True
     except Exception:
-        is_hnsw = False
+        pass
+    metric = index.metric_type
     D, I = index.search(vec, k)
 
     results = []
     for dist, idx in zip(D[0], I[0]):
         if idx < 0:
             continue
-        sim = float(1 - dist / 2) if is_hnsw else float(dist)
+        # FAISS METRIC_INNER_PRODUCT returns cosine directly for normalized
+        # vectors; METRIC_L2 returns L2², so cosine = 1 - L2²/2.
+        sim = float(dist) if metric == faiss.METRIC_INNER_PRODUCT else float(1 - dist / 2)
         results.append({"title": titles[idx], "score": round(sim, 4)})
 
     # Deduplicate by title (keep highest score) and sort descending
