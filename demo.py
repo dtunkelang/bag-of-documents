@@ -232,9 +232,17 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     for idx in order:
         t = cand_titles[int(idx)]
         d = base_dist_by_title.get(t, 0.0)
-        sim = float(1 - d / 2) if is_hnsw else float(d)
+        base_sim = float(1 - d / 2) if is_hnsw else float(d)
+        # Reciprocal-of-fused-rank: 1.0 if both rerankers placed this candidate at #1,
+        # decays to 0.01 if both placed it at #100. Always monotonic-decreasing in
+        # the sumrank order, so the Score column is always descending.
+        rerank_score = 2.0 / float(fused[idx])
         results.append(
-            {"title": t, "score": round(sim, 4), "rerank_score": round(float(-fused[idx]), 4)}
+            {
+                "title": t,
+                "score": round(rerank_score, 4),
+                "base_sim": round(base_sim, 4),
+            }
         )
     print(
         f"  ensemble_rerank q={query!r}: mode={timings['mode']}, "

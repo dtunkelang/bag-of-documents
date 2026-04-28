@@ -161,13 +161,14 @@ def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
     fused = rank_a + rank_b
     order = np.argsort(fused)[:k_top]
 
-    base_dist_by_pos = {int(i): d for d, i in zip(D[0], I[0]) if i >= 0}
     out = []
     for idx in order:
         pos = valid[int(idx)]
-        d = base_dist_by_pos.get(pos, 0.0)
-        sim = float(1 - d / 2) if is_hnsw else float(d)
-        out.append((R["titles"][pos], round(sim, 4)))
+        # Reciprocal-of-fused-rank: 1.0 if both rerankers placed this candidate at #1,
+        # decays toward 0 as ranks fall. Monotonic-decreasing in the sumrank order so
+        # the Sim column always descends in rerank mode.
+        rerank_score = 2.0 / float(fused[idx])
+        out.append((R["titles"][pos], round(rerank_score, 4)))
     return out
 
 
