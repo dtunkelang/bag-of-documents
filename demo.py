@@ -37,7 +37,9 @@ def load_resources():
     with open(os.path.join(index_dir, "titles.json")) as f:
         titles = json.load(f)
 
-    # Retrieval model
+    # Fine-tuned retrieval model (BoD-as-retriever — the originally deployed architecture).
+    # Loaded from ./retrieval_model if present (mirrors the HuggingFace deployment),
+    # otherwise falls back to base.
     base_model_name = os.environ.get("BASE_MODEL", "all-MiniLM-L6-v2")
     ret_path = os.path.join(SCRIPT_DIR, "retrieval_model")
     if os.path.exists(os.path.join(ret_path, "config.json")):
@@ -45,11 +47,52 @@ def load_resources():
         print(f"  Retrieval model: {ret_path}")
     else:
         retrieval_model = SentenceTransformer(base_model_name)
-        print(f"  Retrieval model: {base_model_name} (no fine-tuned model found)")
+        print(f"  Retrieval model: {base_model_name} (no fine-tuned model at {ret_path})")
 
-    # Base model for comparison
+    # Base for comparison.
     base_model = SentenceTransformer(base_model_name)
     print(f"  Base model: {base_model_name}")
+
+    # Reranker ensemble (the deployable BoD-as-reranker architecture):
+    # base FAISS top-100 → sumrank fusion of two rerankers' orderings → top-K.
+    # Optional — set RERANK_A=skip / RERANK_B=skip to disable.
+    rerank_a = rerank_b = None
+    rerank_a_vecs = rerank_b_vecs = None
+    rerank_a_path = os.environ.get(
+        "RERANK_A", os.path.join(SCRIPT_DIR, "query_model_us_full_6m_mnrl")
+    )
+    rerank_b_path = os.environ.get(
+        "RERANK_B", os.path.join(SCRIPT_DIR, "query_model_us_qrels_mnrl_hardneg")
+    )
+    rerank_a_vecs_path = os.path.join(index_dir, "rerank_A.vecs.fp16.npy")
+    rerank_b_vecs_path = os.path.join(index_dir, "rerank_B.vecs.fp16.npy")
+
+    if rerank_a_path != "skip" and os.path.exists(rerank_a_path):
+        rerank_a = SentenceTransformer(rerank_a_path)
+        if os.path.exists(rerank_a_vecs_path):
+            rerank_a_vecs = np.load(rerank_a_vecs_path)
+            print(
+                f"  Reranker A: {os.path.basename(rerank_a_path)} "
+                f"(precomputed vecs: {rerank_a_vecs.shape}, fp16)"
+            )
+        else:
+            print(
+                f"  Reranker A: {os.path.basename(rerank_a_path)} "
+                f"(no precomputed vecs at {rerank_a_vecs_path}; will encode candidates live)"
+            )
+    if rerank_b_path != "skip" and os.path.exists(rerank_b_path):
+        rerank_b = SentenceTransformer(rerank_b_path)
+        if os.path.exists(rerank_b_vecs_path):
+            rerank_b_vecs = np.load(rerank_b_vecs_path)
+            print(
+                f"  Reranker B: {os.path.basename(rerank_b_path)} "
+                f"(precomputed vecs: {rerank_b_vecs.shape}, fp16)"
+            )
+        else:
+            print(
+                f"  Reranker B: {os.path.basename(rerank_b_path)} "
+                f"(no precomputed vecs at {rerank_b_vecs_path}; will encode candidates live)"
+            )
 
     # Bag centroids for kNN specificity prediction
     bags_path = os.path.join(SCRIPT_DIR, "bags.jsonl")
@@ -104,6 +147,10 @@ def load_resources():
         "titles": titles,
         "retrieval_model": retrieval_model,
         "base_model": base_model,
+        "rerank_a": rerank_a,
+        "rerank_b": rerank_b,
+        "rerank_a_vecs": rerank_a_vecs,
+        "rerank_b_vecs": rerank_b_vecs,
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
         "bag_specs": bag_specs,
@@ -111,6 +158,93 @@ def load_resources():
         "tantivy_index": tantivy_idx,
         "ce_model": ce_model,
     }
+
+
+def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
+    """Base FAISS top-K_retrieve, then sumrank-fuse two rerankers' orderings.
+
+    Uses precomputed product embeddings (rerank_a_vecs, rerank_b_vecs) if
+    available — only the query is encoded live; candidate vectors are looked
+    up by FAISS index position. Falls back to live candidate encoding if
+    precomputed vecs are missing.
+    """
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    if a is None and b is None:
+        return search_products(query, resources, "base_model", k=k_top)
+
+    import time as _time
+
+    timings = {}
+    base = resources["base_model"]
+    index = resources["index"]
+    titles = resources["titles"]
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+
+    t0 = _time.perf_counter()
+    qv = base.encode(query, normalize_embeddings=True)
+    qv = np.array(qv, dtype=np.float32).reshape(1, -1)
+    faiss.normalize_L2(qv)
+    try:
+        index.hnsw.efSearch = 128
+        is_hnsw = True
+    except Exception:
+        is_hnsw = False
+    D, I = index.search(qv, k_retrieve)
+    timings["base_retrieve_ms"] = (_time.perf_counter() - t0) * 1000
+
+    valid_idxs = [int(i) for i in I[0] if i >= 0]
+    if not valid_idxs:
+        return []
+    cand_titles = [titles[i] for i in valid_idxs]
+
+    t0 = _time.perf_counter()
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    timings["query_encode_ms"] = (_time.perf_counter() - t0) * 1000
+
+    t0 = _time.perf_counter()
+    if a_vecs is not None and b_vecs is not None:
+        # Precomputed lookup — production path. Only query encodes happen live.
+        cv_a = a_vecs[valid_idxs].astype(np.float32)
+        cv_b = b_vecs[valid_idxs].astype(np.float32)
+        timings["mode"] = "precomputed"
+    else:
+        # Live encode candidates — slower fallback.
+        cv_a = np.asarray(a.encode(cand_titles, normalize_embeddings=True), dtype=np.float32)
+        cv_b = np.asarray(b.encode(cand_titles, normalize_embeddings=True), dtype=np.float32)
+        timings["mode"] = "live"
+    timings["cand_vecs_ms"] = (_time.perf_counter() - t0) * 1000
+
+    t0 = _time.perf_counter()
+    sims_a = cv_a @ qa
+    sims_b = cv_b @ qb
+    rank_a = np.argsort(np.argsort(-sims_a)) + 1
+    rank_b = np.argsort(np.argsort(-sims_b)) + 1
+    fused = rank_a + rank_b
+    order = np.argsort(fused)[:k_top]
+    timings["fuse_ms"] = (_time.perf_counter() - t0) * 1000
+
+    base_dist_by_title = {titles[i]: d for d, i in zip(D[0], I[0]) if i >= 0}
+
+    results = []
+    for idx in order:
+        t = cand_titles[int(idx)]
+        d = base_dist_by_title.get(t, 0.0)
+        sim = float(1 - d / 2) if is_hnsw else float(d)
+        results.append(
+            {"title": t, "score": round(sim, 4), "rerank_score": round(float(-fused[idx]), 4)}
+        )
+    print(
+        f"  ensemble_rerank q={query!r}: mode={timings['mode']}, "
+        f"base_retrieve={timings['base_retrieve_ms']:.1f}ms, "
+        f"query_encode={timings['query_encode_ms']:.1f}ms, "
+        f"cand_vecs={timings['cand_vecs_ms']:.1f}ms, "
+        f"fuse={timings['fuse_ms']:.1f}ms",
+        flush=True,
+    )
+    return results
 
 
 def search_products(query, resources, model_key="retrieval_model", k=50, ef_search=128):
@@ -326,15 +460,24 @@ async def api_bag_search(
 async def api_search(
     q: str = Query(..., description="Search query"),
     k: int = Query(50, description="Number of results (also scales candidate retrieval)"),
+    mode: str = Query("retrieval", description="Right-column mode: retrieval | rerank"),
 ):
     specificity, neighbors = predict_specificity(q, resources)
 
-    # Retrieve results with both models
-    results = search_products(q, resources, "retrieval_model", k=k)
+    # Right column varies by mode:
+    #   retrieval (default): fine-tuned BoD-as-retriever (the originally deployed architecture)
+    #   rerank: base FAISS top-100 → ensemble sumrank rerank → top-K (the new deployable)
+    if mode == "rerank":
+        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k)
+    else:
+        results = search_products(q, resources, "retrieval_model", k=k)
+
+    # Left column: base alone (control)
     base_results = search_products(q, resources, "base_model", k=k)
 
     return {
         "query": q,
+        "mode": mode,
         "specificity": specificity,
         "results": results,
         "nearest_queries": neighbors,
@@ -405,7 +548,12 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
         k=<input type="number" id="k-value" value="50" min="1" max="200" style="width:50px; padding:2px 4px;">
     </label>
     <label style="font-size:0.85em; display:flex; align-items:center; gap:4px; white-space:nowrap">
-        <input type="checkbox" id="bag-mode"> Build bag at query time
+        Mode:
+        <select id="search-mode" style="padding:2px 4px;">
+            <option value="retrieval">Fine-tuned retrieval</option>
+            <option value="rerank">Base + ensemble rerank</option>
+            <option value="bag">Build bag at query time</option>
+        </select>
     </label>
 </div>
 
@@ -421,7 +569,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
 
 <div class="columns" id="results-section" style="display:none">
     <div class="column" id="main-column">
-        <div class="column-header" id="main-header">Fine-tuned model</div>
+        <div class="column-header" id="main-header">Fine-tuned retrieval</div>
         <div id="results"></div>
     </div>
     <div class="column" id="base-column" style="display:none">
@@ -442,25 +590,29 @@ const input = document.getElementById('query');
 input.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
 
 function runSearch() {
-    if (document.getElementById('bag-mode').checked) {
+    const mode = document.getElementById('search-mode').value;
+    if (mode === 'bag') {
         doBagSearch();
     } else {
-        doSearch();
+        doSearch(mode);
     }
 }
 
-async function doSearch() {
+async function doSearch(mode) {
     const q = input.value.trim();
     if (!q) return;
 
+    mode = mode || 'retrieval';
+    const headerLabel = mode === 'rerank' ? 'Base + BoD ensemble rerank' : 'Fine-tuned retrieval';
+
     document.getElementById('empty').style.display = 'none';
     document.getElementById('results-section').style.display = 'flex';
-    document.getElementById('main-header').textContent = 'Fine-tuned model';
+    document.getElementById('main-header').textContent = headerLabel;
     document.getElementById('base-header').textContent = 'Base model (MiniLM)';
     document.getElementById('results').innerHTML = '<div class="loading">Searching...</div>';
 
     const k = parseInt(document.getElementById('k-value').value) || 50;
-    const url = `/api/search?q=${encodeURIComponent(q)}&k=${k}`;
+    const url = `/api/search?q=${encodeURIComponent(q)}&k=${k}&mode=${mode}`;
     const resp = await fetch(url);
     const data = await resp.json();
 
