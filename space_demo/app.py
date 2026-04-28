@@ -116,6 +116,9 @@ def base_top_k(query, R, k):
             continue
         sim = float(1 - d / 2) if is_hnsw else float(d)
         out.append((R["titles"][i], round(sim, 4)))
+    # FAISS HNSW on this index returns hits with smallest similarity first;
+    # explicit sort guarantees the displayed Sim column is descending.
+    out.sort(key=lambda x: -x[1])
     return out, D, I, is_hnsw
 
 
@@ -135,6 +138,7 @@ def retrieval_top_k(query, R, k):
             continue
         sim = float(1 - d / 2) if is_hnsw else float(d)
         out.append((R["titles"][i], round(sim, 4)))
+    out.sort(key=lambda x: -x[1])
     return out
 
 
