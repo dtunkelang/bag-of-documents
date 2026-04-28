@@ -33,10 +33,13 @@ A large-scale bag-of-documents dataset for e-commerce product search, built on A
 
 | | Count |
 |---|---|
-| Products | ~6M (20% sample of 30M across all 33 categories) |
+| Source product catalog | ~6M (20% sample of 30M across all 33 Amazon categories) |
+| Products in this dataset's index | ~1.2M (the ESCI subset that has relevance judgments) |
 | Queries with bags | ~75K (Amazon ESCI, US locale) |
 | Embedding dimensions | 384 |
 | Categories | All 33 Amazon categories |
+
+The bags themselves were computed against the broader 6M source catalog (per the original blog post). The 1.2M ESCI subset is what's loaded in `combined_index/index.faiss` here — it's the catalog the rerank result table below was evaluated on, and the catalog the live Space demo serves.
 
 ### Supported Tasks
 
