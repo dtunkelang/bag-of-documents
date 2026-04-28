@@ -226,14 +226,20 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     # the two rerankers' outputs); sumsim is preferred here because it makes
     # the displayed Score column the actual sort key, so it is guaranteed
     # monotonic-descending and the values are interpretable cosine similarities.
-    order = np.argsort(-avg_sim)[:k_top]
+    order = np.argsort(-avg_sim)
     timings["fuse_ms"] = (_time.perf_counter() - t0) * 1000
 
     base_dist_by_title = {titles[i]: d for d, i in zip(D[0], I[0]) if i >= 0}
 
+    # Dedup by title — ESCI's catalog has products with identical titles
+    # (different SKUs / sizes / variants); keep first (highest sim) occurrence.
     results = []
+    seen = set()
     for idx in order:
         t = cand_titles[int(idx)]
+        if t in seen:
+            continue
+        seen.add(t)
         d = base_dist_by_title.get(t, 0.0)
         base_sim = float(d) if metric == faiss.METRIC_INNER_PRODUCT else float(1 - d / 2)
         rerank_score = float(avg_sim[idx])
@@ -244,6 +250,8 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
                 "base_sim": round(base_sim, 4),
             }
         )
+        if len(results) >= k_top:
+            break
     print(
         f"  ensemble_rerank q={query!r}: mode={timings['mode']}, "
         f"base_retrieve={timings['base_retrieve_ms']:.1f}ms, "

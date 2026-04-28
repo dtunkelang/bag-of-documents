@@ -111,7 +111,20 @@ def _faiss_dist_to_sim(d, metric):
     return float(1 - d / 2)
 
 
-def base_top_k(query, R, k):
+def _dedup_by_title(items, k):
+    """Keep first occurrence of each title; assumes items is descending by score."""
+    out, seen = [], set()
+    for title, score in items:
+        if title in seen:
+            continue
+        seen.add(title)
+        out.append((title, score))
+        if len(out) >= k:
+            break
+    return out
+
+
+def base_top_k(query, R, k, oversample=3):
     vec = R["base_model"].encode(query, normalize_embeddings=True)
     vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(vec)
@@ -120,17 +133,18 @@ def base_top_k(query, R, k):
     except Exception:
         pass
     metric = R["index"].metric_type
-    D, I = R["index"].search(vec, k)
-    out = []
+    # Oversample so dedup still leaves k unique results when titles repeat.
+    D, I = R["index"].search(vec, k * oversample)
+    raw = []
     for d, i in zip(D[0], I[0]):
         if i < 0:
             continue
-        out.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
-    out.sort(key=lambda x: -x[1])
-    return out, D, I, metric
+        raw.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
+    raw.sort(key=lambda x: -x[1])
+    return _dedup_by_title(raw, k), D, I, metric
 
 
-def retrieval_top_k(query, R, k):
+def retrieval_top_k(query, R, k, oversample=3):
     vec = R["retrieval_model"].encode(query, normalize_embeddings=True)
     vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(vec)
@@ -139,14 +153,14 @@ def retrieval_top_k(query, R, k):
     except Exception:
         pass
     metric = R["index"].metric_type
-    D, I = R["index"].search(vec, k)
-    out = []
+    D, I = R["index"].search(vec, k * oversample)
+    raw = []
     for d, i in zip(D[0], I[0]):
         if i < 0:
             continue
-        out.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
-    out.sort(key=lambda x: -x[1])
-    return out
+        raw.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
+    raw.sort(key=lambda x: -x[1])
+    return _dedup_by_title(raw, k)
 
 
 def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
@@ -172,14 +186,12 @@ def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
     # to sumrank fusion (both are linear combinations of the two rerankers'
     # outputs); sumsim makes the displayed Sim column the actual sort key so
     # it's guaranteed monotonic-descending.
-    order = np.argsort(-avg_sim)[:k_top]
-
-    out = []
+    order = np.argsort(-avg_sim)
+    raw = []
     for idx in order:
         pos = valid[int(idx)]
-        rerank_score = float(avg_sim[idx])
-        out.append((R["titles"][pos], round(rerank_score, 4)))
-    return out
+        raw.append((R["titles"][pos], round(float(avg_sim[idx]), 4)))
+    return _dedup_by_title(raw, k_top)
 
 
 def predict_specificity(query, R, k=5):
@@ -206,7 +218,7 @@ def format_results(results, header, latency_ms=None):
     rows = "".join(
         f"<tr><td style='{nw};text-align:center'>{i + 1}</td>"
         f"<td style='{nw};text-align:center'>{score:.3f}</td>"
-        f"<td style='padding:2px 6px'>{title[:80]}</td></tr>"
+        f"<td style='padding:2px 6px'>{title[:150]}</td></tr>"
         for i, (title, score) in enumerate(results)
     )
     sub = f" <small style='color:#888'>({latency_ms:.0f} ms)</small>" if latency_ms else ""
