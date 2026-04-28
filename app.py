@@ -220,7 +220,7 @@ def main():
     with gr.Blocks(title="Bag-of-Documents Search") as demo:
         gr.Markdown(
             "# Bag-of-Documents Search\n"
-            "6M Amazon products (1996–2023, McAuley Lab) · "
+            "1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996–2023) · "
             "75K queries · Fine-tuned MiniLM vs base MiniLM"
         )
 

@@ -539,7 +539,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
 <body>
 
 <h1>Bag-of-Documents Search</h1>
-<p class="subtitle">6M Amazon products (1996&ndash;2023, McAuley Lab) &middot; 75K queries &middot; Fine-tuned MiniLM vs base MiniLM</p>
+<p class="subtitle">1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996&ndash;2023) &middot; 75K queries &middot; Base MiniLM vs fine-tuned retrieval, ensemble rerank, or query-time bag construction</p>
 
 <div class="search-box">
     <input type="text" id="query" placeholder="Search products..." autofocus>
