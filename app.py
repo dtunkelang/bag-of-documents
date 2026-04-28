@@ -178,9 +178,15 @@ def format_neighbors(neighbors):
 def main():
     parser = argparse.ArgumentParser(description="Gradio demo for bag-of-documents search")
     parser.add_argument("--base-model", default="all-MiniLM-L6-v2", help="Base model")
-    parser.add_argument("--index-dir", default=None, help="FAISS index directory (default: combined_index)")
-    parser.add_argument("--retrieval-model", default=None, help="Fine-tuned model dir (default: retrieval_model)")
-    parser.add_argument("--bags", default=None, help="Bags JSONL for similar-queries kNN (default: bags.jsonl)")
+    parser.add_argument(
+        "--index-dir", default=None, help="FAISS index directory (default: combined_index)"
+    )
+    parser.add_argument(
+        "--retrieval-model", default=None, help="Fine-tuned model dir (default: retrieval_model)"
+    )
+    parser.add_argument(
+        "--bags", default=None, help="Bags JSONL for similar-queries kNN (default: bags.jsonl)"
+    )
     parser.add_argument("--port", type=int, default=7860, help="Port (default: 7860)")
     args = parser.parse_args()
 
