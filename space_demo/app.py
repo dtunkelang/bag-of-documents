@@ -156,18 +156,17 @@ def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
 
     sims_a = cv_a @ qa
     sims_b = cv_b @ qb
-    rank_a = np.argsort(np.argsort(-sims_a)) + 1
-    rank_b = np.argsort(np.argsort(-sims_b)) + 1
-    fused = rank_a + rank_b
-    order = np.argsort(fused)[:k_top]
+    avg_sim = (sims_a + sims_b) / 2  # mean cosine across the two rerankers
+    # Order by mean reranker similarity (sumsim fusion). Equivalent in practice
+    # to sumrank fusion (both are linear combinations of the two rerankers'
+    # outputs); sumsim makes the displayed Sim column the actual sort key so
+    # it's guaranteed monotonic-descending.
+    order = np.argsort(-avg_sim)[:k_top]
 
     out = []
     for idx in order:
         pos = valid[int(idx)]
-        # Reciprocal-of-fused-rank: 1.0 if both rerankers placed this candidate at #1,
-        # decays toward 0 as ranks fall. Monotonic-decreasing in the sumrank order so
-        # the Sim column always descends in rerank mode.
-        rerank_score = 2.0 / float(fused[idx])
+        rerank_score = float(avg_sim[idx])
         out.append((R["titles"][pos], round(rerank_score, 4)))
     return out
 

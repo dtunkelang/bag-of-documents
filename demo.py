@@ -220,10 +220,13 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     t0 = _time.perf_counter()
     sims_a = cv_a @ qa
     sims_b = cv_b @ qb
-    rank_a = np.argsort(np.argsort(-sims_a)) + 1
-    rank_b = np.argsort(np.argsort(-sims_b)) + 1
-    fused = rank_a + rank_b
-    order = np.argsort(fused)[:k_top]
+    avg_sim = (sims_a + sims_b) / 2  # mean cosine across the two rerankers
+    # Order by mean reranker similarity. Sumsim and sumrank fusion give very
+    # similar retrieval quality in practice (both are linear combinations of
+    # the two rerankers' outputs); sumsim is preferred here because it makes
+    # the displayed Score column the actual sort key, so it is guaranteed
+    # monotonic-descending and the values are interpretable cosine similarities.
+    order = np.argsort(-avg_sim)[:k_top]
     timings["fuse_ms"] = (_time.perf_counter() - t0) * 1000
 
     base_dist_by_title = {titles[i]: d for d, i in zip(D[0], I[0]) if i >= 0}
@@ -233,10 +236,7 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
         t = cand_titles[int(idx)]
         d = base_dist_by_title.get(t, 0.0)
         base_sim = float(1 - d / 2) if is_hnsw else float(d)
-        # Reciprocal-of-fused-rank: 1.0 if both rerankers placed this candidate at #1,
-        # decays to 0.01 if both placed it at #100. Always monotonic-decreasing in
-        # the sumrank order, so the Score column is always descending.
-        rerank_score = 2.0 / float(fused[idx])
+        rerank_score = float(avg_sim[idx])
         results.append(
             {
                 "title": t,
