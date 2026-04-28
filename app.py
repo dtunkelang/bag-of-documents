@@ -27,14 +27,18 @@ def load_resources():
     """Load all models, index, and data at startup."""
     print("Loading resources...")
 
-    index_dir = os.path.join(SCRIPT_DIR, "combined_index")
+    index_dir = os.environ.get("INDEX_DIR", os.path.join(SCRIPT_DIR, "combined_index"))
+    if not os.path.isabs(index_dir):
+        index_dir = os.path.join(SCRIPT_DIR, index_dir)
     index = faiss.read_index(os.path.join(index_dir, "index.faiss"))
     print(f"  Product index: {index.ntotal} products")
     with open(os.path.join(index_dir, "titles.json")) as f:
         titles = json.load(f)
 
     base_model_name = os.environ.get("BASE_MODEL", "all-MiniLM-L6-v2")
-    ret_path = os.path.join(SCRIPT_DIR, "retrieval_model")
+    ret_path = os.environ.get("RETRIEVAL_MODEL", os.path.join(SCRIPT_DIR, "retrieval_model"))
+    if not os.path.isabs(ret_path):
+        ret_path = os.path.join(SCRIPT_DIR, ret_path)
     if os.path.exists(os.path.join(ret_path, "config.json")):
         retrieval_model = SentenceTransformer(ret_path)
         print(f"  Retrieval model: {ret_path}")
@@ -45,7 +49,9 @@ def load_resources():
     base_model = SentenceTransformer(base_model_name)
     print(f"  Base model: {base_model_name}")
 
-    bags_path = os.path.join(SCRIPT_DIR, "bags.jsonl")
+    bags_path = os.environ.get("BAGS_PATH", os.path.join(SCRIPT_DIR, "bags.jsonl"))
+    if not os.path.isabs(bags_path):
+        bags_path = os.path.join(SCRIPT_DIR, bags_path)
     bag_queries = []
     bag_centroids = []
     bag_specificities = []
@@ -172,10 +178,19 @@ def format_neighbors(neighbors):
 def main():
     parser = argparse.ArgumentParser(description="Gradio demo for bag-of-documents search")
     parser.add_argument("--base-model", default="all-MiniLM-L6-v2", help="Base model")
+    parser.add_argument("--index-dir", default=None, help="FAISS index directory (default: combined_index)")
+    parser.add_argument("--retrieval-model", default=None, help="Fine-tuned model dir (default: retrieval_model)")
+    parser.add_argument("--bags", default=None, help="Bags JSONL for similar-queries kNN (default: bags.jsonl)")
     parser.add_argument("--port", type=int, default=7860, help="Port (default: 7860)")
     args = parser.parse_args()
 
     os.environ["BASE_MODEL"] = args.base_model
+    if args.index_dir:
+        os.environ["INDEX_DIR"] = args.index_dir
+    if args.retrieval_model:
+        os.environ["RETRIEVAL_MODEL"] = args.retrieval_model
+    if args.bags:
+        os.environ["BAGS_PATH"] = args.bags
 
     resources = load_resources()
 
