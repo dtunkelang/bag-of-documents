@@ -49,6 +49,19 @@ def load_resources():
         retrieval_model = SentenceTransformer(base_model_name)
         print(f"  Retrieval model: {base_model_name} (no fine-tuned model at {ret_path})")
 
+    # 6M-MNRL FAISS index (new BoD-as-retriever — beats base on E@1/E@3 and R@10).
+    # Built from rerank_A.vecs.fp16.npy. Optional; if missing, the MNRL retrieval
+    # mode falls back to base.
+    mnrl_index_path = os.path.join(index_dir, "rerank_A.index.faiss")
+    mnrl_index = None
+    if os.path.exists(mnrl_index_path):
+        mnrl_index = faiss.read_index(mnrl_index_path)
+        print(f"  MNRL retrieval index: {mnrl_index.ntotal:,} products")
+    else:
+        print(
+            f"  MNRL retrieval index: not found at {mnrl_index_path} (mode will fall back to base)"
+        )
+
     # Base for comparison.
     base_model = SentenceTransformer(base_model_name)
     print(f"  Base model: {base_model_name}")
@@ -151,6 +164,7 @@ def load_resources():
         "rerank_b": rerank_b,
         "rerank_a_vecs": rerank_a_vecs,
         "rerank_b_vecs": rerank_b_vecs,
+        "mnrl_index": mnrl_index,
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
         "bag_specs": bag_specs,
@@ -160,8 +174,14 @@ def load_resources():
     }
 
 
-def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
-    """Base FAISS top-K_retrieve, then sumrank-fuse two rerankers' orderings.
+def ensemble_rerank(query, resources, k_retrieve=100, k_top=10, retriever="base"):
+    """Retrieve top-K_retrieve, then sumsim-fuse two rerankers' orderings.
+
+    retriever:
+      "base" — encode query with MiniLM-base, search the MiniLM FAISS index.
+      "mnrl" — encode query with the 6M-MNRL model, search the 6M-MNRL FAISS
+               index (built from rerank_a_vecs). Falls back to "base" if the
+               MNRL index isn't present.
 
     Uses precomputed product embeddings (rerank_a_vecs, rerank_b_vecs) if
     available — only the query is encoded live; candidate vectors are looked
@@ -176,14 +196,21 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
     import time as _time
 
     timings = {}
-    base = resources["base_model"]
-    index = resources["index"]
     titles = resources["titles"]
     a_vecs = resources.get("rerank_a_vecs")
     b_vecs = resources.get("rerank_b_vecs")
 
+    if retriever == "mnrl" and resources.get("mnrl_index") is not None:
+        retriever_model = a  # 6M-MNRL is reranker A
+        index = resources["mnrl_index"]
+        timings["retriever"] = "mnrl"
+    else:
+        retriever_model = resources["base_model"]
+        index = resources["index"]
+        timings["retriever"] = "base"
+
     t0 = _time.perf_counter()
-    qv = base.encode(query, normalize_embeddings=True)
+    qv = retriever_model.encode(query, normalize_embeddings=True)
     qv = np.array(qv, dtype=np.float32).reshape(1, -1)
     faiss.normalize_L2(qv)
     try:
@@ -264,9 +291,20 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10):
 
 
 def search_products(query, resources, model_key="retrieval_model", k=50, ef_search=128):
-    """Search products by query text."""
+    """Search products with the named model against the default MiniLM index."""
+    return search_products_with_index(query, resources, model_key, "index", k, ef_search)
+
+
+def search_products_with_index(query, resources, model_key, index_key, k=50, ef_search=128):
+    """Search products by encoding the query with `model_key` and FAISS-searching
+    the index registered under `index_key` in the resources dict.
+
+    `index_key` lets us point at non-default indexes (e.g. the 6M-MNRL HNSW
+    built from the cached product embeddings) so that a model and a product
+    space can be paired arbitrarily.
+    """
     model = resources[model_key]
-    index = resources["index"]
+    index = resources[index_key]
     titles = resources["titles"]
 
     vec = model.encode(query, normalize_embeddings=True)
@@ -284,19 +322,14 @@ def search_products(query, resources, model_key="retrieval_model", k=50, ef_sear
     for dist, idx in zip(D[0], I[0]):
         if idx < 0:
             continue
-        # FAISS METRIC_INNER_PRODUCT returns cosine directly for normalized
-        # vectors; METRIC_L2 returns L2², so cosine = 1 - L2²/2.
         sim = float(dist) if metric == faiss.METRIC_INNER_PRODUCT else float(1 - dist / 2)
         results.append({"title": titles[idx], "score": round(sim, 4)})
 
-    # Deduplicate by title (keep highest score) and sort descending
     seen = {}
     for r in results:
         if r["title"] not in seen or r["score"] > seen[r["title"]]["score"]:
             seen[r["title"]] = r
-    results = sorted(seen.values(), key=lambda r: -r["score"])
-
-    return results
+    return sorted(seen.values(), key=lambda r: -r["score"])
 
 
 def predict_specificity(query, resources, k=5):
@@ -477,15 +510,25 @@ async def api_bag_search(
 async def api_search(
     q: str = Query(..., description="Search query"),
     k: int = Query(50, description="Number of results (also scales candidate retrieval)"),
-    mode: str = Query("retrieval", description="Right-column mode: retrieval | rerank"),
+    mode: str = Query(
+        "mnrl_rerank",
+        description="Right-column mode: retrieval | mnrl | rerank | mnrl_rerank",
+    ),
 ):
     specificity, neighbors = predict_specificity(q, resources)
 
     # Right column varies by mode:
-    #   retrieval (default): fine-tuned BoD-as-retriever (the originally deployed architecture)
-    #   rerank: base FAISS top-100 → ensemble sumrank rerank → top-K (the new deployable)
-    if mode == "rerank":
-        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k)
+    #   retrieval     — original cosine-distilled BoD retriever (single model + MiniLM FAISS)
+    #   mnrl          — 6M-MNRL BoD retriever, no rerank (beats base on E@1/E@3 + R@10)
+    #   rerank        — base FAISS + ensemble rerank (current deployable, +2.75pp R@10)
+    #   mnrl_rerank   — 6M-MNRL retriever + ensemble rerank (best: +4.23pp R@10, +0.0727 nDCG)
+    if mode == "mnrl_rerank":
+        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="mnrl")
+    elif mode == "rerank":
+        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="base")
+    elif mode == "mnrl":
+        # MNRL retrieval alone: encode query with rerank_a (6M-MNRL), search MNRL index.
+        results = search_products_with_index(q, resources, "rerank_a", "mnrl_index", k=k)
     else:
         results = search_products(q, resources, "retrieval_model", k=k)
 
@@ -567,8 +610,10 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <label style="font-size:0.85em; display:flex; align-items:center; gap:4px; white-space:nowrap">
         Mode:
         <select id="search-mode" style="padding:2px 4px;">
-            <option value="retrieval">Fine-tuned retrieval</option>
+            <option value="mnrl_rerank" selected>MNRL + ensemble rerank</option>
             <option value="rerank">Base + ensemble rerank</option>
+            <option value="mnrl">MNRL retrieval (no rerank)</option>
+            <option value="retrieval">Fine-tuned retrieval (cosine)</option>
             <option value="bag">Build bag at query time</option>
         </select>
     </label>
@@ -619,8 +664,13 @@ async function doSearch(mode) {
     const q = input.value.trim();
     if (!q) return;
 
-    mode = mode || 'retrieval';
-    const headerLabel = mode === 'rerank' ? 'Base + BoD ensemble rerank' : 'Fine-tuned retrieval';
+    mode = mode || 'mnrl_rerank';
+    const headerLabel = ({
+        'mnrl_rerank': 'MNRL + BoD ensemble rerank',
+        'rerank': 'Base + BoD ensemble rerank',
+        'mnrl': 'MNRL retrieval (no rerank)',
+        'retrieval': 'Fine-tuned retrieval (cosine)',
+    })[mode] || mode;
 
     document.getElementById('empty').style.display = 'none';
     document.getElementById('results-section').style.display = 'flex';
