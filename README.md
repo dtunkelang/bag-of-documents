@@ -64,11 +64,20 @@ The cross-encoder alone produces higher quality bags than the combination of heu
 | File | Purpose |
 |------|---------|
 | `compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
+| `compute_idf.py` | Per-token doc-frequency over the catalog (used for IDF combo ranking in compute_bags) |
 | `build_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
+| `rebuild_tantivy.py` | Rebuild a tantivy index in-place under a different tokenizer (e.g. `en_stem`) |
 | `download_catalog.py` | Download and sample McAuley Lab product catalog |
-| `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids |
-| `eval_model.py` | Evaluate against Amazon ESCI benchmark |
-| `demo.py` | Web demo: fine-tuned vs base model, optional bag search |
+| `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids (cosine or MNRL loss) |
+| `train_esci_ce.py` | Train a cross-encoder on ESCI grades; `--label-mode {regression,wide,binary}` |
+| `precompute_rerank_vecs.py` | One-shot encode of the catalog under a reranker → cached fp16 numpy |
+| `eval_model.py` | Single-model ESCI label-recall evaluation |
+| `eval_rerank_full.py` | Full-ESCI rerank eval: base ± rerank, R@10 and nDCG@10 |
+| `eval_ensemble.py` | RRF / sumrank fusion over saved rerank position arrays |
+| `eval_ce_es_gap.py` | Measure CE E-vs-S separation (gap, E>S frequency) |
+| `eval_new_ce.sh` | Post-CE-training validation pipeline |
+| `build_regime_eval.py` | Build a per-regime (easy/mid/hard) eval harness from ESCI test queries |
+| `demo.py` | Web demo: base + selectable right-column mode (retrieval / rerank / bag) |
 | `preflight.py` | Pre-run validation (index consistency, disk, memory) |
 | `query_index.py` | CLI for querying the product index |
 | `run_pipeline.sh` | Pipeline orchestration |
@@ -92,16 +101,45 @@ Broad catalog (6M products, 33 categories, 75K ESCI queries):
 
 Specificity correctly correlates with query breadth ("laptop" 0.70 < "hp laptop" 0.81 < "hp laptop 16gb ram" 0.84)
 
+### Reranking architecture (Apr 2026)
+
+Per-query measurements on the full ESCI test set (22,458 queries against the
+1.2M-product ESCI index, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1):
+
+| Pipeline | R@10 | nDCG@10 |
+|---|---|---|
+| Base MiniLM only | 15.60% | 0.2648 |
+| Base + 6M-MNRL reranker | 17.53% | 0.3000 |
+| Base + qrels-hardneg reranker | 17.25% | 0.2920 |
+| **Base + sumrank ensemble** | **18.35%** | **0.3139** |
+
+The ensemble reranks base's top-100 by summing the two BoD models' rankings;
+the +0.8pp lift over the best individual reranker shows the two models carry
+orthogonal relevance signal. With precomputed product embeddings (see
+`precompute_rerank_vecs.py`) the per-query overhead is 3 small forward passes
++ a FAISS lookup — wall-clock ~80–100ms, dominated by FAISS itself.
+
 ## Queries
 
 The query set consists of all 75K US-locale queries from the Amazon ESCI dataset — real search queries from Amazon covering all product categories. No synthetic or curated queries are used.
 
 ## Demo
 
-The demo (`demo.py`) provides two modes:
+The demo (`demo.py`) shows base MiniLM in the left column and a selectable
+right-column mode picked from a dropdown:
 
-- **Default**: side-by-side comparison of fine-tuned model vs base MiniLM (all-MiniLM-L6-v2). Pure FAISS retrieval, no cross-encoder.
-- **Bag search** (checkbox): simulates the offline bag pipeline in real time — hybrid retrieval → CE scores all candidates → 0.3 threshold → centroid → FAISS re-retrieval. Requires `--bag-search` flag to load the cross-encoder at startup.
+- **Fine-tuned retrieval** (default): the originally-deployed BoD-as-retriever
+  architecture — a single fine-tuned query encoder + FAISS. Mirrors the
+  HuggingFace deployment.
+- **Base + ensemble rerank**: base FAISS retrieves top-100, two BoD-trained
+  query encoders independently rank the candidates, and a sumrank fusion
+  produces the final top-K. Production-deployable; uses precomputed product
+  embeddings if `combined_index_us_minilm/rerank_{A,B}.vecs.fp16.npy` exist
+  (see `precompute_rerank_vecs.py`).
+- **Build bag at query time**: simulates the offline bag pipeline in real
+  time — hybrid retrieval → CE scores all candidates → 0.3 threshold →
+  centroid → FAISS re-retrieval. Requires `--bag-search` flag to load the
+  cross-encoder at startup.
 
 ## Known Limitations
 
