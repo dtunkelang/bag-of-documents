@@ -129,11 +129,27 @@ gain):
 | S50 | BM25 + 3-way ensemble (3rd: MNRL t07) | 21.06% | 0.3564 | 41.03% | 38.26% |
 | V100 | BM25 + (6M-MNRL + MNRL-t07), no hardneg | 19.80% | 0.3346 | 38.63% | 35.66% |
 | X100 | BM25 + (hardneg + MNRL-t07), no 6M-MNRL | 20.96% | 0.3534 | 40.46% | 37.75% |
+| Y1 | BM25 + BGE-base only (single reranker) | 17.16% | 0.2856 | 32.76% | 30.24% |
+| Y3-50 | BM25 + 3-way (A + B + BGE), top-50 | 20.85% | 0.3525 | 40.73% | 37.88% |
+| Y3-100 | BM25 + 3-way (A + B + BGE), top-100 | 20.76% | 0.3504 | 40.33% | 37.54% |
+| YnoA | BM25 + (B + BGE), no 6M-MNRL | 20.05% | 0.3363 | 38.58% | 35.90% |
+| YnoB | BM25 + (A + BGE), no hardneg | 19.29% | 0.3256 | 37.76% | 34.65% |
 
 K_retrieve sweep on K: N40 21.15%, N50 21.17%, N60 21.18%, N75 21.15%, N200
 20.96% — peak around top-50/top-100, shallow curve. Weighted fusion sweep
 (W40/W60/W70) and alternative fusion functions (Tmax, Tmin) all underperform
 K's 0.5/0.5 sumsim mean.
+
+**K is the local maximum across all explored variants.** The Y* setups are
+the most informative negative: a BoD reranker trained on the same bags but
+with BAAI/bge-base-en-v1.5 (110M params, 768-dim, 5× MiniLM) as the base
+underperforms every variant tested. Y1 (BGE alone) at 17.16% is below even
+plain BM25 retrieval (H, 19.50%). The BGE training plateaued early
+(bag-internal recall@10 = 0.40 vs MiniLM's published 0.506) — the bigger
+base learned *less* of the bag distribution at the same training recipe
+(lr 2e-5, 30 epochs, MNRL). To unlock a stronger base would need a
+different recipe — higher LR, different loss, hard negatives, or
+supervised data — which moves out of the cheap-probe regime.
 
 Read-outs:
 
@@ -163,12 +179,19 @@ Read-outs:
   isolate why: V100 (6M-MNRL + MNRL-t07, no hardneg) collapses by 1.31pp,
   so the hardneg signal is irreplaceable; X100 (hardneg + MNRL-t07, no
   6M-MNRL) loses only 0.15pp, so MNRL-t07 ≈ 6M-MNRL — same flavor of
-  signal, just shifted. To raise the ceiling further would need a
-  *categorically* different third (different base model, different
-  training objective, or different supervision data). Min-max
-  normalization (Q) hurts by 0.05pp — the two rerankers are already
-  similarly calibrated. Weighted fusion (W*) and max/min fusion (T*)
-  all underperform 0.5/0.5 sumsim.
+  signal, just shifted. Min-max normalization (Q) hurts by 0.05pp — the
+  two rerankers are already similarly calibrated. Weighted fusion (W*)
+  and max/min fusion (T*) all underperform 0.5/0.5 sumsim.
+- **A categorically stronger base (BGE-base, 5× params) does not
+  compound the gain under this training recipe.** Y1 (BGE alone after
+  bag-MNRL training) drops to 17.16% — below plain BM25 retrieval. Y3
+  (3-way with BGE) loses 0.26–0.35pp from K. Substitutions (YnoA / YnoB)
+  collapse by 1.06pp / 1.82pp. The BGE training plateaued early at
+  bag-internal recall@10 = 0.40, vs MiniLM's published 0.506 — a more
+  capable base did not extract more of the bag-distribution signal at the
+  same training recipe (lr 2e-5, MNRL, 30 epochs). Unlocking BGE would
+  need a different recipe (higher LR, different loss, hard negatives, or
+  supervised data) and moves out of the cheap-probe regime.
 - **Pure dense fusion (G) doesn't beat dense-only (E).** Base and 6M-MNRL
   fail on overlapping query types, so RRF-fusing two dense retrievers
   contributes nothing additive after rerank.

@@ -192,13 +192,20 @@ class NeighborRecallEvaluator(evaluation.SentenceEvaluator):
 
         # Also compute mean cosine similarity between predicted and GT vectors
         # for val queries (how close is the predicted vector to the bag centroid?)
-        cos_sims = []
-        for i, vp in enumerate(self.val_pairs):
-            gt_vec = vp["vector"]
-            gt_vec = gt_vec / np.linalg.norm(gt_vec)
-            pred_vec = val_embs[i]
-            cos_sims.append(float(gt_vec @ pred_vec))
-        results["mean_cos_sim"] = np.mean(cos_sims)
+        # Skip when the model dim differs from the stored centroid dim — e.g.
+        # when fine-tuning a different base architecture against bags whose
+        # centroids were computed under another encoder.
+        first_gt_dim = len(self.val_pairs[0]["vector"])
+        if val_embs.shape[1] == first_gt_dim:
+            cos_sims = []
+            for i, vp in enumerate(self.val_pairs):
+                gt_vec = vp["vector"]
+                gt_vec = gt_vec / np.linalg.norm(gt_vec)
+                pred_vec = val_embs[i]
+                cos_sims.append(float(gt_vec @ pred_vec))
+            results["mean_cos_sim"] = np.mean(cos_sims)
+        else:
+            results["mean_cos_sim"] = float("nan")
 
         # Print results
         parts = [f"Epoch {epoch}:" if epoch >= 0 else "Eval:"]

@@ -194,6 +194,18 @@ def main():
         qv_d = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_minilm_t07_mnrl"), queries)
         print(f"  t07_mnrl (rerank_D): {time.time() - t0:.0f}s", flush=True)
 
+    # Optional fifth reranker: query_model_us_bge_mnrl — BGE-base trained on
+    # the same bags. Categorically different base (768-dim, 110M params vs
+    # MiniLM's 384-dim, 22M params). Tests whether a stronger base lifts the
+    # rerank ceiling on top of BM25 retrieval.
+    rerank_e_vecs_path = os.path.join(INDEX_DIR, "rerank_E.vecs.fp16.npy")
+    pv_e = None
+    qv_e = None
+    if os.path.exists(rerank_e_vecs_path):
+        t0 = time.time()
+        qv_e = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_bge_mnrl"), queries)
+        print(f"  bge_mnrl (rerank_E): {time.time() - t0:.0f}s", flush=True)
+
     # Load cached product matrices
     print("\nloading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
@@ -205,6 +217,9 @@ def main():
     if qv_d is not None:
         pv_d = np.load(rerank_d_vecs_path).astype(np.float32)
         print(f"  pv_d: {pv_d.shape}", flush=True)
+    if qv_e is not None:
+        pv_e = np.load(rerank_e_vecs_path).astype(np.float32)
+        print(f"  pv_e: {pv_e.shape}", flush=True)
 
     # === Retrieve top-K_RETRIEVE per setup ===
     print("\nbase top-100 from MiniLM FAISS...", flush=True)
@@ -536,6 +551,69 @@ def main():
                         order = np.argsort(-avg)[:K_EVAL]
                         ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
                     orderings[f"{sub_label}: BM25 top-100 + 2-way {suffix} rerank"] = ords
+
+            # Y: BGE-base reranker variants (rerank_E).
+            # Y1:    BM25 + BGE alone
+            # Y3:    BM25 + 3-way (A + B + BGE)
+            # YnoA:  BM25 + (B + BGE), drops 6M-MNRL — does BGE replace A?
+            # YnoB:  BM25 + (A + BGE), drops hardneg — does BGE replace B?
+            if pv_e is not None and qv_e is not None:
+                print("building Y* variants with rerank_E (BGE-base)...", flush=True)
+                # Y1: BGE alone, K_retrieve=100
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims = pv_e[positions] @ qv_e[qi]
+                    order = np.argsort(-sims)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["Y1: BM25 + BGE only (single reranker)"] = ords
+
+                # Y3: 3-way (A + B + BGE)
+                for k_ret, label in ((50, "Y3-50"), (100, "Y3-100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_a = pv_a[positions] @ qv_a[qi]
+                        sims_b = pv_b[positions] @ qv_b[qi]
+                        sims_e = pv_e[positions] @ qv_e[qi]
+                        avg = (sims_a + sims_b + sims_e) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way (A+B+BGE) rerank"] = ords
+
+                # YnoA: 2-way (B + BGE), no rerank_a — does BGE substitute for A?
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    sims_e = pv_e[positions] @ qv_e[qi]
+                    avg = (sims_b + sims_e) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["YnoA: BM25 + (B+BGE, no A) rerank"] = ords
+
+                # YnoB: 2-way (A + BGE), no rerank_b — does BGE substitute for B?
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_e = pv_e[positions] @ qv_e[qi]
+                    avg = (sims_a + sims_e) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["YnoB: BM25 + (A+BGE, no B) rerank"] = ords
         else:
             print(f"\nskipping N: {bm25_top200_path} not found", flush=True)
 
