@@ -10,10 +10,11 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 
 | | R@10 | nDCG@10 | E@1 | E@3 |
 |---|---|---|---|---|
-| Base MiniLM | 15.60% | 0.2648 | 31.50% | 28.52% |
+| Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% |
+| BM25 alone (lexical retrieval only) | 19.50% | 0.3322 | 38.79% | 35.72% |
 | **BM25 + ensemble rerank (current SOTA)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. **+5.51pp R@10 over base, +9.37pp E@1.** No dense retrieval and no HNSW in the inference path.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The rerank stack buys **+1.61pp R@10 over BM25 alone** and **+5.51pp R@10 over base MiniLM**. No dense retrieval and no HNSW in the inference path. BM25 alone is the more demanding baseline: it's free (no training, no GPU, no embeddings) and on entity-anchored product queries it does most of what dense retrieval can do.
 
 The deployable architecture is:
 
