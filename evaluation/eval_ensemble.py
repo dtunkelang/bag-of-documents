@@ -25,7 +25,11 @@ import statistics
 from collections import defaultdict
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.chdir("/Users/dtunkelang/bagofdocs")
+# Run all relative paths from the repo root regardless of where the script
+# is invoked. (Previously hardcoded to a developer's home directory.)
+from pathlib import Path as _Path  # noqa: E402
+
+os.chdir(_Path(__file__).resolve().parent.parent)
 
 import numpy as np  # noqa: E402  (placed after os.environ to control thread count)
 
