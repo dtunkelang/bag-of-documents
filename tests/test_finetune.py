@@ -4,7 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from finetune_query_model import load_bags, split_train_val
+from training.finetune_query_model import load_bags, split_train_val
 
 
 def test_load_bags_skips_empty(sample_bags_jsonl):
