@@ -76,7 +76,9 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 | D | 6M-MNRL + hardneg rerank (single) | 17.53% | 0.2967 | 34.55% | 31.77% |
 | E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
 | H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
+| Z | RRF(BM25, base) retrieval (non-BoD hybrid baseline) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
+| AA | RRF(BM25, base) + ensemble rerank | 20.43% | 0.3451 | 39.42% | 36.73% |
 | **K** | **BM25 + ensemble rerank (no dense retrieval)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
 
 **Read-outs:**
