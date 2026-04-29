@@ -66,7 +66,7 @@ The cross-encoder alone produces higher quality bags than the combination of heu
 | `compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
 | `compute_idf.py` | Per-token doc-frequency over the catalog (used for IDF combo ranking in compute_bags) |
 | `build_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
-| `rebuild_tantivy.py` | Rebuild a tantivy index in-place under a different tokenizer (e.g. `en_stem`) |
+| `build_tantivy.py` | Build a tantivy index from titles.json under a configurable tokenizer (e.g. `en_stem`) |
 | `download_catalog.py` | Download and sample McAuley Lab product catalog |
 | `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids (cosine or MNRL loss) |
 | `train_esci_ce.py` | Train a cross-encoder on ESCI grades; `--label-mode {regression,wide,binary}` |

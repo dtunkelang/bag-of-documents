@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Rebuild a tantivy index in-place with the en_stem tokenizer.
+"""Build a tantivy index from titles.json with a configurable tokenizer.
 
-Reads titles.json from the existing index directory and writes a new tantivy
-index to <index_path>/tantivy_index_stem/. Does not touch FAISS, embeddings,
-or the existing tantivy_index directory.
+Reads titles.json from the index directory and writes a new tantivy index to
+<index_path>/tantivy_index_<suffix>/ (default suffix: _stem). Does not touch
+FAISS, embeddings, or any existing tantivy index directory.
 
-Once validated, swap with:
+Once validated, swap into the canonical location with:
     mv <index_path>/tantivy_index <index_path>/tantivy_index_default
     mv <index_path>/tantivy_index_stem <index_path>/tantivy_index
 """
