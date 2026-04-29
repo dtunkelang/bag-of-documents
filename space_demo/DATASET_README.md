@@ -90,20 +90,26 @@ Each bag is a JSON object:
 
 `combined_index/rerank_A.vecs.fp16.npy` and `rerank_B.vecs.fp16.npy` are 1,215,851 × 384 fp16 numpy arrays, parallel to `combined_index/titles.json`. Loading them lets the rerank pipeline skip the live candidate-encoding step — only the query is encoded at runtime, candidates are looked up by FAISS-returned index. This is what makes the reranker deployable at sub-100ms latency on commodity hardware.
 
-## BoD as reranker
+## Architecture progression
 
-The originally-published architecture treats BoD as a retrieval-stage model (single encoder + FAISS, end of story). After running the full ESCI test set across multiple variants, we found this consistently underperforms base MiniLM on aggregate R@10 / nDCG@10 — but the same trained models become **clean wins as rerankers** on top of base retrieval.
+The originally-published architecture treats BoD as a retrieval-stage model (single encoder + FAISS, end of story). Iterating on loss function (cosine-to-centroid → MNRL), training scale (full 6M signal), and stage (retrieval vs rerank vs hybrid) produced a series of improvements. The progression below is measured on the full 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0/S=0.1, K_retrieve=100, K_eval=10.
 
-### ESCI test results (22,458 queries, R@10 with E+S relevant, nDCG@10 with E=1.0 / S=0.1)
+| # | Pipeline | R@10 | nDCG@10 | E@1 | E@3 |
+|---|---|---|---|---|---|
+| A | Base MiniLM | 15.60% | 0.2648 | 31.50% | 28.52% |
+| B | 6M-MNRL retriever (BoD) | 18.10% | 0.3090 | 36.16% | 33.25% |
+| C | Base + ensemble rerank | 19.00% | 0.3238 | 37.81% | 34.92% |
+| E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
+| H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
+| **I** | **RRF(BM25, MNRL) + ensemble rerank** | **20.01%** | **0.3394** | **39.19%** | **36.22%** |
 
-| Pipeline | R@10 | nDCG@10 |
-|---|---|---|
-| Base MiniLM only | 15.60% | 0.2648 |
-| Base + 6M-MNRL reranker | 17.53% | 0.3000 |
-| Base + qrels-hardneg reranker | 17.25% | 0.2920 |
-| **Base + sumrank ensemble** | **18.35%** | **0.3139** |
+Three things to note:
 
-The two rerankers carry orthogonal relevance signal — the +0.8pp ensemble lift over the best individual reranker shows neither is redundant. With cached product embeddings, the ensemble adds only 3 small forward passes per query (base + 2 reranker query encodes); FAISS dominates the remaining latency.
+- **MNRL-trained BoD beats base as a *retriever*** (B vs A: +2.50pp R@10). The original cosine-distilled BoD-as-retriever loses on this stricter benchmark; the MNRL-trained variant doesn't.
+- **BM25 alone is competitive with the dense rerank stack** (H ≈ E, within rounding). On entity-heavy product queries, lexical matching does most of the work.
+- **Hybrid is the SOTA.** Setup I RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two BoD-trained encoders. +4.41pp R@10 over base; +0.18pp over the best dense-only setup. Three-way fusion (BM25 + base + MNRL) adds another +0.06pp — within noise.
+
+The ensemble rerank fuses two BoD-trained encoders (`query_model_6m_mnrl` and `query_model_hardneg`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by FAISS-returned index. The hybrid path additionally consults a tantivy BM25 index over the same 1.2M titles.
 
 ## Dataset Creation
 

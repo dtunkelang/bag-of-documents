@@ -101,23 +101,54 @@ Broad catalog (6M products, 33 categories, 75K ESCI queries):
 
 Specificity correctly correlates with query breadth ("laptop" 0.70 < "hp laptop" 0.81 < "hp laptop 16gb ram" 0.84)
 
-### Reranking architecture (Apr 2026)
+### Architecture progression (Apr 2026)
 
-Per-query measurements on the full ESCI test set (22,458 queries against the
-1.2M-product ESCI index, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1):
+Per-query measurements on the full ESCI test set (22,458 queries with at
+least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
+= 100, K_eval = 10, R@10 pools E+S as relevant, nDCG@10 uses E=1.0 / S=0.1
+gain):
 
-| Pipeline | R@10 | nDCG@10 |
-|---|---|---|
-| Base MiniLM only | 15.60% | 0.2648 |
-| Base + 6M-MNRL reranker | 17.53% | 0.3000 |
-| Base + qrels-hardneg reranker | 17.25% | 0.2920 |
-| **Base + sumrank ensemble** | **18.35%** | **0.3139** |
+| # | Pipeline | R@10 | nDCG@10 | E@1 | E@3 |
+|---|---|---|---|---|---|
+| A | Base MiniLM | 15.60% | 0.2648 | 31.50% | 28.52% |
+| B | 6M-MNRL retriever (BoD) | 18.10% | 0.3090 | 36.16% | 33.25% |
+| C | Base + ensemble rerank | 19.00% | 0.3238 | 37.81% | 34.92% |
+| D | 6M-MNRL + hardneg rerank | 17.53% | 0.2967 | 34.55% | 31.77% |
+| E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
+| F | RRF(base, MNRL) retrieval | 17.12% | 0.2916 | 34.36% | 31.43% |
+| G | RRF(base, MNRL) + ensemble rerank | 19.84% | 0.3375 | 39.14% | 36.12% |
+| H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
+| **I** | **RRF(BM25, MNRL) + ensemble rerank** | **20.01%** | **0.3394** | **39.19%** | **36.22%** |
+| J | RRF(BM25, base, MNRL) + ensemble rerank | 20.07% | 0.3401 | 39.23% | 36.25% |
 
-The ensemble reranks base's top-100 by summing the two BoD models' rankings;
-the +0.8pp lift over the best individual reranker shows the two models carry
-orthogonal relevance signal. With precomputed product embeddings (see
-`precompute_rerank_vecs.py`) the per-query overhead is 3 small forward passes
-+ a FAISS lookup — wall-clock ~80–100ms, dominated by FAISS itself.
+Read-outs:
+
+- **The cosine-distilled BoD-as-retriever loses to base on this benchmark.**
+  The original release was measured on a 75K-query construction-set eval; on
+  the canonical 22,458-query ESCI test set, R@10 drops below A. MNRL-trained
+  BoD (B) reverses that — +2.50pp R@10 over base, +4.66pp E@1.
+- **Ensemble rerank stacks on top of any retriever.** Same two BoD-trained
+  rerankers (6M-MNRL, qrels-hardneg) lift base by +3.40pp R@10 (A→C) and
+  6M-MNRL by +1.73pp R@10 (B→E).
+- **Setup E reaches +4.23pp R@10 over base with no MiniLM in the inference
+  path** — three forward passes per query, all BoD-trained, plus an HNSW
+  lookup in BoD-trained product space.
+- **BM25 alone is shockingly close to the dense rerank stack.** Setup H
+  (stemmed BM25, no dense, no rerank) hits R@10 19.50% — within rounding
+  of E. On entity-heavy product queries, lexical matching is doing most
+  of the work.
+- **Hybrid is the SOTA.** Setup I (RRF-fuses BM25 and 6M-MNRL retrieval,
+  then ensemble-reranks) wins every metric. Setup J adds base FAISS to the
+  fusion pool — +0.06pp over I, within noise.
+- **Pure dense fusion (G) doesn't beat dense-only (E).** Base and 6M-MNRL
+  fail on overlapping query types, so RRF-fusing two dense retrievers
+  contributes nothing additive after rerank. The hybrid lift in I/J comes
+  from BM25's *different* failure mode, not from the number of retrievers.
+
+Eval scripts: `eval_mnrl_retriever.py` (the table above), `precompute_bm25_top_k.py`
+(precomputes BM25 top-100 against the en_stem tantivy index for setups H/I/J),
+`build_mnrl_hnsw_index.py` (builds the 6M-MNRL HNSW from cached product
+embeddings).
 
 ## Queries
 
@@ -125,21 +156,31 @@ The query set consists of all 75K US-locale queries from the Amazon ESCI dataset
 
 ## Demo
 
-The demo (`demo.py`) shows base MiniLM in the left column and a selectable
-right-column mode picked from a dropdown:
+The demo (`demo.py`) shows two columns side by side. Each column has its own
+mode dropdown so any two architectures can be compared on the same query.
+Default left = base MiniLM, default right = the SOTA hybrid:
 
-- **Fine-tuned retrieval** (default): the originally-deployed BoD-as-retriever
-  architecture — a single fine-tuned query encoder + FAISS. Mirrors the
-  HuggingFace deployment.
-- **Base + ensemble rerank**: base FAISS retrieves top-100, two BoD-trained
-  query encoders independently rank the candidates, and a sumrank fusion
-  produces the final top-K. Production-deployable; uses precomputed product
-  embeddings if `combined_index_us_minilm/rerank_{A,B}.vecs.fp16.npy` exist
-  (see `precompute_rerank_vecs.py`).
-- **Build bag at query time**: simulates the offline bag pipeline in real
-  time — hybrid retrieval → CE scores all candidates → 0.3 threshold →
-  centroid → FAISS re-retrieval. Requires `--bag-search` flag to load the
-  cross-encoder at startup.
+- **BM25 + MNRL hybrid + ensemble rerank** (default right) — RRF-fuses BM25
+  and 6M-MNRL top-100 candidate sets, then sumsim-reranks with two BoD-trained
+  encoders (6M-MNRL + qrels-hardneg). R@10 20.01% on the ESCI test set.
+- **MNRL + BoD ensemble rerank** — 6M-MNRL retrieves top-100, the same two
+  BoD encoders rerank. R@10 19.83%.
+- **Base + BoD ensemble rerank** — same reranker stack on plain MiniLM
+  retrieval. R@10 19.00%.
+- **BM25 retrieval** — tantivy en_stem alone, no dense, no rerank. R@10
+  19.50%.
+- **MNRL retrieval (no rerank)** — 6M-MNRL alone. R@10 18.10%.
+- **Fine-tuned retrieval (cosine BoD)** — the originally deployed
+  BoD-as-retriever (single cosine-distilled model + FAISS); kept for
+  historical comparison.
+- **Base MiniLM retrieval** (default left) — no fine-tuning, no rerank.
+- **Build bag at query time** — simulates the offline bag pipeline live:
+  hybrid retrieval → CE scores all candidates → 0.3 threshold → centroid
+  → FAISS re-retrieval. Requires `--bag-search` to load the cross-encoder
+  at startup. Right-column only.
+
+Precomputed product embeddings (`precompute_rerank_vecs.py`) keep dense
+modes at sub-100ms; the BM25 path is faster still.
 
 ## Known Limitations
 

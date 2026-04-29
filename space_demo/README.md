@@ -11,12 +11,19 @@ pinned: false
 
 # Bag-of-Documents Product Search Demo
 
-Compare the **base MiniLM** model with two BoD architectures on 1.2M Amazon ESCI products (75K real Amazon search queries):
+Compare retrieval / rerank architectures on 1.2M Amazon ESCI products (75K real Amazon search queries). Each column has its own mode dropdown so any two architectures can be compared on the same query.
 
-- **Fine-tuned retrieval** — original BoD-as-retriever: a single fine-tuned query encoder + FAISS, in one shot.
-- **Base + BoD ensemble rerank** — base MiniLM retrieves top-100, two BoD-trained query encoders (full-6M MNRL + qrels-hardneg) independently rank candidates, and a sumrank fusion produces the final top-K. **+2.75pp R@10** over base alone on the full ESCI test set (15.60% → 18.35%; nDCG@10 0.2648 → 0.3139). Precomputed product embeddings keep per-query latency sub-100ms.
+ESCI 22,458-query R@10 in parens:
 
-Pick the right-column mode from the dropdown to compare each BoD architecture against base on the same query.
+- **BM25 + MNRL hybrid + ensemble rerank** (default right, 20.01%) — RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two BoD-trained encoders. Current SOTA.
+- **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, two BoD models reorder via sumsim fusion.
+- **BM25 retrieval** (19.50%) — tantivy en_stem alone, no dense, no rerank. Surprisingly competitive on entity-heavy product queries.
+- **Base + BoD ensemble rerank** (19.00%) — the same reranker stack on plain MiniLM retrieval.
+- **MNRL retrieval (no rerank)** (18.10%) — 6M-MNRL alone.
+- **Fine-tuned retrieval (cosine BoD)** — the originally deployed BoD-as-retriever; kept for historical comparison.
+- **Base MiniLM retrieval** (default left, 15.60%) — no fine-tuning, no rerank.
+
+Precomputed product embeddings keep dense modes at sub-100ms; BM25 is faster still.
 
 - **Blog post**: [Distilling Retrieval Pipelines to a Single Embedding Model](https://dtunkelang.medium.com/distilling-retrieval-pipelines-to-a-single-embedding-model-606f3ecf0c91)
 - **Model and data**: [huggingface.co/datasets/dtunkelang/bag-of-documents](https://huggingface.co/datasets/dtunkelang/bag-of-documents)

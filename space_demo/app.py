@@ -15,11 +15,13 @@ cached on the Space's persistent storage thereafter.
 
 import json
 import os
+import re
 import time
 
 import faiss
 import gradio as gr
 import numpy as np
+import tantivy
 from huggingface_hub import snapshot_download
 from sentence_transformers import SentenceTransformer
 
@@ -35,9 +37,11 @@ def download_data():
         repo_type="dataset",
         allow_patterns=[
             "combined_index/index.faiss",
+            "combined_index/rerank_A.index.faiss",
             "combined_index/titles.json",
             "combined_index/rerank_A.vecs.fp16.npy",
             "combined_index/rerank_B.vecs.fp16.npy",
+            "combined_index/tantivy_index/*",
             "bags.jsonl",
             "query_model/*",
             "query_model_6m_mnrl/*",
@@ -52,7 +56,15 @@ def load_resources(data_dir):
     print("Loading resources...")
 
     index = faiss.read_index(os.path.join(data_dir, "combined_index", "index.faiss"))
-    print(f"  Product index: {index.ntotal:,} products")
+    print(f"  Base MiniLM product index: {index.ntotal:,} products")
+
+    mnrl_index_path = os.path.join(data_dir, "combined_index", "rerank_A.index.faiss")
+    mnrl_index = None
+    if os.path.exists(mnrl_index_path):
+        mnrl_index = faiss.read_index(mnrl_index_path)
+        print(f"  6M-MNRL product index: {mnrl_index.ntotal:,} products")
+    else:
+        print("  6M-MNRL product index: missing — MNRL retrieval modes will be unavailable")
 
     with open(os.path.join(data_dir, "combined_index", "titles.json")) as f:
         titles = json.load(f)
@@ -85,8 +97,32 @@ def load_resources(data_dir):
     bag_specs = np.array(bag_specs)
     print(f"  Bag centroids: {len(bag_queries)} bags")
 
+    # Tantivy BM25 index. en_stem tokenizer matches the offline build.
+    tantivy_path = os.path.join(data_dir, "combined_index", "tantivy_index")
+    tantivy_searcher = None
+    tantivy_idx = None
+    if os.path.isdir(tantivy_path) and os.listdir(tantivy_path):
+        schema_builder = tantivy.SchemaBuilder()
+        schema_builder.add_text_field("title", stored=True, tokenizer_name="en_stem")
+        schema = schema_builder.build()
+        tv_index = tantivy.Index(schema, path=tantivy_path)
+        tv_index.reload()
+        tantivy_searcher = tv_index.searcher()
+        tantivy_idx = tv_index
+        print(f"  Tantivy BM25 index: {tantivy_searcher.num_docs:,} docs")
+    else:
+        print("  Tantivy BM25 index: missing — BM25 + hybrid modes will be unavailable")
+
+    # Title -> first FAISS position map for hybrid (BM25 returns titles; RRF
+    # fusion needs positions parallel to the dense index).
+    title_to_pos = {}
+    for i, t in enumerate(titles):
+        if t not in title_to_pos:
+            title_to_pos[t] = i
+
     return {
         "index": index,
+        "mnrl_index": mnrl_index,
         "titles": titles,
         "base_model": base_model,
         "retrieval_model": retrieval_model,
@@ -97,6 +133,9 @@ def load_resources(data_dir):
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
         "bag_specs": bag_specs,
+        "tantivy_searcher": tantivy_searcher,
+        "tantivy_index": tantivy_idx,
+        "title_to_pos": title_to_pos,
     }
 
 
@@ -163,35 +202,164 @@ def retrieval_top_k(query, R, k, oversample=3):
     return _dedup_by_title(raw, k)
 
 
-def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
-    """Base FAISS top-K_retrieve, sumrank-fuse two rerankers, return top-K_top.
+def mnrl_top_k(query, R, k, oversample=3):
+    """6M-MNRL retrieval (no rerank) — encode with rerank_a, search MNRL FAISS."""
+    if R.get("mnrl_index") is None:
+        # Fall back to base if MNRL index not available.
+        return base_top_k(query, R, k, oversample)[0]
+    vec = R["rerank_a"].encode(query, normalize_embeddings=True)
+    vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
+    faiss.normalize_L2(vec)
+    try:
+        R["mnrl_index"].hnsw.efSearch = 128
+    except Exception:
+        pass
+    metric = R["mnrl_index"].metric_type
+    D, I = R["mnrl_index"].search(vec, k * oversample)
+    raw = []
+    for d, i in zip(D[0], I[0]):
+        if i < 0:
+            continue
+        raw.append((R["titles"][i], round(_faiss_dist_to_sim(d, metric), 4)))
+    raw.sort(key=lambda x: -x[1])
+    return _dedup_by_title(raw, k)
 
-    Uses precomputed cached vecs — only the query is encoded live.
-    """
-    base_results, D, I, metric = base_top_k(query, R, k_retrieve)
-    valid = [int(i) for i in I[0] if i >= 0]
-    if not valid:
+
+def _ensemble_rerank_from_positions(query, R, valid_positions, k_top):
+    """Sumsim ensemble rerank over the given candidate index positions."""
+    if not valid_positions:
         return []
-
     qa = np.asarray(R["rerank_a"].encode(query, normalize_embeddings=True), dtype=np.float32)
     qb = np.asarray(R["rerank_b"].encode(query, normalize_embeddings=True), dtype=np.float32)
-
-    cv_a = R["rerank_a_vecs"][valid].astype(np.float32)
-    cv_b = R["rerank_b_vecs"][valid].astype(np.float32)
-
-    sims_a = cv_a @ qa
-    sims_b = cv_b @ qb
-    avg_sim = (sims_a + sims_b) / 2  # mean cosine across the two rerankers
-    # Order by mean reranker similarity (sumsim fusion). Equivalent in practice
-    # to sumrank fusion (both are linear combinations of the two rerankers'
-    # outputs); sumsim makes the displayed Sim column the actual sort key so
-    # it's guaranteed monotonic-descending.
+    cv_a = R["rerank_a_vecs"][valid_positions].astype(np.float32)
+    cv_b = R["rerank_b_vecs"][valid_positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb) / 2
     order = np.argsort(-avg_sim)
-    raw = []
-    for idx in order:
-        pos = valid[int(idx)]
-        raw.append((R["titles"][pos], round(float(avg_sim[idx]), 4)))
+    raw = [(R["titles"][valid_positions[int(idx)]], round(float(avg_sim[idx]), 4)) for idx in order]
     return _dedup_by_title(raw, k_top)
+
+
+def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """Base FAISS top-K_retrieve → sumsim ensemble rerank → top-K_top.
+
+    Current production deployable. +2.75pp R@10 over base on the 22,458-query
+    ESCI test set.
+    """
+    _, _, I, _ = base_top_k(query, R, k_retrieve)
+    valid = [int(i) for i in I[0] if i >= 0]
+    return _ensemble_rerank_from_positions(query, R, valid, k_top)
+
+
+def mnrl_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """6M-MNRL retrieval top-K_retrieve → sumsim ensemble rerank → top-K_top.
+
+    Best architecture on the ESCI test set: +4.23pp R@10 over base
+    (15.60% → 19.83%), +0.0727 nDCG@10. Falls back to base+ensemble if the
+    MNRL FAISS index isn't loaded.
+    """
+    if R.get("mnrl_index") is None:
+        return ensemble_rerank_top_k(query, R, k_top, k_retrieve)
+    vec = R["rerank_a"].encode(query, normalize_embeddings=True)
+    vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
+    faiss.normalize_L2(vec)
+    try:
+        R["mnrl_index"].hnsw.efSearch = 128
+    except Exception:
+        pass
+    _, I = R["mnrl_index"].search(vec, k_retrieve)
+    valid = [int(i) for i in I[0] if i >= 0]
+    return _ensemble_rerank_from_positions(query, R, valid, k_top)
+
+
+_BM25_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _safe_parse_bm25(tv_index, query):
+    try:
+        return tv_index.parse_query(query, ["title"])
+    except ValueError:
+        cleaned = _BM25_PUNCT_RE.sub(" ", query).strip()
+        if not cleaned:
+            return None
+        try:
+            return tv_index.parse_query(cleaned, ["title"])
+        except ValueError:
+            return None
+
+
+def _bm25_top_positions(query, R, k):
+    tv_idx = R.get("tantivy_index")
+    tv_searcher = R.get("tantivy_searcher")
+    title_to_pos = R.get("title_to_pos") or {}
+    if tv_idx is None or tv_searcher is None:
+        return []
+    parsed = _safe_parse_bm25(tv_idx, query)
+    if parsed is None:
+        return []
+    hits = tv_searcher.search(parsed, limit=k * 2).hits
+    positions, seen = [], set()
+    for _, addr in hits:
+        title = tv_searcher.doc(addr)["title"][0]
+        pos = title_to_pos.get(title)
+        if pos is None or pos in seen:
+            continue
+        seen.add(pos)
+        positions.append(pos)
+        if len(positions) >= k:
+            break
+    return positions
+
+
+def bm25_top_k(query, R, k, oversample=3):
+    """BM25 retrieval over the tantivy index — no dense, no rerank.
+
+    On the 22,458-query ESCI test set: R@10 19.50% / E@1 38.79%, within
+    rounding of the dense ensemble-rerank stack.
+    """
+    tv_idx = R.get("tantivy_index")
+    tv_searcher = R.get("tantivy_searcher")
+    if tv_idx is None or tv_searcher is None:
+        return []
+    parsed = _safe_parse_bm25(tv_idx, query)
+    if parsed is None:
+        return []
+    hits = tv_searcher.search(parsed, limit=k * oversample).hits
+    raw = []
+    for score, addr in hits:
+        title = tv_searcher.doc(addr)["title"][0]
+        raw.append((title, round(float(score), 4)))
+    return _dedup_by_title(raw, k)
+
+
+def hybrid_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """RRF(BM25, 6M-MNRL) → ensemble rerank. New ESCI SOTA (R@10 20.01%).
+
+    Falls back to mnrl_rerank_top_k if the BM25 index isn't loaded.
+    """
+    bm25_positions = _bm25_top_positions(query, R, k_retrieve)
+    if not bm25_positions:
+        return mnrl_rerank_top_k(query, R, k_top, k_retrieve)
+
+    mnrl_positions = []
+    if R.get("mnrl_index") is not None:
+        vec = R["rerank_a"].encode(query, normalize_embeddings=True)
+        vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
+        faiss.normalize_L2(vec)
+        try:
+            R["mnrl_index"].hnsw.efSearch = 128
+        except Exception:
+            pass
+        _, I = R["mnrl_index"].search(vec, k_retrieve)
+        mnrl_positions = [int(p) for p in I[0] if p >= 0]
+
+    rrf_c = 60
+    rrf = {}
+    for source in (bm25_positions, mnrl_positions):
+        for rank, p in enumerate(source):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + rrf_c)
+    fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:k_retrieve]
+    positions = [p for p, _ in fused]
+    return _ensemble_rerank_from_positions(query, R, positions, k_top)
 
 
 def predict_specificity(query, R, k=5):
@@ -245,7 +413,36 @@ data_dir = download_data()
 R = load_resources(data_dir)
 
 
-def search_fn(query, k, mode):
+MODE_LABELS = [
+    "BM25 + MNRL hybrid + ensemble rerank (SOTA)",
+    "MNRL + BoD ensemble rerank",
+    "Base + BoD ensemble rerank",
+    "BM25 retrieval (no dense, no rerank)",
+    "MNRL retrieval (no rerank)",
+    "Fine-tuned retrieval (cosine BoD)",
+    "Base MiniLM retrieval",
+]
+
+
+def _results_for_mode(mode, query, R, k):
+    if mode == "BM25 + MNRL hybrid + ensemble rerank (SOTA)":
+        return hybrid_rerank_top_k(query, R, k_top=k)
+    if mode == "MNRL + BoD ensemble rerank":
+        return mnrl_rerank_top_k(query, R, k_top=k)
+    if mode == "Base + BoD ensemble rerank":
+        return ensemble_rerank_top_k(query, R, k_top=k)
+    if mode == "BM25 retrieval (no dense, no rerank)":
+        return bm25_top_k(query, R, k)
+    if mode == "MNRL retrieval (no rerank)":
+        return mnrl_top_k(query, R, k)
+    if mode == "Fine-tuned retrieval (cosine BoD)":
+        return retrieval_top_k(query, R, k)
+    # Base MiniLM retrieval (default left)
+    base_results, *_ = base_top_k(query, R, k)
+    return base_results
+
+
+def search_fn(query, k, left_mode, right_mode):
     if not query.strip():
         return "", "", "", ""
     k = int(k)
@@ -254,32 +451,38 @@ def search_fn(query, k, mode):
     spec_text = f"**Specificity:** {spec:.3f}" if spec is not None else ""
 
     t0 = time.perf_counter()
-    base_results, *_ = base_top_k(query, R, k)
-    base_latency = (time.perf_counter() - t0) * 1000
+    left_results = _results_for_mode(left_mode, query, R, k)
+    left_latency = (time.perf_counter() - t0) * 1000
 
     t0 = time.perf_counter()
-    if mode == "Base + BoD ensemble rerank":
-        right_results = ensemble_rerank_top_k(query, R, k_top=k)
-        right_label = "Base + BoD ensemble rerank"
-    else:
-        right_results = retrieval_top_k(query, R, k)
-        right_label = "Fine-tuned retrieval (BoD)"
+    right_results = _results_for_mode(right_mode, query, R, k)
     right_latency = (time.perf_counter() - t0) * 1000
 
-    base_html = format_results(base_results, "Base MiniLM", base_latency)
-    right_html = format_results(right_results, right_label, right_latency)
-    return right_html, base_html, spec_text, format_neighbors(neighbors)
+    left_html = format_results(left_results, left_mode, left_latency)
+    right_html = format_results(right_results, right_mode, right_latency)
+    return left_html, right_html, spec_text, format_neighbors(neighbors)
 
 
 with gr.Blocks(title="Bag-of-Documents Search") as demo:
     gr.Markdown(
         "# Bag-of-Documents Product Search\n"
-        "Comparing the **base MiniLM** model with two BoD architectures on "
-        "1.2M ESCI products (75K Amazon search queries).\n\n"
-        "* **Fine-tuned retrieval** — original BoD-as-retriever (single fine-tuned model + FAISS).\n"
-        "* **Base + BoD ensemble rerank** — base FAISS top-100, then two BoD models reorder "
-        "via sumrank fusion. +2.75pp R@10 over base on the full ESCI test set "
-        "(15.60% → 18.35%); precomputed product embeddings keep latency sub-100ms."
+        "1.2M ESCI Amazon products, 75K search queries. Pick a mode for each "
+        "column to compare any two retrieval / rerank architectures side by side. "
+        "ESCI 22,458-query R@10 in parens:\n\n"
+        "* **BM25 + MNRL hybrid + ensemble rerank** — current SOTA (20.01%). "
+        "RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two "
+        "BoD models.\n"
+        "* **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, "
+        "two BoD models reorder via sumsim fusion.\n"
+        "* **BM25 retrieval** (19.50%) — tantivy alone, no dense, no rerank. "
+        "Surprisingly competitive on entity-heavy product queries.\n"
+        "* **Base + BoD ensemble rerank** (19.00%) — the reranker stack on plain "
+        "MiniLM retrieval.\n"
+        "* **MNRL retrieval (no rerank)** (18.10%) — 6M-MNRL alone.\n"
+        "* **Fine-tuned retrieval (cosine BoD)** — the originally deployed "
+        "BoD-as-retriever; kept for historical comparison.\n"
+        "* **Base MiniLM retrieval** (15.60%) — no fine-tuning, no rerank.\n\n"
+        "Precomputed product embeddings keep dense modes sub-100ms; BM25 is faster still."
     )
 
     with gr.Row():
@@ -287,29 +490,35 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
             label="Search query", placeholder="e.g. tom ford lipstick", scale=4
         )
         k_input = gr.Number(label="k", value=10, minimum=1, maximum=50, scale=1)
-        mode_input = gr.Dropdown(
-            choices=["Base + BoD ensemble rerank", "Fine-tuned retrieval"],
-            value="Base + BoD ensemble rerank",
-            label="Right-column mode",
-            scale=2,
-        )
         search_btn = gr.Button("Search", scale=1)
+
+    with gr.Row():
+        left_mode_input = gr.Dropdown(
+            choices=MODE_LABELS,
+            value="Base MiniLM retrieval",
+            label="Left-column mode",
+        )
+        right_mode_input = gr.Dropdown(
+            choices=MODE_LABELS,
+            value="BM25 + MNRL hybrid + ensemble rerank (SOTA)",
+            label="Right-column mode",
+        )
 
     spec_output = gr.Markdown()
     with gr.Row():
+        left_output = gr.Markdown()
         right_output = gr.Markdown()
-        base_output = gr.Markdown()
     neighbor_output = gr.Markdown(label="Similar queries")
 
     search_btn.click(
         search_fn,
-        [query_input, k_input, mode_input],
-        [right_output, base_output, spec_output, neighbor_output],
+        [query_input, k_input, left_mode_input, right_mode_input],
+        [left_output, right_output, spec_output, neighbor_output],
     )
     query_input.submit(
         search_fn,
-        [query_input, k_input, mode_input],
-        [right_output, base_output, spec_output, neighbor_output],
+        [query_input, k_input, left_mode_input, right_mode_input],
+        [left_output, right_output, spec_output, neighbor_output],
     )
 
 demo.launch()

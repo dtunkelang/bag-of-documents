@@ -3,3 +3,4 @@ faiss-cpu>=1.13
 numpy>=2.0
 gradio>=4.0
 huggingface_hub>=1.0
+tantivy>=0.22
