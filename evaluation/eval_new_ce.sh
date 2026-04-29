@@ -16,11 +16,11 @@ OUT_DIR="/tmp/eval_${LABEL}"
 mkdir -p "$OUT_DIR"
 
 echo "==> 1. CE E-vs-S gap on 500 judged pairs"
-.venv/bin/python eval_ce_es_gap.py --ce-model "$CE_MODEL" 2>&1 | tee "$OUT_DIR/es_gap.log"
+.venv/bin/python evaluation/eval_ce_es_gap.py --ce-model "$CE_MODEL" 2>&1 | tee "$OUT_DIR/es_gap.log"
 
 echo
 echo "==> 2. Re-bagging 45 regime eval queries with new CE"
-.venv/bin/python compute_bags.py evaluation/regime_queries.jsonl "$OUT_DIR/bags.jsonl" \
+.venv/bin/python training/compute_bags.py evaluation/regime_queries.jsonl "$OUT_DIR/bags.jsonl" \
     --ce-rerank "$CE_MODEL" --index-dir combined_index_amazon 2>&1 | tail -20
 
 echo

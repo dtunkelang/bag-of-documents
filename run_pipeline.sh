@@ -15,13 +15,13 @@ command -v caffeinate > /dev/null && caffeinate -i -w $$ &
 
 # Preflight checks
 echo "[$(date)] Running preflight checks..."
-$VENV preflight.py --quick
+$VENV scripts/preflight.py --quick
 echo "[$(date)] Preflight passed."
 
 # Step 1: Build indexes (FAISS + tantivy) if needed
 if [ ! -f combined_index/index.faiss ]; then
     echo "[$(date)] Building FAISS + tantivy indexes..."
-    $VENV -u build_index.py --model ${MODEL_DIR:-all-MiniLM-L6-v2}
+    $VENV -u indexing/build_index.py --model ${MODEL_DIR:-all-MiniLM-L6-v2}
     echo "[$(date)] Indexes built."
 else
     echo "[$(date)] Indexes already exist, skipping build."
@@ -29,7 +29,7 @@ fi
 
 # Step 2: Compute bags
 echo "[$(date)] Computing bags..."
-$VENV -u compute_bags.py $QUERIES $BAGS \
+$VENV -u training/compute_bags.py $QUERIES $BAGS \
     --model ${MODEL_DIR:-all-MiniLM-L6-v2} --ce-rerank $CE_MODEL --ce-threshold 0.3
 echo "[$(date)] Bags complete."
 
@@ -51,17 +51,17 @@ print(f'  Kept {kept} non-empty bags (removed {len(lines) - kept} empty)')
 # Step 4: Eval current model
 if [ -d "$MODEL_DIR" ]; then
     echo "[$(date)] Evaluating current model ($MODEL_DIR)..."
-    $VENV eval_model.py $MODEL_DIR/ --base
+    $VENV evaluation/eval_model.py $MODEL_DIR/ --base
 fi
 
 # Step 5: Fine-tune new model (to temp dir, then swap)
 echo "[$(date)] Fine-tuning on $BAGS..."
 rm -rf query_model_tmp
-$VENV finetune_query_model.py $BAGS query_model_tmp
+$VENV training/finetune_query_model.py $BAGS query_model_tmp
 
 # Step 6: Eval new model
 echo "[$(date)] Evaluating new model..."
-$VENV eval_model.py query_model_tmp/ --base
+$VENV evaluation/eval_model.py query_model_tmp/ --base
 
 # Step 7: Install new model
 echo "[$(date)] Installing new model..."
