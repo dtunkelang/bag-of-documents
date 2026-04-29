@@ -8,7 +8,7 @@ Dataset target (huggingface.co/datasets/dtunkelang/bag-of-documents):
   - combined_index/rerank_B.vecs.fp16.npy
   - query_model_6m_mnrl/   (renamed from local query_model_us_full_6m_mnrl/)
   - query_model_hardneg/   (renamed from local query_model_us_qrels_mnrl_hardneg/)
-  - eval/regime_queries.jsonl
+  - evaluation/regime_queries.jsonl
   - README.md (regenerated with new artifact docs)
 
 Space target (huggingface.co/spaces/dtunkelang/bag-of-documents-demo):
@@ -53,7 +53,7 @@ DATASET_FILES = [
     ),
     (
         ROOT / "eval" / "regime_queries.jsonl",
-        "eval/regime_queries.jsonl",
+        "evaluation/regime_queries.jsonl",
         1_000,
     ),
 ]

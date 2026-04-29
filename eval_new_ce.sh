@@ -20,7 +20,7 @@ echo "==> 1. CE E-vs-S gap on 500 judged pairs"
 
 echo
 echo "==> 2. Re-bagging 45 regime eval queries with new CE"
-.venv/bin/python compute_bags.py eval/regime_queries.jsonl "$OUT_DIR/bags.jsonl" \
+.venv/bin/python compute_bags.py evaluation/regime_queries.jsonl "$OUT_DIR/bags.jsonl" \
     --ce-rerank "$CE_MODEL" --index-dir combined_index_amazon 2>&1 | tail -20
 
 echo
@@ -39,7 +39,7 @@ def load_bags(path):
 
 def load_eval():
     out = {}
-    with open("eval/regime_queries.jsonl") as f:
+    with open("evaluation/regime_queries.jsonl") as f:
         for line in f:
             d = json.loads(line)
             out[d["query"]] = d

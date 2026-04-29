@@ -5,7 +5,7 @@ Samples multi-token ESCI test queries, auto-tags each with an entity token
 (highest-IDF query token) and category tokens (the rest), runs base-FAISS
 top-100 retrieval, and bins by AND@100 into easy/mid/hard regimes.
 
-Output: eval/regime_queries.jsonl with one record per query:
+Output: evaluation/regime_queries.jsonl with one record per query:
     {
       "query": "...",
       "tokens": ["..."],
@@ -57,7 +57,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--index-path", default="combined_index_amazon")
     parser.add_argument("--queries", default="esci_us_data/test_queries.jsonl")
-    parser.add_argument("--out", default="eval/regime_queries.jsonl")
+    parser.add_argument("--out", default="evaluation/regime_queries.jsonl")
     parser.add_argument(
         "--sample", type=int, default=1500, help="Random sample of queries to score"
     )
