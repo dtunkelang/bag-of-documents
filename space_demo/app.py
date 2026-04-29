@@ -331,10 +331,28 @@ def bm25_top_k(query, R, k, oversample=3):
     return _dedup_by_title(raw, k)
 
 
-def hybrid_rerank_top_k(query, R, k_top, k_retrieve=100):
-    """RRF(BM25, 6M-MNRL) → ensemble rerank. New ESCI SOTA (R@10 20.01%).
+def bm25_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """BM25 top-K_retrieve → ensemble rerank with two BoD models. ESCI SOTA.
 
+    R@10 21.11% on the 22,458-query ESCI test set, +5.51pp over base. Adding
+    MNRL retrieval to the candidate pool (the previous shipped hybrid)
+    actually hurt rerank quality — its dense candidates diluted BM25's
+    lexically-anchored ones. Strip MNRL retrieval and the architecture is
+    both simpler (no HNSW index in the inference path) and stronger.
     Falls back to mnrl_rerank_top_k if the BM25 index isn't loaded.
+    """
+    positions = _bm25_top_positions(query, R, k_retrieve)
+    if not positions:
+        return mnrl_rerank_top_k(query, R, k_top, k_retrieve)
+    return _ensemble_rerank_from_positions(query, R, positions, k_top)
+
+
+def hybrid_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """RRF(BM25, 6M-MNRL) → ensemble rerank. Previously shipped at R@10 20.01%.
+
+    Retained for comparison: bm25_rerank_top_k (no MNRL retrieval) is the
+    current shipped default at R@10 21.11%. Falls back to mnrl_rerank_top_k
+    if the BM25 index isn't loaded.
     """
     bm25_positions = _bm25_top_positions(query, R, k_retrieve)
     if not bm25_positions:
@@ -414,7 +432,8 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + MNRL hybrid + ensemble rerank (SOTA)",
+    "BM25 + ensemble rerank (SOTA)",
+    "BM25 + MNRL hybrid + ensemble rerank",
     "MNRL + BoD ensemble rerank",
     "Base + BoD ensemble rerank",
     "BM25 retrieval (no dense, no rerank)",
@@ -425,7 +444,9 @@ MODE_LABELS = [
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + MNRL hybrid + ensemble rerank (SOTA)":
+    if mode == "BM25 + ensemble rerank (SOTA)":
+        return bm25_rerank_top_k(query, R, k_top=k)
+    if mode == "BM25 + MNRL hybrid + ensemble rerank":
         return hybrid_rerank_top_k(query, R, k_top=k)
     if mode == "MNRL + BoD ensemble rerank":
         return mnrl_rerank_top_k(query, R, k_top=k)
@@ -469,9 +490,12 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         "1.2M ESCI Amazon products, 75K search queries. Pick a mode for each "
         "column to compare any two retrieval / rerank architectures side by side. "
         "ESCI 22,458-query R@10 in parens:\n\n"
-        "* **BM25 + MNRL hybrid + ensemble rerank** — current SOTA (20.01%). "
-        "RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two "
-        "BoD models.\n"
+        "* **BM25 + ensemble rerank** — current SOTA (21.11%). Tantivy BM25 "
+        "retrieves top-100, two BoD models rerank via sumsim fusion. No dense "
+        "retrieval in the inference path.\n"
+        "* **BM25 + MNRL hybrid + ensemble rerank** (20.01%) — RRF-fuses BM25 "
+        "and 6M-MNRL retrieval, then ensemble-reranks. Adding MNRL retrieval "
+        "to the candidate pool *hurt* rerank quality on this benchmark.\n"
         "* **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, "
         "two BoD models reorder via sumsim fusion.\n"
         "* **BM25 retrieval** (19.50%) — tantivy alone, no dense, no rerank. "
@@ -500,7 +524,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + MNRL hybrid + ensemble rerank (SOTA)",
+            value="BM25 + ensemble rerank (SOTA)",
             label="Right-column mode",
         )
 

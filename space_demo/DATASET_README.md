@@ -101,13 +101,14 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | C | Base + ensemble rerank | 19.00% | 0.3238 | 37.81% | 34.92% |
 | E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
 | H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
-| **I** | **RRF(BM25, MNRL) + ensemble rerank** | **20.01%** | **0.3394** | **39.19%** | **36.22%** |
+| I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
+| **K** | **BM25 + ensemble rerank (no dense retrieval)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
 
 Three things to note:
 
 - **MNRL-trained BoD beats base as a *retriever*** (B vs A: +2.50pp R@10). The original cosine-distilled BoD-as-retriever loses on this stricter benchmark; the MNRL-trained variant doesn't.
 - **BM25 alone is competitive with the dense rerank stack** (H ≈ E, within rounding). On entity-heavy product queries, lexical matching does most of the work.
-- **Hybrid is the SOTA.** Setup I RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two BoD-trained encoders. +4.41pp R@10 over base; +0.18pp over the best dense-only setup. Three-way fusion (BM25 + base + MNRL) adds another +0.06pp — within noise.
+- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over the previous shipped hybrid (I). Adding MNRL retrieval to the candidate pool dilutes BM25's lexically-anchored hits with semantically-near-but-irrelevant ones. The deployable architecture is: tantivy BM25 → ensemble rerank with two BoD encoders. No HNSW index in the inference path.
 
 The ensemble rerank fuses two BoD-trained encoders (`query_model_6m_mnrl` and `query_model_hardneg`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by FAISS-returned index. The hybrid path additionally consults a tantivy BM25 index over the same 1.2M titles.
 

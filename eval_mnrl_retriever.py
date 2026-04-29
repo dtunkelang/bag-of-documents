@@ -169,11 +169,23 @@ def main():
     qv_b = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_qrels_mnrl_hardneg"), queries)
     print(f"  hardneg: {time.time() - t0:.0f}s", flush=True)
 
+    # Optional third reranker: query_model_amazon (cosine-distilled).
+    rerank_c_vecs_path = os.path.join(INDEX_DIR, "rerank_C.vecs.fp16.npy")
+    pv_c = None
+    qv_c = None
+    if os.path.exists(rerank_c_vecs_path):
+        t0 = time.time()
+        qv_c = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_amazon"), queries)
+        print(f"  amazon (rerank_C): {time.time() - t0:.0f}s", flush=True)
+
     # Load cached product matrices
     print("\nloading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
     pv_b = np.load(os.path.join(INDEX_DIR, "rerank_B.vecs.fp16.npy")).astype(np.float32)
     print(f"  pv_a: {pv_a.shape}  pv_b: {pv_b.shape}", flush=True)
+    if qv_c is not None:
+        pv_c = np.load(rerank_c_vecs_path).astype(np.float32)
+        print(f"  pv_c: {pv_c.shape}", flush=True)
 
     # === Retrieve top-K_RETRIEVE per setup ===
     print("\nbase top-100 from MiniLM FAISS...", flush=True)
@@ -310,6 +322,145 @@ def main():
                 dest.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
         orderings["I: RRF(BM25, 6M-MNRL) + ensemble rerank"] = i_orderings
         orderings["J: RRF(BM25, base, 6M-MNRL) + ensemble rerank"] = j_orderings
+
+        # K: BM25-only candidate pool → ensemble rerank. Tests whether 6M-MNRL
+        # retrieval contributes additive candidates over BM25 in the SOTA mix,
+        # or whether all the lift in I comes from the rerank stack.
+        print("building K: BM25 + ensemble rerank...", flush=True)
+        k_orderings = []
+        for qi in range(len(queries)):
+            positions = [int(p) for p in I_bm25[qi] if p >= 0]
+            if not positions:
+                k_orderings.append([])
+                continue
+            cand_a = pv_a[positions]
+            cand_b = pv_b[positions]
+            avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+            order = np.argsort(-avg)[:K_EVAL]
+            k_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+        orderings["K: BM25 + ensemble rerank"] = k_orderings
+
+        # K-variants: explore the local maximum around BM25 + ensemble rerank.
+        # L1, L2: each reranker alone — does the ensemble actually help?
+        # M:     sumrank fusion instead of sumsim — does the fusion choice matter?
+        print("building L/M variants on BM25 candidates...", flush=True)
+        l1_orderings, l2_orderings, m_orderings = [], [], []
+        for qi in range(len(queries)):
+            positions = [int(p) for p in I_bm25[qi] if p >= 0]
+            if not positions:
+                l1_orderings.append([])
+                l2_orderings.append([])
+                m_orderings.append([])
+                continue
+            cand_a = pv_a[positions]
+            cand_b = pv_b[positions]
+            sims_a = cand_a @ qv_a[qi]
+            sims_b = cand_b @ qv_b[qi]
+            order_a = np.argsort(-sims_a)[:K_EVAL]
+            order_b = np.argsort(-sims_b)[:K_EVAL]
+            l1_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order_a])
+            l2_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order_b])
+            ranks_a = np.argsort(np.argsort(-sims_a))
+            ranks_b = np.argsort(np.argsort(-sims_b))
+            order_m = np.argsort(ranks_a + ranks_b)[:K_EVAL]
+            m_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order_m])
+        orderings["L1: BM25 + 6M-MNRL only"] = l1_orderings
+        orderings["L2: BM25 + hardneg only"] = l2_orderings
+        orderings["M: BM25 + sumrank ensemble"] = m_orderings
+
+        # N50, N200: K_retrieve sweep at 50 and 200 (vs K's 100). Requires
+        # bm25_top200.npy with K_retrieve >= 200.
+        bm25_top200_path = os.path.join(INDEX_DIR, "bm25_top200.npy")
+        if os.path.exists(bm25_top200_path):
+            print("building N: K_retrieve sweep on BM25 + ensemble rerank...", flush=True)
+            I_bm25_200 = np.load(bm25_top200_path)
+            for k_ret, label in (
+                (40, "N40"),
+                (50, "N50"),
+                (60, "N60"),
+                (75, "N75"),
+                (200, "N200"),
+            ):
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    cand_a = pv_a[positions]
+                    cand_b = pv_b[positions]
+                    avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings[f"{label}: BM25 top-{k_ret} + ensemble rerank"] = ords
+
+            # Q: min-max normalize each reranker's similarities to [0,1] before
+            # averaging. Tests whether one reranker's wider sim range was
+            # silently dominating the sumsim ensemble.
+            print("building Q: min-max normalized ensemble rerank...", flush=True)
+            q_orderings = []
+            for qi in range(len(queries)):
+                positions = [int(p) for p in I_bm25_200[qi, :100] if p >= 0]
+                if not positions:
+                    q_orderings.append([])
+                    continue
+                cand_a = pv_a[positions]
+                cand_b = pv_b[positions]
+                sims_a = cand_a @ qv_a[qi]
+                sims_b = cand_b @ qv_b[qi]
+
+                def _minmax(x):
+                    lo, hi = float(x.min()), float(x.max())
+                    return (x - lo) / (hi - lo) if hi > lo else np.zeros_like(x)
+
+                avg = (_minmax(sims_a) + _minmax(sims_b)) / 2
+                order = np.argsort(-avg)[:K_EVAL]
+                q_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+            orderings["Q: BM25 top-100 + min-max ensemble"] = q_orderings
+
+            # R: 3-way ensemble rerank with rerank_a (6M-MNRL), rerank_b
+            # (hardneg), rerank_c (cosine-distilled query_model_amazon).
+            # Tests whether a third encoder with a *different* training signal
+            # (cosine loss, smaller construction set) adds orthogonal lift to
+            # the SOTA. Run at K_retrieve=40 and 50 to bracket the N-sweep peak.
+            if pv_c is not None and qv_c is not None:
+                print("building R: BM25 + 3-way ensemble rerank...", flush=True)
+                for k_ret, label in ((40, "R40"), (50, "R50"), (100, "R100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        cand_a = pv_a[positions]
+                        cand_b = pv_b[positions]
+                        cand_c = pv_c[positions]
+                        avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi] + cand_c @ qv_c[qi]) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way rerank"] = ords
+        else:
+            print(f"\nskipping N: {bm25_top200_path} not found", flush=True)
+
+        # P: BM25 with default tokenizer (no stem) → ensemble rerank.
+        bm25_default_path = os.path.join(INDEX_DIR, "bm25_default_top200.npy")
+        if os.path.exists(bm25_default_path):
+            print("building P: default-tokenizer BM25 + ensemble rerank...", flush=True)
+            I_bm25_def = np.load(bm25_default_path)
+            p_orderings = []
+            for qi in range(len(queries)):
+                positions = [int(p) for p in I_bm25_def[qi, :100] if p >= 0]
+                if not positions:
+                    p_orderings.append([])
+                    continue
+                cand_a = pv_a[positions]
+                cand_b = pv_b[positions]
+                avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+                order = np.argsort(-avg)[:K_EVAL]
+                p_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+            orderings["P: BM25 (default tok) + ensemble rerank"] = p_orderings
+        else:
+            print(f"\nskipping P: {bm25_default_path} not found", flush=True)
     else:
         print(f"\nskipping H/I/J: {bm25_path} not found", flush=True)
 

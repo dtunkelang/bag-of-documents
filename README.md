@@ -118,8 +118,17 @@ gain):
 | F | RRF(base, MNRL) retrieval | 17.12% | 0.2916 | 34.36% | 31.43% |
 | G | RRF(base, MNRL) + ensemble rerank | 19.84% | 0.3375 | 39.14% | 36.12% |
 | H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
-| **I** | **RRF(BM25, MNRL) + ensemble rerank** | **20.01%** | **0.3394** | **39.19%** | **36.22%** |
+| I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
 | J | RRF(BM25, base, MNRL) + ensemble rerank | 20.07% | 0.3401 | 39.23% | 36.25% |
+| **K** | **BM25 + ensemble rerank (no dense retrieval)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
+| L1 | BM25 + 6M-MNRL only (single reranker) | 19.67% | 0.3330 | 38.50% | 35.56% |
+| L2 | BM25 + hardneg only (single reranker) | 19.20% | 0.3223 | 37.01% | 34.36% |
+| M | BM25 + sumrank (instead of sumsim) ensemble | 20.58% | 0.3478 | 39.84% | 37.17% |
+| P | BM25 (default tokenizer) + ensemble rerank | 20.31% | 0.3454 | 40.20% | 37.13% |
+| R50 | BM25 + 3-way ensemble (with cosine BoD) | 20.76% | 0.3511 | 40.64% | 37.68% |
+
+K_retrieve sweep on K (BM25 + ensemble rerank): N40 21.15%, N50 21.17%, N60
+21.18%, N75 21.15%, N200 20.96% — peak around top-50/top-100, shallow curve.
 
 Read-outs:
 
@@ -130,23 +139,29 @@ Read-outs:
 - **Ensemble rerank stacks on top of any retriever.** Same two BoD-trained
   rerankers (6M-MNRL, qrels-hardneg) lift base by +3.40pp R@10 (A→C) and
   6M-MNRL by +1.73pp R@10 (B→E).
-- **Setup E reaches +4.23pp R@10 over base with no MiniLM in the inference
-  path** — three forward passes per query, all BoD-trained, plus an HNSW
-  lookup in BoD-trained product space.
 - **BM25 alone is shockingly close to the dense rerank stack.** Setup H
   (stemmed BM25, no dense, no rerank) hits R@10 19.50% — within rounding
-  of E. On entity-heavy product queries, lexical matching is doing most
-  of the work.
-- **Hybrid is the SOTA.** Setup I (RRF-fuses BM25 and 6M-MNRL retrieval,
-  then ensemble-reranks) wins every metric. Setup J adds base FAISS to the
-  fusion pool — +0.06pp over I, within noise.
+  of E. On entity-heavy product queries, lexical matching does most of
+  the work.
+- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 +
+  ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over
+  setup I, the previous shipped hybrid. Adding MNRL retrieval to the
+  candidate pool actively *dilutes* BM25's lexically-anchored hits with
+  semantically-near-but-irrelevant ones that the rerank can't fully clean
+  up. The deployable architecture is: tantivy BM25 → ensemble rerank with
+  two BoD encoders. No HNSW index in the inference path.
+- **The two BoD rerankers are well-matched, but adding a third hurts.**
+  L1/L2 (each reranker alone on BM25 candidates) underperform K's two-way
+  ensemble by 1.4–1.9pp; the cosine-distilled `query_model_amazon` as a
+  third reranker (R50) drags the ensemble down by 0.4pp. Min-max
+  normalizing the two rerankers' similarities before averaging (Q) hurts
+  by 0.05pp — they're already similarly calibrated.
 - **Pure dense fusion (G) doesn't beat dense-only (E).** Base and 6M-MNRL
   fail on overlapping query types, so RRF-fusing two dense retrievers
-  contributes nothing additive after rerank. The hybrid lift in I/J comes
-  from BM25's *different* failure mode, not from the number of retrievers.
+  contributes nothing additive after rerank.
 
 Eval scripts: `eval_mnrl_retriever.py` (the table above), `precompute_bm25_top_k.py`
-(precomputes BM25 top-100 against the en_stem tantivy index for setups H/I/J),
+(precomputes BM25 top-100/200 against tantivy indexes for setups H/I/J/K/N/P),
 `build_mnrl_hnsw_index.py` (builds the 6M-MNRL HNSW from cached product
 embeddings).
 
@@ -158,13 +173,18 @@ The query set consists of all 75K US-locale queries from the Amazon ESCI dataset
 
 The demo (`demo.py`) shows two columns side by side. Each column has its own
 mode dropdown so any two architectures can be compared on the same query.
-Default left = base MiniLM, default right = the SOTA hybrid:
+Default left = base MiniLM, default right = the SOTA:
 
-- **BM25 + MNRL hybrid + ensemble rerank** (default right) — RRF-fuses BM25
-  and 6M-MNRL top-100 candidate sets, then sumsim-reranks with two BoD-trained
-  encoders (6M-MNRL + qrels-hardneg). R@10 20.01% on the ESCI test set.
-- **MNRL + BoD ensemble rerank** — 6M-MNRL retrieves top-100, the same two
-  BoD encoders rerank. R@10 19.83%.
+- **BM25 + ensemble rerank** (default right) — tantivy BM25 retrieves top-100,
+  two BoD-trained encoders (6M-MNRL + qrels-hardneg) rerank via sumsim
+  fusion. R@10 21.11% on the ESCI test set. No HNSW index in the inference
+  path.
+- **BM25 + MNRL hybrid + ensemble rerank** — RRF-fuses BM25 and 6M-MNRL
+  top-100, then ensemble-reranks. R@10 20.01% — the previously shipped
+  default; superseded since MNRL retrieval was found to dilute the
+  candidate pool.
+- **MNRL + BoD ensemble rerank** — 6M-MNRL retrieves top-100, then ensemble
+  rerank. R@10 19.83%.
 - **Base + BoD ensemble rerank** — same reranker stack on plain MiniLM
   retrieval. R@10 19.00%.
 - **BM25 retrieval** — tantivy en_stem alone, no dense, no rerank. R@10

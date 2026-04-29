@@ -368,12 +368,69 @@ def bm25_top_k(query, resources, k=10):
     return results
 
 
-def hybrid_rerank_top_k(query, resources, k_top=10, k_retrieve=100, include_base=False):
-    """RRF(BM25, 6M-MNRL[, base]) → ensemble rerank. New ESCI SOTA.
+def bm25_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
+    """BM25 top-K_retrieve → ensemble rerank with two BoD models. ESCI SOTA.
 
-    R@10 20.01% with include_base=False (setup I); 20.07% with include_base=True
-    (setup J). Falls back to ensemble_rerank(retriever="mnrl") if BM25
-    or MNRL retrieval is unavailable.
+    R@10 21.11% on the 22,458-query ESCI test set, +5.51pp over base, +1.10pp
+    over the previous shipped (RRF(BM25, MNRL) + ensemble rerank). The MNRL
+    retrieval lane was *worse than dead weight* — its candidates diluted
+    BM25's. Stripping it produces both a stronger and simpler architecture
+    (no HNSW index in the inference path).
+    """
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    titles = resources["titles"]
+
+    positions = _bm25_top_positions(query, resources, k_retrieve)
+    if not positions:
+        # Fallback to dense rerank if BM25 unavailable.
+        return ensemble_rerank(
+            query, resources, k_retrieve=k_retrieve, k_top=k_top, retriever="mnrl"
+        )
+
+    if a_vecs is None or b_vecs is None or a is None or b is None:
+        # No rerankers loaded — return BM25 ordering as-is.
+        seen, results = set(), []
+        for p in positions:
+            t = titles[p]
+            if t in seen:
+                continue
+            seen.add(t)
+            results.append({"title": t, "score": 0.0})
+            if len(results) >= k_top:
+                break
+        return results
+
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb) / 2
+    order = np.argsort(-avg_sim)
+
+    seen, results = set(), []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(avg_sim[int(idx)]), 4)})
+        if len(results) >= k_top:
+            break
+    return results
+
+
+def hybrid_rerank_top_k(query, resources, k_top=10, k_retrieve=100, include_base=False):
+    """RRF(BM25, 6M-MNRL[, base]) → ensemble rerank.
+
+    Previously shipped SOTA (R@10 20.01% with include_base=False; 20.07% with
+    include_base=True). Now retained for comparison: bm25_rerank_top_k
+    (BM25 + ensemble, no MNRL retrieval) is the current shipped default at
+    R@10 21.11% — adding MNRL retrieval to the candidate pool *hurt* the rerank
+    by diluting BM25's lexical anchors. Falls back to ensemble_rerank with
+    retriever="mnrl" if BM25 or MNRL retrieval is unavailable.
     """
     a = resources.get("rerank_a")
     b = resources.get("rerank_b")
@@ -682,8 +739,11 @@ def _results_for_mode(mode, q, resources, k):
     mnrl           — 6M-MNRL BoD retriever, no rerank (18.10%)
     rerank         — base FAISS + ensemble rerank (19.00%)
     mnrl_rerank    — 6M-MNRL retriever + ensemble rerank (19.83%)
-    hybrid_rerank  — RRF(BM25, 6M-MNRL) + ensemble rerank (20.01%, current SOTA)
+    hybrid_rerank  — RRF(BM25, 6M-MNRL) + ensemble rerank (20.01%, prior SOTA)
+    bm25_rerank    — BM25 + ensemble rerank (21.11%, current SOTA)
     """
+    if mode == "bm25_rerank":
+        return bm25_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
     if mode == "hybrid_rerank":
         return hybrid_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
     if mode == "mnrl_rerank":
@@ -706,8 +766,8 @@ async def api_search(
     q: str = Query(..., description="Search query"),
     k: int = Query(50, description="Number of results (also scales candidate retrieval)"),
     mode: str = Query(
-        "hybrid_rerank",
-        description="Right-column mode: base | retrieval | bm25 | mnrl | rerank | mnrl_rerank | hybrid_rerank",
+        "bm25_rerank",
+        description="Right-column mode: base | retrieval | bm25 | mnrl | rerank | mnrl_rerank | hybrid_rerank | bm25_rerank",
     ),
     left_mode: str = Query("base", description="Left-column mode (same options as `mode`)"),
 ):
@@ -780,7 +840,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
 <body>
 
 <h1>Bag-of-Documents Search</h1>
-<p class="subtitle">1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996&ndash;2023) &middot; 75K queries &middot; Pick a mode for each column: BM25, base or fine-tuned dense retrieval, ensemble rerank, BM25+MNRL hybrid rerank, or query-time bag construction</p>
+<p class="subtitle">1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996&ndash;2023) &middot; 75K queries &middot; Pick a mode for each column: BM25, base or fine-tuned dense retrieval, ensemble rerank, BM25 + ensemble rerank (SOTA), or query-time bag construction</p>
 
 <div class="search-box">
     <input type="text" id="query" placeholder="Search products..." autofocus>
@@ -811,6 +871,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="rerank">Base + ensemble rerank</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank</option>
                 <option value="hybrid_rerank">BM25 + MNRL hybrid + rerank</option>
+                <option value="bm25_rerank">BM25 + ensemble rerank</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -818,7 +879,8 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="hybrid_rerank" selected>BM25 + MNRL hybrid + rerank (SOTA)</option>
+                <option value="bm25_rerank" selected>BM25 + ensemble rerank (SOTA)</option>
+                <option value="hybrid_rerank">BM25 + MNRL hybrid + rerank</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank</option>
                 <option value="rerank">Base + ensemble rerank</option>
                 <option value="bm25">BM25 retrieval</option>
@@ -857,7 +919,7 @@ async function doSearch(mode, leftMode) {
     const q = input.value.trim();
     if (!q) return;
 
-    mode = mode || 'hybrid_rerank';
+    mode = mode || 'bm25_rerank';
     leftMode = leftMode || 'base';
 
     document.getElementById('empty').style.display = 'none';

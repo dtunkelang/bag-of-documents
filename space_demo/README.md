@@ -15,9 +15,10 @@ Compare retrieval / rerank architectures on 1.2M Amazon ESCI products (75K real 
 
 ESCI 22,458-query R@10 in parens:
 
-- **BM25 + MNRL hybrid + ensemble rerank** (default right, 20.01%) — RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks with two BoD-trained encoders. Current SOTA.
-- **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, two BoD models reorder via sumsim fusion.
-- **BM25 retrieval** (19.50%) — tantivy en_stem alone, no dense, no rerank. Surprisingly competitive on entity-heavy product queries.
+- **BM25 + ensemble rerank** (default right, 21.11%) — tantivy BM25 retrieves top-100, two BoD-trained encoders rerank via sumsim fusion. Current SOTA. No HNSW index in the inference path.
+- **BM25 + MNRL hybrid + ensemble rerank** (20.01%) — RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks. Previously shipped; superseded since MNRL retrieval was found to dilute the candidate pool.
+- **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, then ensemble rerank.
+- **BM25 retrieval** (19.50%) — tantivy en_stem alone, no dense, no rerank.
 - **Base + BoD ensemble rerank** (19.00%) — the same reranker stack on plain MiniLM retrieval.
 - **MNRL retrieval (no rerank)** (18.10%) — 6M-MNRL alone.
 - **Fine-tuned retrieval (cosine BoD)** — the originally deployed BoD-as-retriever; kept for historical comparison.
