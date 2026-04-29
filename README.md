@@ -151,6 +151,28 @@ base learned *less* of the bag distribution at the same training recipe
 different recipe — higher LR, different loss, hard negatives, or
 supervised data — which moves out of the cheap-probe regime.
 
+#### Where the lift comes from (per-query-bin breakdown)
+
+Binning the 22,458 queries by base MiniLM's per-query R@10 reveals the
++5.51pp aggregate K - base lift is dramatically bimodal:
+
+| bin (base R@10) | n queries | base R@10 | K R@10 | lift | E@1 lift |
+|---|---|---|---|---|---|
+| 0 (hard regime) | 7,293 (32%) | 0.00% | 8.57% | **+8.57pp** | +13.86pp |
+| (0, 0.25] | 10,339 (46%) | 12.86% | 18.07% | +5.21pp | +9.66pp |
+| (0.25, 0.50] | 3,594 (16%) | 37.45% | 40.25% | +2.80pp | +2.62pp |
+| (0.50, 1.00] (easy) | 1,232 (5%) | 67.10% | 64.99% | **-2.11pp** | +0.08pp |
+
+A third of the queries have zero base-FAISS recall — products dense
+retrieval can't surface at all. BM25 + ensemble rerank rescues 8.57% of
+them and lifts E@1 from 0% to 13.86%. That single bin contributes +2.74pp
+to the +5.51pp aggregate — half the total lift. On the 5% of queries
+where dense already does well (R@10 > 0.5), K *loses* 2.11pp to base — but
+E@1 is preserved. The headline of the architecture's behavior: BM25 +
+rerank wins by rescuing the hard regime, not by being uniformly better.
+
+Diagnostic: `eval_per_query_bins.py`.
+
 Read-outs:
 
 - **The cosine-distilled BoD-as-retriever loses to base on this benchmark.**
