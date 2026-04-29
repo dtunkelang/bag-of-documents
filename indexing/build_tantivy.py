@@ -10,6 +10,11 @@ Once validated, swap into the canonical location with:
     mv <index_path>/tantivy_index_stem <index_path>/tantivy_index
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

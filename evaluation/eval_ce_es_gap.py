@@ -9,6 +9,11 @@ Usage:
     python eval_ce_es_gap.py --ce-model models/esci-us-ce
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

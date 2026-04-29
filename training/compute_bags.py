@@ -11,6 +11,11 @@ Usage:
     python compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

@@ -12,6 +12,11 @@ Usage:
     python download_catalog.py --sample-pct 100  # keep everything
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import gzip
 import json

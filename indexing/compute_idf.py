@@ -13,6 +13,11 @@ Output: <index_path>/idf.json with structure:
 IDF is derivable from (df, n_docs) at use time so the file is small.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

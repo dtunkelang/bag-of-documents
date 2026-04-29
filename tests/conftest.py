@@ -1,10 +1,20 @@
 """Shared test fixtures for bag-of-documents tests."""
 
-import json
+import sys
+from pathlib import Path
 
-import faiss
-import numpy as np
-import pytest
+# Make scripts in subdirectory packages (training/, indexing/, evaluation/)
+# importable as top-level modules. Tests existed before the reorg and import
+# e.g. `from finetune_query_model import load_bags`.
+_ROOT = Path(__file__).resolve().parent.parent
+for sub in ("training", "indexing", "evaluation"):
+    sys.path.insert(0, str(_ROOT / sub))
+
+import json  # noqa: E402
+
+import faiss  # noqa: E402
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
 
 
 @pytest.fixture

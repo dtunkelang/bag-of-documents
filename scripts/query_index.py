@@ -14,6 +14,11 @@ Usage:
     python query_index.py combined_index/ --interactive
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

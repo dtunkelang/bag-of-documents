@@ -20,6 +20,11 @@ Retrieval is brute-force top-100 against cached fp16 product matrices
 (combined_index_us_minilm/rerank_{A,B}.vecs.fp16.npy) — ~160s per model.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import json
 import math
 import os

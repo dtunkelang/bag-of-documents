@@ -3,6 +3,11 @@
 
 Pipeline:
   1. Encode all test queries with base MiniLM (subprocess, MPS), retrieve top-K
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
      from FAISS (combined_index_us_minilm).
   2. Save base retrievals to disk.
   3. For each rerank model: subprocess loads model, reads retrievals in batches,

@@ -14,6 +14,11 @@ Usage:
         combined_index_us_minilm/query_model_us_full_6m_mnrl.vecs.fp16.npy
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

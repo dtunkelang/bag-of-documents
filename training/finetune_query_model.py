@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
 Fine-tune a sentence transformer to predict bag-of-documents query vectors
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from query text.
 
 Loads query vectors from bags.jsonl, splits into train/val, fine-tunes

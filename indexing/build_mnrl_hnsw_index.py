@@ -6,6 +6,11 @@ enabling sub-100ms retrieval through the 6M-MNRL product space (vs ~190s
 brute force for 22K queries).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import os
 import time
 

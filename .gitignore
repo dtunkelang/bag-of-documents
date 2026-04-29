@@ -10,16 +10,24 @@ __pycache__/
 
 # Data (hosted on HuggingFace, not in repo)
 combined_index/
+combined_index_*/
 bags.jsonl
-bags_threshold_*.jsonl
+bags_*.jsonl
 queries.jsonl
+queries_*.jsonl
 esci/
+esci_*_data/
+nfcorpus_data/
 full_catalog/
 models/
 query_model/
 query_model_*/
 retrieval_model
 round1/
+
+# Large index artifacts
+*.faiss
+*.npy
 
 # Misc
 memory/

@@ -18,6 +18,11 @@ Usage:
     python eval_e_at_k.py --limit 5000 --models base,query_model_us_full_6m_mnrl
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import os

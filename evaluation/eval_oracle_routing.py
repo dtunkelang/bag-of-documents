@@ -14,6 +14,11 @@ If oracle is within ~0.2pp of K, routing has no headroom and the work to
 build a router is wasted.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import json
 import math
 import os

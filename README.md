@@ -13,16 +13,16 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 pip install -r requirements.txt
 
 # Download product catalog (20% sample, ~6M products)
-python download_catalog.py
+python download/download_catalog.py
 
 # Build indexes (FAISS + tantivy) — takes ~2-3 hours
-python build_index.py
+python indexing/build_index.py
 
 # Compute bags from ESCI queries — takes ~19 hours on Apple Silicon
-python compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
+python training/compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
 
 # Fine-tune the query model
-python finetune_query_model.py bags.jsonl query_model/
+python training/finetune_query_model.py bags.jsonl query_model/
 
 # Run the demo
 python demo.py
@@ -59,28 +59,46 @@ Earlier versions included a rule filter (spec/capacity matching) and a 4-signal 
 
 The cross-encoder alone produces higher quality bags than the combination of heuristics + CE.
 
-## Key Files
+## Repository Layout
 
-| File | Purpose |
-|------|---------|
-| `compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
-| `compute_idf.py` | Per-token doc-frequency over the catalog (used for IDF combo ranking in compute_bags) |
-| `build_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
-| `build_tantivy.py` | Build a tantivy index from titles.json under a configurable tokenizer (e.g. `en_stem`) |
-| `download_catalog.py` | Download and sample McAuley Lab product catalog |
-| `finetune_query_model.py` | Fine-tune sentence transformer on bag centroids (cosine or MNRL loss) |
-| `train_esci_ce.py` | Train a cross-encoder on ESCI grades; `--label-mode {regression,wide,binary}` |
-| `precompute_rerank_vecs.py` | One-shot encode of the catalog under a reranker → cached fp16 numpy |
-| `eval_model.py` | Single-model ESCI label-recall evaluation |
-| `eval_rerank_full.py` | Full-ESCI rerank eval: base ± rerank, R@10 and nDCG@10 |
-| `eval_ensemble.py` | RRF / sumrank fusion over saved rerank position arrays |
-| `eval_ce_es_gap.py` | Measure CE E-vs-S separation (gap, E>S frequency) |
-| `eval_new_ce.sh` | Post-CE-training validation pipeline |
-| `build_regime_eval.py` | Build a per-regime (easy/mid/hard) eval harness from ESCI test queries |
-| `demo.py` | Web demo: base + selectable right-column mode (retrieval / rerank / bag) |
-| `preflight.py` | Pre-run validation (index consistency, disk, memory) |
-| `query_index.py` | CLI for querying the product index |
-| `run_pipeline.sh` | Pipeline orchestration |
+| Directory | Contents |
+|---|---|
+| `download/` | Catalog and dataset acquisition (`download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`) |
+| `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
+| `training/` | Bag construction, CE training, query-model fine-tuning |
+| `evaluation/` | Eval scripts and per-query / per-bin diagnostics |
+| `scripts/` | One-off CLIs (`preflight.py`, `query_index.py`, `push_to_hf.py`) |
+| `space_demo/` | HuggingFace Space demo (Gradio) |
+| `tests/` | pytest suite |
+| `docs/`, `memory/` | Documentation and persistent project notes |
+
+Top-level: `demo.py` (local FastAPI demo, main entry point) and `utils.py` (shared utilities imported across subdirs).
+
+### Key Scripts
+
+| Script | Purpose |
+|---|---|
+| `training/compute_bags.py` | Bag computation: hybrid retrieval → CE scoring → centroid |
+| `training/compute_idf.py` *(via indexing/)* | Per-token doc-frequency for IDF combo ranking |
+| `indexing/build_index.py` | Build FAISS HNSW + tantivy indexes from titles, with validation |
+| `indexing/build_tantivy.py` | Build a tantivy index from titles.json under a configurable tokenizer |
+| `indexing/build_mnrl_hnsw_index.py` | Build the 6M-MNRL HNSW from cached product vectors |
+| `indexing/precompute_rerank_vecs.py` | One-shot encode of the catalog under a reranker → cached fp16 numpy |
+| `indexing/precompute_bm25_top_k.py` | Precompute BM25 top-K positions for the test queries |
+| `download/download_catalog.py` | Download and sample McAuley Lab product catalog |
+| `training/finetune_query_model.py` | Fine-tune sentence transformer on bag centroids (cosine or MNRL loss) |
+| `training/train_esci_ce.py` | Train a cross-encoder on ESCI grades; `--label-mode {regression,wide,binary}` |
+| `evaluation/eval_mnrl_retriever.py` | Comprehensive ESCI eval — setups A through Y |
+| `evaluation/eval_per_query_bins.py` | Per-query-bin breakdown (binned by base R@10) |
+| `evaluation/eval_oracle_routing.py` | Oracle + threshold/heuristic per-query routing analysis |
+| `evaluation/eval_model.py` | Single-model ESCI label-recall evaluation |
+| `evaluation/eval_rerank_full.py` | Full-ESCI rerank eval: base ± rerank, R@10 and nDCG@10 |
+| `evaluation/eval_ensemble.py` | RRF / sumrank fusion over saved rerank position arrays |
+| `evaluation/eval_ce_es_gap.py` | Measure CE E-vs-S separation (gap, E>S frequency) |
+| `evaluation/build_regime_eval.py` | Build a per-regime (easy/mid/hard) eval harness from ESCI test queries |
+| `demo.py` | Web demo: per-column mode dropdowns (retrieval / rerank / bag / SOTA hybrid) |
+| `scripts/preflight.py` | Pre-run validation (index consistency, disk, memory) |
+| `scripts/query_index.py` | CLI for querying the product index |
 
 ## Dataset
 
@@ -171,7 +189,7 @@ where dense already does well (R@10 > 0.5), K *loses* 2.11pp to base — but
 E@1 is preserved. The headline of the architecture's behavior: BM25 +
 rerank wins by rescuing the hard regime, not by being uniformly better.
 
-Diagnostic: `eval_per_query_bins.py`.
+Diagnostic: `evaluation/eval_per_query_bins.py`.
 
 #### Per-query routing (negative result)
 
@@ -198,7 +216,7 @@ rather than query-side features. Unlocking the 1.76pp headroom would
 require running both lanes per query and learning a classifier on
 retrieval-side signals — defeating the routing latency benefit.
 
-Diagnostic: `eval_oracle_routing.py`.
+Diagnostic: `evaluation/eval_oracle_routing.py`.
 
 Read-outs:
 
@@ -245,9 +263,9 @@ Read-outs:
   fail on overlapping query types, so RRF-fusing two dense retrievers
   contributes nothing additive after rerank.
 
-Eval scripts: `eval_mnrl_retriever.py` (the table above), `precompute_bm25_top_k.py`
+Eval scripts: `evaluation/eval_mnrl_retriever.py` (the table above), `indexing/precompute_bm25_top_k.py`
 (precomputes BM25 top-100/200 against tantivy indexes for setups H/I/J/K/N/P),
-`build_mnrl_hnsw_index.py` (builds the 6M-MNRL HNSW from cached product
+`indexing/build_mnrl_hnsw_index.py` (builds the 6M-MNRL HNSW from cached product
 embeddings).
 
 ## Queries
@@ -284,7 +302,7 @@ Default left = base MiniLM, default right = the SOTA:
   → FAISS re-retrieval. Requires `--bag-search` to load the cross-encoder
   at startup. Right-column only.
 
-Precomputed product embeddings (`precompute_rerank_vecs.py`) keep dense
+Precomputed product embeddings (`indexing/precompute_rerank_vecs.py`) keep dense
 modes at sub-100ms; the BM25 path is faster still.
 
 ## Known Limitations

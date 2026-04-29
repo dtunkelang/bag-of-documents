@@ -23,6 +23,11 @@ Usage:
     python scripts/push_to_hf.py --space      # space only
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import sys
 from pathlib import Path
