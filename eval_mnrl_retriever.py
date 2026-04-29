@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Evaluate the 6M-MNRL model as primary retriever, with optional hardneg rerank.
+"""Evaluate retrieval / rerank architectures on the ESCI test set.
 
-Setups computed in one pass on the 22,458-query ESCI test set:
-  A. base alone                          (canonical baseline)
-  B. 6M-MNRL retriever alone             (no rerank)
-  C. base + 6M+hardneg ensemble rerank   (current deployable, +2.75pp R@10)
-  D. 6M-MNRL retriever + hardneg rerank  (the candidate new architecture)
-  E. 6M-MNRL retriever + 6M+hardneg ensemble rerank (sanity)
+Setups computed in one pass on the 22,458-query ESCI test set. Headline
+results (R@10, E+S pooled):
+  A. base alone                              15.60%   baseline
+  B. 6M-MNRL retriever alone                 18.10%
+  C. base + ensemble rerank                  19.00%
+  E. 6M-MNRL + ensemble rerank               19.83%
+  H. BM25 alone (en_stem tantivy)            19.50%
+  I. RRF(BM25, MNRL) + ensemble rerank       20.01%   previous shipped
+  K. BM25 + ensemble rerank (no dense)       21.11%   current SOTA
+plus F/G/J score-fusion variants, L1/L2 single-reranker ablations,
+M sumrank fusion, N* K_retrieve sweep, P default-tokenizer BM25,
+Q min-max-normalized fusion, R* 3-way ensemble.
 
 Metrics: R@10 (E+S relevant), nDCG@10 (E=1.0/S=0.1/C=0.01/I=0), E@1, E@3.
 
 Retrieval is brute-force top-100 against cached fp16 product matrices
-(combined_index_us_minilm/rerank_{A,B}.vecs.fp16.npy) — ~100s per model.
+(combined_index_us_minilm/rerank_{A,B}.vecs.fp16.npy) — ~160s per model.
 """
 
 import json

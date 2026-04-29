@@ -242,8 +242,8 @@ def _ensemble_rerank_from_positions(query, R, valid_positions, k_top):
 def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
     """Base FAISS top-K_retrieve → sumsim ensemble rerank → top-K_top.
 
-    Current production deployable. +2.75pp R@10 over base on the 22,458-query
-    ESCI test set.
+    +3.40pp R@10 over base on the 22,458-query ESCI test set (15.60% → 19.00%).
+    Superseded as production default by bm25_rerank_top_k.
     """
     _, _, I, _ = base_top_k(query, R, k_retrieve)
     valid = [int(i) for i in I[0] if i >= 0]
@@ -253,8 +253,9 @@ def ensemble_rerank_top_k(query, R, k_top, k_retrieve=100):
 def mnrl_rerank_top_k(query, R, k_top, k_retrieve=100):
     """6M-MNRL retrieval top-K_retrieve → sumsim ensemble rerank → top-K_top.
 
-    Best architecture on the ESCI test set: +4.23pp R@10 over base
-    (15.60% → 19.83%), +0.0727 nDCG@10. Falls back to base+ensemble if the
+    +4.23pp R@10 over base on the 22,458-query ESCI test set
+    (15.60% → 19.83%), +0.0727 nDCG@10. Superseded as production default by
+    bm25_rerank_top_k (R@10 21.11%). Falls back to base+ensemble if the
     MNRL FAISS index isn't loaded.
     """
     if R.get("mnrl_index") is None:
