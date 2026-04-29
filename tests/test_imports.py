@@ -24,10 +24,15 @@ SUBDIRS = ["download", "indexing", "training", "evaluation", "scripts"]
 # Best practice would be to wrap their top-level code in `def main()`, but
 # they are one-off data-acquisition utilities and not load-bearing.
 IMPORT_SKIP = {
+    # Do real work (HTTP downloads) at top level — would slow CI and fail
+    # without network. Refactor to def main() if revisiting.
     "download/download_esci_es.py",
     "download/download_esci_us.py",
     "download/download_nfcorpus.py",
     "download/download_catalog.py",
+    # Loads eval data files at module top level — fails in clean CI without
+    # esci_us_data/. Refactor to def main() if revisiting.
+    "evaluation/eval_ensemble.py",
 }
 
 

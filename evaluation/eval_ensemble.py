@@ -34,7 +34,7 @@ os.chdir(_Path(__file__).resolve().parent.parent)
 import numpy as np  # noqa: E402  (placed after os.environ to control thread count)
 
 WORKDIR = "/tmp/rerank_eval"
-SCRIPT_DIR = "/Users/dtunkelang/bagofdocs"
+SCRIPT_DIR = str(_Path(__file__).resolve().parent.parent)
 
 # Load eval data
 print("loading qrels + queries + product map...", flush=True)

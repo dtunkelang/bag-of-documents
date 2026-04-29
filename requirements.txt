@@ -12,3 +12,4 @@ datasets>=4.0
 ruff>=0.15
 mypy>=1.0
 pytest>=9.0
+pre-commit>=4.0

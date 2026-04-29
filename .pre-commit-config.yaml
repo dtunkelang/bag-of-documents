@@ -1,0 +1,53 @@
+# Pre-commit hooks for bagofdocs.
+#
+# Setup (one-time, per clone):
+#   pip install pre-commit
+#   pre-commit install                       # fast checks on every commit
+#   pre-commit install --hook-type pre-push  # full test suite on every push
+#
+# The split is intentional: commits should be cheap (ruff is ~1s), pushes
+# can pay for the import-smoke + shell-path tests (~90s) since pushes are
+# rare and CI failures are expensive to recover from.
+
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff
+        name: ruff check
+        args: [--fix]
+        files: '\.py$'
+      - id: ruff-format
+        name: ruff format
+        files: '\.py$'
+
+  - repo: local
+    hooks:
+      # Trip on shell-script paths that point at moved or missing scripts.
+      # Fast (no Python imports), so it can stay on pre-commit.
+      - id: shell-script-paths
+        name: shell-script paths point at real files
+        entry: .venv/bin/python -m pytest tests/test_script_paths.py -q
+        language: system
+        pass_filenames: false
+        files: '\.(sh|py)$'
+        stages: [pre-commit]
+
+      # Full import smoke (slow: ~75s loading torch/sentence-transformers
+      # in a subprocess for each script). Runs on push only.
+      - id: import-smoke
+        name: every script is importable (smoke test)
+        entry: .venv/bin/python -m pytest tests/test_imports.py tests/test_script_paths.py -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Full unit test suite. Pre-push only.
+      - id: pytest
+        name: pytest unit tests
+        entry: .venv/bin/python -m pytest tests/ -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
