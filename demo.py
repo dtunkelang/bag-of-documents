@@ -17,6 +17,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 
 import faiss
 import numpy as np
@@ -145,6 +146,13 @@ def load_resources():
         tantivy_idx = tv_index
         print("  Tantivy index loaded")
 
+    # Title -> first FAISS position map for BM25 hybrid retrieval. Built once
+    # at load time; tantivy returns titles, hybrid fusion needs positions.
+    title_to_pos = {}
+    for i, t in enumerate(titles):
+        if t not in title_to_pos:
+            title_to_pos[t] = i
+
     # Cross-encoder for bag search mode
     ce_model = None
     if os.environ.get("LOAD_BAG_SEARCH") == "1":
@@ -170,6 +178,7 @@ def load_resources():
         "bag_specs": bag_specs,
         "tantivy_searcher": tantivy_searcher,
         "tantivy_index": tantivy_idx,
+        "title_to_pos": title_to_pos,
         "ce_model": ce_model,
     }
 
@@ -287,6 +296,165 @@ def ensemble_rerank(query, resources, k_retrieve=100, k_top=10, retriever="base"
         f"fuse={timings['fuse_ms']:.1f}ms",
         flush=True,
     )
+    return results
+
+
+_BM25_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _safe_parse_bm25(tv_index, query):
+    """Parse a query for tantivy BM25 search; strip punctuation on syntax error."""
+    try:
+        return tv_index.parse_query(query, ["title"])
+    except ValueError:
+        cleaned = _BM25_PUNCT_RE.sub(" ", query).strip()
+        if not cleaned:
+            return None
+        try:
+            return tv_index.parse_query(cleaned, ["title"])
+        except ValueError:
+            return None
+
+
+def _bm25_top_positions(query, resources, k):
+    """Top-k FAISS positions from BM25 retrieval over the tantivy index."""
+    tv_idx = resources.get("tantivy_index")
+    tv_searcher = resources.get("tantivy_searcher")
+    title_to_pos = resources.get("title_to_pos") or {}
+    if tv_idx is None or tv_searcher is None:
+        return []
+    parsed = _safe_parse_bm25(tv_idx, query)
+    if parsed is None:
+        return []
+    hits = tv_searcher.search(parsed, limit=k * 2).hits
+    positions = []
+    seen = set()
+    for _, addr in hits:
+        title = tv_searcher.doc(addr)["title"][0]
+        pos = title_to_pos.get(title)
+        if pos is None or pos in seen:
+            continue
+        seen.add(pos)
+        positions.append(pos)
+        if len(positions) >= k:
+            break
+    return positions
+
+
+def bm25_top_k(query, resources, k=10):
+    """BM25 retrieval over the tantivy index (en_stem tokenizer).
+
+    On the 22,458-query ESCI test set, BM25 alone scores R@10 19.50% / E@1
+    38.79% — within rounding of the dense ensemble-rerank stack.
+    """
+    tv_idx = resources.get("tantivy_index")
+    tv_searcher = resources.get("tantivy_searcher")
+    if tv_idx is None or tv_searcher is None:
+        return []
+    parsed = _safe_parse_bm25(tv_idx, query)
+    if parsed is None:
+        return []
+    hits = tv_searcher.search(parsed, limit=k * 3).hits
+    seen = set()
+    results = []
+    for score, addr in hits:
+        title = tv_searcher.doc(addr)["title"][0]
+        if title in seen:
+            continue
+        seen.add(title)
+        results.append({"title": title, "score": round(float(score), 4)})
+        if len(results) >= k:
+            break
+    return results
+
+
+def hybrid_rerank_top_k(query, resources, k_top=10, k_retrieve=100, include_base=False):
+    """RRF(BM25, 6M-MNRL[, base]) → ensemble rerank. New ESCI SOTA.
+
+    R@10 20.01% with include_base=False (setup I); 20.07% with include_base=True
+    (setup J). Falls back to ensemble_rerank(retriever="mnrl") if BM25
+    or MNRL retrieval is unavailable.
+    """
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    titles = resources["titles"]
+
+    bm25_positions = _bm25_top_positions(query, resources, k_retrieve)
+
+    mnrl_positions = []
+    if resources.get("mnrl_index") is not None and a is not None:
+        qv = a.encode(query, normalize_embeddings=True)
+        qv = np.array(qv, dtype=np.float32).reshape(1, -1)
+        faiss.normalize_L2(qv)
+        try:
+            resources["mnrl_index"].hnsw.efSearch = 128
+        except Exception:
+            pass
+        _, I = resources["mnrl_index"].search(qv, k_retrieve)
+        mnrl_positions = [int(p) for p in I[0] if p >= 0]
+
+    base_positions = []
+    if include_base:
+        bm = resources.get("base_model")
+        idx_base = resources.get("index")
+        if bm is not None and idx_base is not None:
+            qv2 = bm.encode(query, normalize_embeddings=True)
+            qv2 = np.array(qv2, dtype=np.float32).reshape(1, -1)
+            faiss.normalize_L2(qv2)
+            try:
+                idx_base.hnsw.efSearch = 128
+            except Exception:
+                pass
+            _, I2 = idx_base.search(qv2, k_retrieve)
+            base_positions = [int(p) for p in I2[0] if p >= 0]
+
+    if not bm25_positions and not mnrl_positions:
+        return ensemble_rerank(
+            query, resources, k_retrieve=k_retrieve, k_top=k_top, retriever="mnrl"
+        )
+
+    rrf_c = 60
+    rrf = {}
+    for source in (bm25_positions, mnrl_positions, base_positions):
+        for rank, p in enumerate(source):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + rrf_c)
+    fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:k_retrieve]
+    positions = [p for p, _ in fused]
+    if not positions:
+        return []
+
+    if a_vecs is None or b_vecs is None or a is None or b is None:
+        seen = set()
+        results = []
+        for p, score in fused:
+            t = titles[p]
+            if t in seen:
+                continue
+            seen.add(t)
+            results.append({"title": t, "score": round(float(score), 4)})
+            if len(results) >= k_top:
+                break
+        return results
+
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb) / 2
+    order = np.argsort(-avg_sim)
+
+    seen = set()
+    results = []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(avg_sim[int(idx)]), 4)})
+        if len(results) >= k_top:
+            break
     return results
 
 
@@ -506,38 +674,51 @@ async def api_bag_search(
     }
 
 
+def _results_for_mode(mode, q, resources, k):
+    """Compute top-k results for a single mode. ESCI 22,458-query R@10 in parens.
+    base           — base MiniLM retrieval, no fine-tuning, no rerank (15.60%)
+    retrieval      — original cosine-distilled BoD retriever (see notes)
+    bm25           — tantivy BM25 alone, no dense, no rerank (19.50%)
+    mnrl           — 6M-MNRL BoD retriever, no rerank (18.10%)
+    rerank         — base FAISS + ensemble rerank (19.00%)
+    mnrl_rerank    — 6M-MNRL retriever + ensemble rerank (19.83%)
+    hybrid_rerank  — RRF(BM25, 6M-MNRL) + ensemble rerank (20.01%, current SOTA)
+    """
+    if mode == "hybrid_rerank":
+        return hybrid_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
+    if mode == "mnrl_rerank":
+        return ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="mnrl")
+    if mode == "rerank":
+        return ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="base")
+    if mode == "mnrl":
+        return search_products_with_index(q, resources, "rerank_a", "mnrl_index", k=k)
+    if mode == "bm25":
+        return bm25_top_k(q, resources, k=k)
+    if mode == "base":
+        return search_products(q, resources, "base_model", k=k)
+    if mode == "retrieval":
+        return search_products(q, resources, "retrieval_model", k=k)
+    return search_products(q, resources, "retrieval_model", k=k)
+
+
 @app.get("/api/search")
 async def api_search(
     q: str = Query(..., description="Search query"),
     k: int = Query(50, description="Number of results (also scales candidate retrieval)"),
     mode: str = Query(
-        "mnrl_rerank",
-        description="Right-column mode: retrieval | mnrl | rerank | mnrl_rerank",
+        "hybrid_rerank",
+        description="Right-column mode: base | retrieval | bm25 | mnrl | rerank | mnrl_rerank | hybrid_rerank",
     ),
+    left_mode: str = Query("base", description="Left-column mode (same options as `mode`)"),
 ):
     specificity, neighbors = predict_specificity(q, resources)
-
-    # Right column varies by mode:
-    #   retrieval     — original cosine-distilled BoD retriever (single model + MiniLM FAISS)
-    #   mnrl          — 6M-MNRL BoD retriever, no rerank (beats base on E@1/E@3 + R@10)
-    #   rerank        — base FAISS + ensemble rerank (current deployable, +2.75pp R@10)
-    #   mnrl_rerank   — 6M-MNRL retriever + ensemble rerank (best: +4.23pp R@10, +0.0727 nDCG)
-    if mode == "mnrl_rerank":
-        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="mnrl")
-    elif mode == "rerank":
-        results = ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="base")
-    elif mode == "mnrl":
-        # MNRL retrieval alone: encode query with rerank_a (6M-MNRL), search MNRL index.
-        results = search_products_with_index(q, resources, "rerank_a", "mnrl_index", k=k)
-    else:
-        results = search_products(q, resources, "retrieval_model", k=k)
-
-    # Left column: base alone (control)
-    base_results = search_products(q, resources, "base_model", k=k)
+    results = _results_for_mode(mode, q, resources, k)
+    base_results = _results_for_mode(left_mode, q, resources, k)
 
     return {
         "query": q,
         "mode": mode,
+        "left_mode": left_mode,
         "specificity": specificity,
         "results": results,
         "nearest_queries": neighbors,
@@ -599,23 +780,13 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
 <body>
 
 <h1>Bag-of-Documents Search</h1>
-<p class="subtitle">1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996&ndash;2023) &middot; 75K queries &middot; Base MiniLM vs fine-tuned retrieval, ensemble rerank, or query-time bag construction</p>
+<p class="subtitle">1.2M ESCI Amazon products (subset of the 6M McAuley Lab catalog, 1996&ndash;2023) &middot; 75K queries &middot; Pick a mode for each column: BM25, base or fine-tuned dense retrieval, ensemble rerank, BM25+MNRL hybrid rerank, or query-time bag construction</p>
 
 <div class="search-box">
     <input type="text" id="query" placeholder="Search products..." autofocus>
     <button onclick="runSearch()">Search</button>
     <label style="font-size:0.85em; display:flex; align-items:center; gap:4px; white-space:nowrap">
         k=<input type="number" id="k-value" value="50" min="1" max="200" style="width:50px; padding:2px 4px;">
-    </label>
-    <label style="font-size:0.85em; display:flex; align-items:center; gap:4px; white-space:nowrap">
-        Mode:
-        <select id="search-mode" style="padding:2px 4px;">
-            <option value="mnrl_rerank" selected>MNRL + ensemble rerank</option>
-            <option value="rerank">Base + ensemble rerank</option>
-            <option value="mnrl">MNRL retrieval (no rerank)</option>
-            <option value="retrieval">Fine-tuned retrieval (cosine)</option>
-            <option value="bag">Build bag at query time</option>
-        </select>
     </label>
 </div>
 
@@ -630,13 +801,34 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
 </div>
 
 <div class="columns" id="results-section" style="display:none">
-    <div class="column" id="main-column">
-        <div class="column-header" id="main-header">Fine-tuned retrieval</div>
-        <div id="results"></div>
-    </div>
-    <div class="column" id="base-column" style="display:none">
-        <div class="column-header" id="base-header">Base model (MiniLM)</div>
+    <div class="column" id="base-column">
+        <div class="column-header">
+            <select id="left-mode" style="padding:2px 4px; font-size:0.9em;">
+                <option value="base" selected>Base MiniLM retrieval</option>
+                <option value="retrieval">Fine-tuned retrieval (cosine)</option>
+                <option value="bm25">BM25 retrieval</option>
+                <option value="mnrl">MNRL retrieval (no rerank)</option>
+                <option value="rerank">Base + ensemble rerank</option>
+                <option value="mnrl_rerank">MNRL + ensemble rerank</option>
+                <option value="hybrid_rerank">BM25 + MNRL hybrid + rerank</option>
+            </select>
+        </div>
         <div id="base-results"></div>
+    </div>
+    <div class="column" id="main-column">
+        <div class="column-header">
+            <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
+                <option value="hybrid_rerank" selected>BM25 + MNRL hybrid + rerank (SOTA)</option>
+                <option value="mnrl_rerank">MNRL + ensemble rerank</option>
+                <option value="rerank">Base + ensemble rerank</option>
+                <option value="bm25">BM25 retrieval</option>
+                <option value="mnrl">MNRL retrieval (no rerank)</option>
+                <option value="retrieval">Fine-tuned retrieval (cosine)</option>
+                <option value="base">Base MiniLM retrieval</option>
+                <option value="bag">Build bag at query time</option>
+            </select>
+        </div>
+        <div id="results"></div>
     </div>
 </div>
 
@@ -652,34 +844,30 @@ const input = document.getElementById('query');
 input.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
 
 function runSearch() {
-    const mode = document.getElementById('search-mode').value;
-    if (mode === 'bag') {
+    const rightMode = document.getElementById('right-mode').value;
+    if (rightMode === 'bag') {
         doBagSearch();
     } else {
-        doSearch(mode);
+        const leftMode = document.getElementById('left-mode').value;
+        doSearch(rightMode, leftMode);
     }
 }
 
-async function doSearch(mode) {
+async function doSearch(mode, leftMode) {
     const q = input.value.trim();
     if (!q) return;
 
-    mode = mode || 'mnrl_rerank';
-    const headerLabel = ({
-        'mnrl_rerank': 'MNRL + BoD ensemble rerank',
-        'rerank': 'Base + BoD ensemble rerank',
-        'mnrl': 'MNRL retrieval (no rerank)',
-        'retrieval': 'Fine-tuned retrieval (cosine)',
-    })[mode] || mode;
+    mode = mode || 'hybrid_rerank';
+    leftMode = leftMode || 'base';
 
     document.getElementById('empty').style.display = 'none';
     document.getElementById('results-section').style.display = 'flex';
-    document.getElementById('main-header').textContent = headerLabel;
-    document.getElementById('base-header').textContent = 'Base model (MiniLM)';
+    document.getElementById('base-column').style.display = 'block';
     document.getElementById('results').innerHTML = '<div class="loading">Searching...</div>';
+    document.getElementById('base-results').innerHTML = '<div class="loading">Searching...</div>';
 
     const k = parseInt(document.getElementById('k-value').value) || 50;
-    const url = `/api/search?q=${encodeURIComponent(q)}&k=${k}&mode=${mode}`;
+    const url = `/api/search?q=${encodeURIComponent(q)}&k=${k}&mode=${mode}&left_mode=${leftMode}`;
     const resp = await fetch(url);
     const data = await resp.json();
 
@@ -750,9 +938,7 @@ async function doBagSearch() {
     document.getElementById('meta-section').style.display = 'block';
     document.getElementById('results-section').style.display = 'flex';
 
-    const mainHeader = document.getElementById('main-header');
-    mainHeader.textContent = 'Building bag...';
-    document.getElementById('results').innerHTML = '<div class="loading">Step 1: Hybrid retrieval (keyword + embedding)...<br>Step 2: Cross-encoder scoring...<br>Step 3: Computing bag centroid...<br>Step 4: Re-retrieving with centroid (FAISS)...</div>';
+    document.getElementById('results').innerHTML = '<div class="loading">Building bag...<br>Step 1: Hybrid retrieval (keyword + embedding)<br>Step 2: Cross-encoder scoring<br>Step 3: Computing bag centroid<br>Step 4: Re-retrieving with centroid (FAISS)</div>';
 
     const baseCol = document.getElementById('base-column');
     baseCol.style.display = 'block';

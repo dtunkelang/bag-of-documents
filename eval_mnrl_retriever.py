@@ -274,6 +274,45 @@ def main():
     orderings["F: RRF(base, 6M-MNRL) retrieval"] = f_orderings
     orderings["G: RRF(base, 6M-MNRL) + ensemble rerank"] = g_orderings
 
+    # BM25 retrieval, if precomputed top-100 positions are available. Tests
+    # whether a *non-dense* retriever supplies candidates that base+BoD miss
+    # — the brand+entity hard regime where dense retrievers collapse.
+    bm25_path = os.path.join(INDEX_DIR, "bm25_top100.npy")
+    if os.path.exists(bm25_path):
+        print("\nbuilding H/I/J: BM25 fusion setups...", flush=True)
+        I_bm25 = np.load(bm25_path)
+        bm25_pids = to_pids(I_bm25)
+        # H: BM25 retrieval alone, top-10
+        orderings["H: BM25 retrieval"] = [row[:K_EVAL] for row in bm25_pids]
+
+        i_orderings = []
+        j_orderings = []
+        for qi in range(len(queries)):
+            rrf2 = {}
+            for rank, p in enumerate(int(x) for x in I_bm25[qi] if x >= 0):
+                rrf2[p] = rrf2.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+            for rank, p in enumerate(int(x) for x in I_mnrl[qi] if x >= 0):
+                rrf2[p] = rrf2.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+            rrf3 = dict(rrf2)
+            for rank, p in enumerate(int(x) for x in I_base[qi] if x >= 0):
+                rrf3[p] = rrf3.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+
+            for source, dest in ((rrf2, i_orderings), (rrf3, j_orderings)):
+                if not source:
+                    dest.append([])
+                    continue
+                fused = sorted(source.items(), key=lambda kv: -kv[1])[:K_RETRIEVE]
+                positions = [p for p, _ in fused]
+                cand_a = pv_a[positions]
+                cand_b = pv_b[positions]
+                avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+                order = np.argsort(-avg)[:K_EVAL]
+                dest.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+        orderings["I: RRF(BM25, 6M-MNRL) + ensemble rerank"] = i_orderings
+        orderings["J: RRF(BM25, base, 6M-MNRL) + ensemble rerank"] = j_orderings
+    else:
+        print(f"\nskipping H/I/J: {bm25_path} not found", flush=True)
+
     summary = aggregate(orderings, qids, qrels)
 
     print(f"\n\n{'=' * 80}")
