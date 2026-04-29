@@ -173,6 +173,33 @@ rerank wins by rescuing the hard regime, not by being uniformly better.
 
 Diagnostic: `eval_per_query_bins.py`.
 
+#### Per-query routing (negative result)
+
+Could a per-query router pick between A and K to recover the easy-bin
+loss while preserving the hard-regime rescue? Oracle analysis says yes —
+max(A, K) per query reaches R@10 0.2286 (+1.76pp over K) and E@1 0.4782
+(+6.95pp). Of the 22,458 queries, K wins on 48.1%, A wins on 16.2%,
+tie 35.7%. **But no simple feature predicts which lane wins per query.**
+A-wins are spread uniformly (~24%) across every non-zero base-recall
+bin, not concentrated in any difficulty regime. Every heuristic rule
+tested loses to K-only:
+
+| rule | % to A | R@10 | gap to K |
+|---|---|---|---|
+| K only (baseline) | 0% | 21.11% | — |
+| A if base top-1 sim >= 0.90 | 4.6% | 20.93% | -0.18pp |
+| A if 1 token | 4.8% | 20.54% | -0.57pp |
+| A if 1-2 tokens, no digit | 24.4% | 19.45% | -1.65pp |
+| A if no digit | 84.1% | 16.61% | -4.50pp |
+
+Whether A or K wins per query appears to depend on catalog state (does
+qrels-relevant content use exact phrasing or semantic description)
+rather than query-side features. Unlocking the 1.76pp headroom would
+require running both lanes per query and learning a classifier on
+retrieval-side signals — defeating the routing latency benefit.
+
+Diagnostic: `eval_oracle_routing.py`.
+
 Read-outs:
 
 - **The cosine-distilled BoD-as-retriever loses to base on this benchmark.**
