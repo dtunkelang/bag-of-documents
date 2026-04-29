@@ -244,6 +244,36 @@ def main():
         e_orderings.append([mnrl_pids[qi][int(j)] for j in order])
     orderings["E: 6M-MNRL + ensemble rerank"] = e_orderings
 
+    # RRF fusion of base + 6M-MNRL retrieval. Standard RRF constant c=60.
+    # F: RRF retrieval only (no rerank), top-10 of fused list.
+    # G: RRF top-100 candidates → ensemble rerank (the apples-to-apples test
+    #    of whether base retrieves anything additive over 6M-MNRL).
+    RRF_C = 60
+    print("building F/G: RRF(base, 6M-MNRL) ...", flush=True)
+    f_orderings = []
+    g_orderings = []
+    for qi in range(len(queries)):
+        rrf = {}
+        for rank, p in enumerate(int(x) for x in I_base[qi] if x >= 0):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+        for rank, p in enumerate(int(x) for x in I_mnrl[qi] if x >= 0):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+        if not rrf:
+            f_orderings.append([])
+            g_orderings.append([])
+            continue
+        fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:K_RETRIEVE]
+        positions = [p for p, _ in fused]
+        f_orderings.append([faiss_pos_to_pid[p] for p in positions[:K_EVAL]])
+
+        cand_a = pv_a[positions]
+        cand_b = pv_b[positions]
+        avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+        order = np.argsort(-avg)[:K_EVAL]
+        g_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+    orderings["F: RRF(base, 6M-MNRL) retrieval"] = f_orderings
+    orderings["G: RRF(base, 6M-MNRL) + ensemble rerank"] = g_orderings
+
     summary = aggregate(orderings, qids, qrels)
 
     print(f"\n\n{'=' * 80}")
