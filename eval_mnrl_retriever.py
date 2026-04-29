@@ -184,6 +184,16 @@ def main():
         qv_c = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_amazon"), queries)
         print(f"  amazon (rerank_C): {time.time() - t0:.0f}s", flush=True)
 
+    # Optional fourth reranker: query_model_us_minilm_t07_mnrl (MNRL with
+    # bags built at threshold 0.7 — sharper than rerank_a/b's 0.3).
+    rerank_d_vecs_path = os.path.join(INDEX_DIR, "rerank_D.vecs.fp16.npy")
+    pv_d = None
+    qv_d = None
+    if os.path.exists(rerank_d_vecs_path):
+        t0 = time.time()
+        qv_d = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_minilm_t07_mnrl"), queries)
+        print(f"  t07_mnrl (rerank_D): {time.time() - t0:.0f}s", flush=True)
+
     # Load cached product matrices
     print("\nloading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
@@ -192,6 +202,9 @@ def main():
     if qv_c is not None:
         pv_c = np.load(rerank_c_vecs_path).astype(np.float32)
         print(f"  pv_c: {pv_c.shape}", flush=True)
+    if qv_d is not None:
+        pv_d = np.load(rerank_d_vecs_path).astype(np.float32)
+        print(f"  pv_d: {pv_d.shape}", flush=True)
 
     # === Retrieve top-K_RETRIEVE per setup ===
     print("\nbase top-100 from MiniLM FAISS...", flush=True)
@@ -445,6 +458,84 @@ def main():
                         order = np.argsort(-avg)[:K_EVAL]
                         ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
                     orderings[f"{label}: BM25 top-{k_ret} + 3-way rerank"] = ords
+
+            # W: weighted 2-way ensemble (vs 0.5/0.5 baseline in K). 6M-MNRL
+            # alone (L1) outperforms hardneg alone (L2), so up-weighting
+            # 6M-MNRL might help.
+            # T: alternative fusion functions (max/min) instead of mean.
+            print("building W/T variants on BM25 top-100 candidates...", flush=True)
+            for w_a, label in ((0.4, "W40"), (0.6, "W60"), (0.7, "W70")):
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    fused = w_a * sims_a + (1 - w_a) * sims_b
+                    order = np.argsort(-fused)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings[f"{label}: BM25 + {w_a:.1f}*A + {1 - w_a:.1f}*B rerank"] = ords
+
+            for fn_name, fn, label in (
+                ("max", np.maximum, "Tmax"),
+                ("min", np.minimum, "Tmin"),
+            ):
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    fused = fn(sims_a, sims_b)
+                    order = np.argsort(-fused)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings[f"{label}: BM25 + {fn_name}(A, B) rerank"] = ords
+
+            # S/V/X: variants involving rerank_D (alternative MNRL-trained
+            # third encoder, bag threshold 0.7 vs rerank_a/b's 0.3).
+            # S*: 3-way ensemble (A+B+D)
+            # V100: 2-way (A+D) — does D substitute for B?
+            # X100: 2-way (B+D) — does D substitute for A?
+            if pv_d is not None and qv_d is not None:
+                print("building S/V/X variants with rerank_D...", flush=True)
+                for k_ret, label in ((50, "S50"), (100, "S100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_a = pv_a[positions] @ qv_a[qi]
+                        sims_b = pv_b[positions] @ qv_b[qi]
+                        sims_d = pv_d[positions] @ qv_d[qi]
+                        avg = (sims_a + sims_b + sims_d) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way (A+B+D) rerank"] = ords
+
+                for sub_label, sub_q, sub_p, suffix in (
+                    ("V100", qv_d, pv_d, "(A+D, no B)"),
+                    ("X100", qv_d, pv_d, "(B+D, no A)"),
+                ):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_d = sub_p[positions] @ sub_q[qi]
+                        if sub_label == "V100":
+                            sims_other = pv_a[positions] @ qv_a[qi]
+                        else:
+                            sims_other = pv_b[positions] @ qv_b[qi]
+                        avg = (sims_other + sims_d) / 2
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{sub_label}: BM25 top-100 + 2-way {suffix} rerank"] = ords
         else:
             print(f"\nskipping N: {bm25_top200_path} not found", flush=True)
 

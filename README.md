@@ -125,10 +125,15 @@ gain):
 | L2 | BM25 + hardneg only (single reranker) | 19.20% | 0.3223 | 37.01% | 34.36% |
 | M | BM25 + sumrank (instead of sumsim) ensemble | 20.58% | 0.3478 | 39.84% | 37.17% |
 | P | BM25 (default tokenizer) + ensemble rerank | 20.31% | 0.3454 | 40.20% | 37.13% |
-| R50 | BM25 + 3-way ensemble (with cosine BoD) | 20.76% | 0.3511 | 40.64% | 37.68% |
+| R50 | BM25 + 3-way ensemble (3rd: cosine BoD) | 20.76% | 0.3511 | 40.64% | 37.68% |
+| S50 | BM25 + 3-way ensemble (3rd: MNRL t07) | 21.06% | 0.3564 | 41.03% | 38.26% |
+| V100 | BM25 + (6M-MNRL + MNRL-t07), no hardneg | 19.80% | 0.3346 | 38.63% | 35.66% |
+| X100 | BM25 + (hardneg + MNRL-t07), no 6M-MNRL | 20.96% | 0.3534 | 40.46% | 37.75% |
 
-K_retrieve sweep on K (BM25 + ensemble rerank): N40 21.15%, N50 21.17%, N60
-21.18%, N75 21.15%, N200 20.96% — peak around top-50/top-100, shallow curve.
+K_retrieve sweep on K: N40 21.15%, N50 21.17%, N60 21.18%, N75 21.15%, N200
+20.96% — peak around top-50/top-100, shallow curve. Weighted fusion sweep
+(W40/W60/W70) and alternative fusion functions (Tmax, Tmin) all underperform
+K's 0.5/0.5 sumsim mean.
 
 Read-outs:
 
@@ -150,12 +155,20 @@ Read-outs:
   semantically-near-but-irrelevant ones that the rerank can't fully clean
   up. The deployable architecture is: tantivy BM25 → ensemble rerank with
   two BoD encoders. No HNSW index in the inference path.
-- **The two BoD rerankers are well-matched, but adding a third hurts.**
-  L1/L2 (each reranker alone on BM25 candidates) underperform K's two-way
-  ensemble by 1.4–1.9pp; the cosine-distilled `query_model_amazon` as a
-  third reranker (R50) drags the ensemble down by 0.4pp. Min-max
-  normalizing the two rerankers' similarities before averaging (Q) hurts
-  by 0.05pp — they're already similarly calibrated.
+- **The two BoD rerankers are well-matched; adding a third doesn't help.**
+  L1/L2 (each reranker alone on BM25 candidates) underperform K by
+  1.4–1.9pp. Cosine-distilled as third (R50) drags by 0.4pp. MNRL-trained
+  with sharper bags as third (S50) ties K within rounding (-0.05pp R@10,
+  +0.16pp E@1) but pays a 50% compute tax. The substitution probes
+  isolate why: V100 (6M-MNRL + MNRL-t07, no hardneg) collapses by 1.31pp,
+  so the hardneg signal is irreplaceable; X100 (hardneg + MNRL-t07, no
+  6M-MNRL) loses only 0.15pp, so MNRL-t07 ≈ 6M-MNRL — same flavor of
+  signal, just shifted. To raise the ceiling further would need a
+  *categorically* different third (different base model, different
+  training objective, or different supervision data). Min-max
+  normalization (Q) hurts by 0.05pp — the two rerankers are already
+  similarly calibrated. Weighted fusion (W*) and max/min fusion (T*)
+  all underperform 0.5/0.5 sumsim.
 - **Pure dense fusion (G) doesn't beat dense-only (E).** Base and 6M-MNRL
   fail on overlapping query types, so RRF-fusing two dense retrievers
   contributes nothing additive after rerank.
