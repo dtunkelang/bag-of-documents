@@ -135,6 +135,7 @@ modes at sub-100ms; the BM25 path is faster still.
 
 | Directory | Contents |
 |---|---|
+| `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) imported across the codebase |
 | `download/` | Catalog and dataset acquisition (`download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`) |
 | `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
 | `training/` | Bag construction, CE training, query-model fine-tuning |
@@ -144,7 +145,7 @@ modes at sub-100ms; the BM25 path is faster still.
 | `tests/` | pytest suite |
 | `docs/`, `memory/` | Documentation and persistent project notes |
 
-Top-level: `demo.py` (local FastAPI demo, main entry point) and `utils.py` (shared utilities imported across subdirs).
+Top-level: `demo.py` (local FastAPI demo, main entry point).
 
 ### Key Scripts
 
