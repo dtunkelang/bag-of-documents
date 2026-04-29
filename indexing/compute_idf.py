@@ -24,7 +24,7 @@ import os
 import time
 from collections import Counter
 
-from utils import fmt_duration, tokenize_query
+from bagofdocs.utils import fmt_duration, tokenize_query
 
 
 def main():

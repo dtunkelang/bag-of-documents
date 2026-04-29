@@ -22,7 +22,7 @@ import time
 
 import tantivy
 
-from utils import fmt_duration
+from bagofdocs.utils import fmt_duration
 
 
 def main():

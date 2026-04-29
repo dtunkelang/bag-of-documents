@@ -34,7 +34,7 @@ from sentence_transformers import (
 )
 from torch.utils.data import DataLoader
 
-from utils import fmt_duration
+from bagofdocs.utils import fmt_duration
 
 
 def load_bags(bags_path):

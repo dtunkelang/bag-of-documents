@@ -4,7 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from utils import fmt_duration, generate_keyword_combos, l2_to_cosine, tokenize_query
+from bagofdocs.utils import fmt_duration, generate_keyword_combos, l2_to_cosine, tokenize_query
 
 
 def test_fmt_duration_seconds():

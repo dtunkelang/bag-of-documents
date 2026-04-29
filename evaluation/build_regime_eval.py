@@ -40,7 +40,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from utils import fmt_duration, tokenize_query
+from bagofdocs.utils import fmt_duration, tokenize_query
 
 REGIME_THRESHOLDS = {"easy": 70, "mid": 10}  # >=70 easy; 10–69 mid; <10 hard
 

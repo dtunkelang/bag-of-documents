@@ -26,7 +26,7 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from utils import fmt_duration
+from bagofdocs.utils import fmt_duration
 
 INDEX_DIR = "combined_index"
 EMBED_MODEL_ID = "all-MiniLM-L6-v2"

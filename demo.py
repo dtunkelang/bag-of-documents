@@ -623,7 +623,7 @@ async def api_bag_search(
     3. Passing products form a bag → compute centroid
     4. Re-retrieve using the centroid vector
     """
-    from utils import generate_keyword_combos, tokenize_query
+    from bagofdocs.utils import generate_keyword_combos, tokenize_query
 
     tv_searcher = resources.get("tantivy_searcher")
     tv_index_obj = resources.get("tantivy_index")

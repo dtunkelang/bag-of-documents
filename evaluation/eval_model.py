@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
-from utils import fmt_duration
+from bagofdocs.utils import fmt_duration
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 

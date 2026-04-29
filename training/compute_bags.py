@@ -29,7 +29,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
-from utils import fmt_duration, generate_keyword_combos, tokenize_query
+from bagofdocs.utils import fmt_duration, generate_keyword_combos, tokenize_query
 
 # --- Configuration ---
 EMBED_MODEL_ID = "all-MiniLM-L6-v2"
