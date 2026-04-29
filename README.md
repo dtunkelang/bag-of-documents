@@ -11,10 +11,13 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | | R@10 | nDCG@10 | E@1 | E@3 |
 |---|---|---|---|---|
 | Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% |
+| RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | BM25 alone (lexical retrieval only) | 19.50% | 0.3322 | 38.79% | 35.72% |
 | **BM25 + ensemble rerank (current SOTA)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The rerank stack buys **+1.61pp R@10 over BM25 alone** and **+5.51pp R@10 over base MiniLM**. No dense retrieval and no HNSW in the inference path. BM25 alone is the more demanding baseline: it's free (no training, no GPU, no embeddings) and on entity-anchored product queries it does most of what dense retrieval can do.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The BoD rerank stack buys **+1.61pp R@10 over BM25 alone**, **+2.49pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+5.51pp over base MiniLM**. No dense retrieval and no HNSW in the inference path.
+
+The non-BoD hybrid baseline is included to make the comparison honest — RRF-fusing BM25 and base MiniLM is the standard "vanilla hybrid retrieval" recipe, available with no training, no fine-tuning, and one extra forward pass per query at inference. It actually *underperforms* BM25 alone on this benchmark (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 38.79% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
 
 The deployable architecture is:
 
@@ -81,7 +84,8 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 - **The cosine-distilled BoD-as-retriever loses to base on this benchmark.** The original release was measured on a 75K-query construction-set eval; on the canonical 22,458-query ESCI test set, R@10 drops below A. MNRL-trained BoD (B) reverses that — +2.50pp R@10 over base, +4.66pp E@1.
 - **Ensemble rerank stacks on top of any retriever.** The two BoD-trained rerankers (6M-MNRL, qrels-hardneg) lift base by +3.40pp R@10 (A→C) and 6M-MNRL by +1.73pp R@10 (B→E).
 - **BM25 alone is shockingly close to the dense rerank stack.** Setup H (stemmed BM25, no dense, no rerank) hits R@10 19.50% — within rounding of E. On entity-heavy product queries, lexical matching does most of the work.
-- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over setup I, the previous shipped hybrid. Adding MNRL retrieval to the candidate pool *dilutes* BM25's lexically-anchored hits with semantically-near-but-irrelevant ones the rerank can't fully clean up.
+- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over setup I, the previous shipped hybrid. Adding MNRL retrieval to the candidate pool *dilutes* BM25's lexically-anchored hits with semantically-near-but-irrelevant ones the rerank can't fully clean up. The same pattern holds when fusing in base MiniLM (AA: 20.43%, -0.68pp from K) or both base + MNRL (J: 20.07%, -1.04pp). BM25-alone candidates remain the best input to the BoD rerank.
+- **Pure non-BoD hybrid retrieval (Z) underperforms BM25 alone.** Setup Z (RRF(BM25, base) retrieval, no rerank) scores R@10 18.62% — *worse* than BM25 alone (H, 19.50%) and dramatically worse on E@1 (31.54% vs 38.79%). Mixing dense candidates into the lexical lane displaces BM25's exact-match top-1 with semantically-similar near-misses. This is the strongest "no BoD" baseline available out of the box, and it loses to BM25 alone — let alone to K.
 - **The two BoD rerankers are well-matched; adding a third doesn't help.** Single-reranker setups L1 (BM25 + 6M-MNRL alone) and L2 (BM25 + hardneg alone) score 19.67% / 19.20% — both below K. Three-way ensembles with cosine-distilled (R50: -0.4pp) or MNRL-with-different-bag-threshold (S50: ties within rounding) third encoders don't budge the SOTA.
 
 ### Where the lift comes from (per-query-bin breakdown)
