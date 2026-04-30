@@ -28,7 +28,7 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def main():

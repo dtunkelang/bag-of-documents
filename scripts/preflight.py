@@ -32,7 +32,7 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_DIR = os.path.join(SCRIPT_DIR, "combined_index")
 DEFAULT_MODEL = "all-MiniLM-L6-v2"
 

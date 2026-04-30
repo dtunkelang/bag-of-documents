@@ -27,7 +27,7 @@ from sentence_transformers import SentenceTransformer
 
 from bagofdocs.utils import fmt_duration
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def eval_model(model, model_name, index, titles, esci_df, k=50):

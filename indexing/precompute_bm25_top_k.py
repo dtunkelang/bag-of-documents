@@ -32,7 +32,7 @@ from collections import defaultdict
 import numpy as np
 import tantivy
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_DIR = os.path.join(SCRIPT_DIR, "combined_index_us_minilm")
 
 PUNCT_RE = re.compile(r"[^\w\s]")

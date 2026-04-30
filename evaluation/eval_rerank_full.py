@@ -31,7 +31,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import numpy as np
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_DIR = os.path.join(SCRIPT_DIR, "combined_index_us_minilm")
 
 

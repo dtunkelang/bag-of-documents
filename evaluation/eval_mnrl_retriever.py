@@ -37,7 +37,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import numpy as np  # noqa: E402
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_DIR = os.path.join(SCRIPT_DIR, "combined_index_us_minilm")
 
 
@@ -378,6 +378,37 @@ def main():
             order = np.argsort(-avg)[:K_EVAL]
             k_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
         orderings["K: BM25 + ensemble rerank"] = k_orderings
+
+        # Z, AA: non-BoD hybrid baselines.
+        # Z:  RRF(BM25, base) retrieval — top-10 from fused list, no rerank.
+        #     The "what does plain hybrid get you with no BoD anywhere?"
+        #     baseline — important reference for whether BoD adds real value.
+        # AA: RRF(BM25, base) + ensemble rerank. Tests whether mixing base
+        #     into the BM25 candidate pool helps the BoD rerank, or whether
+        #     BM25-alone candidates (K) are already sufficient.
+        print("building Z, AA: non-BoD hybrid baselines...", flush=True)
+        z_orderings = []
+        aa_orderings = []
+        for qi in range(len(queries)):
+            rrf_zaa = {}
+            for rank, p in enumerate(int(x) for x in I_bm25[qi] if x >= 0):
+                rrf_zaa[p] = rrf_zaa.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+            for rank, p in enumerate(int(x) for x in I_base[qi] if x >= 0):
+                rrf_zaa[p] = rrf_zaa.get(p, 0.0) + 1.0 / (rank + 1 + RRF_C)
+            if not rrf_zaa:
+                z_orderings.append([])
+                aa_orderings.append([])
+                continue
+            fused = sorted(rrf_zaa.items(), key=lambda kv: -kv[1])[:K_RETRIEVE]
+            positions = [p for p, _ in fused]
+            z_orderings.append([faiss_pos_to_pid[p] for p in positions[:K_EVAL]])
+            cand_a = pv_a[positions]
+            cand_b = pv_b[positions]
+            avg = (cand_a @ qv_a[qi] + cand_b @ qv_b[qi]) / 2
+            order = np.argsort(-avg)[:K_EVAL]
+            aa_orderings.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+        orderings["Z: RRF(BM25, base) retrieval (no rerank)"] = z_orderings
+        orderings["AA: RRF(BM25, base) + ensemble rerank"] = aa_orderings
 
         # K-variants: explore the local maximum around BM25 + ensemble rerank.
         # L1, L2: each reranker alone — does the ensemble actually help?
