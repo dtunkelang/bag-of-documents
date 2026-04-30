@@ -422,6 +422,92 @@ def bm25_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
     return results
 
 
+def _bm25_base_rrf_positions(query, resources, k_retrieve):
+    """RRF positions from BM25 + base FAISS top-K_retrieve, both at the same
+    catalog. Returns up to k_retrieve unique positions sorted by RRF score.
+    """
+    bm25_positions = _bm25_top_positions(query, resources, k_retrieve)
+    base_positions = []
+    bm = resources.get("base_model")
+    base_idx = resources.get("index")
+    if bm is not None and base_idx is not None:
+        qv = bm.encode(query, normalize_embeddings=True)
+        qv = np.array(qv, dtype=np.float32).reshape(1, -1)
+        faiss.normalize_L2(qv)
+        try:
+            base_idx.hnsw.efSearch = 128
+        except Exception:
+            pass
+        _, I = base_idx.search(qv, k_retrieve)
+        base_positions = [int(p) for p in I[0] if p >= 0]
+    rrf_c = 60
+    rrf = {}
+    for source in (bm25_positions, base_positions):
+        for rank, p in enumerate(source):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + rrf_c)
+    fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:k_retrieve]
+    return [p for p, _ in fused]
+
+
+def bm25_base_rrf_top_k(query, resources, k=10, k_retrieve=100):
+    """Setup Z: RRF(BM25, base) retrieval, no rerank. Non-BoD hybrid baseline.
+
+    R@10 18.62% on the 22,458-query ESCI test set — *worse* than BM25 alone
+    (19.50%) because the base FAISS lane displaces BM25's exact-match top-1
+    with semantically-similar near-misses. Included as a vanilla "no BoD"
+    baseline to contextualize the rerank stack's contribution.
+    """
+    titles = resources["titles"]
+    positions = _bm25_base_rrf_positions(query, resources, k_retrieve)
+    if not positions:
+        return []
+    seen, results = set(), []
+    for rank, p in enumerate(positions):
+        t = titles[p]
+        if t in seen:
+            continue
+        seen.add(t)
+        # Score = inverse rank (so it's monotone-decreasing and interpretable).
+        results.append({"title": t, "score": round(1.0 / (rank + 1), 4)})
+        if len(results) >= k:
+            break
+    return results
+
+
+def bm25_base_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
+    """Setup AA: RRF(BM25, base) candidates → ensemble rerank.
+
+    R@10 20.43% on the 22,458-query ESCI test set — better than I (20.01%)
+    and J (20.07%), but still loses -0.68pp to K (BM25 + ensemble rerank,
+    no fusion at all). BM25-alone candidates remain the best input to the
+    BoD rerank.
+    """
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    titles = resources["titles"]
+    positions = _bm25_base_rrf_positions(query, resources, k_retrieve)
+    if not positions or a_vecs is None or b_vecs is None or a is None or b is None:
+        return bm25_base_rrf_top_k(query, resources, k=k_top, k_retrieve=k_retrieve)
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb) / 2
+    order = np.argsort(-avg_sim)
+    seen, results = set(), []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(avg_sim[int(idx)]), 4)})
+        if len(results) >= k_top:
+            break
+    return results
+
+
 def hybrid_rerank_top_k(query, resources, k_top=10, k_retrieve=100, include_base=False):
     """RRF(BM25, 6M-MNRL[, base]) → ensemble rerank.
 
@@ -733,14 +819,16 @@ async def api_bag_search(
 
 def _results_for_mode(mode, q, resources, k):
     """Compute top-k results for a single mode. ESCI 22,458-query R@10 in parens.
-    base           — base MiniLM retrieval, no fine-tuning, no rerank (15.60%)
-    retrieval      — original cosine-distilled BoD retriever (see notes)
-    bm25           — tantivy BM25 alone, no dense, no rerank (19.50%)
-    mnrl           — 6M-MNRL BoD retriever, no rerank (18.10%)
-    rerank         — base FAISS + ensemble rerank (19.00%)
-    mnrl_rerank    — 6M-MNRL retriever + ensemble rerank (19.83%)
-    hybrid_rerank  — RRF(BM25, 6M-MNRL) + ensemble rerank (20.01%, prior SOTA)
-    bm25_rerank    — BM25 + ensemble rerank (21.11%, current SOTA)
+    base               — base MiniLM retrieval, no fine-tuning, no rerank (15.60%)
+    retrieval          — original cosine-distilled BoD retriever (see notes)
+    bm25               — tantivy BM25 alone, no dense, no rerank (19.50%)
+    mnrl               — 6M-MNRL BoD retriever, no rerank (18.10%)
+    rerank             — base FAISS + ensemble rerank (19.00%)
+    mnrl_rerank        — 6M-MNRL retriever + ensemble rerank (19.83%)
+    hybrid_rerank      — RRF(BM25, 6M-MNRL) + ensemble rerank (20.01%, prior SOTA)
+    bm25_rerank        — BM25 + ensemble rerank (21.11%, current SOTA)
+    bm25_base_rrf      — RRF(BM25, base) retrieval, no rerank (18.62%, non-BoD baseline)
+    bm25_base_rerank   — RRF(BM25, base) + ensemble rerank (20.43%)
     """
     if mode == "bm25_rerank":
         return bm25_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
@@ -750,6 +838,10 @@ def _results_for_mode(mode, q, resources, k):
         return ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="mnrl")
     if mode == "rerank":
         return ensemble_rerank(q, resources, k_retrieve=100, k_top=k, retriever="base")
+    if mode == "bm25_base_rerank":
+        return bm25_base_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
+    if mode == "bm25_base_rrf":
+        return bm25_base_rrf_top_k(q, resources, k=k, k_retrieve=100)
     if mode == "mnrl":
         return search_products_with_index(q, resources, "rerank_a", "mnrl_index", k=k)
     if mode == "bm25":
@@ -864,14 +956,16 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="base-column">
         <div class="column-header">
             <select id="left-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="base" selected>Base MiniLM retrieval</option>
-                <option value="retrieval">Fine-tuned retrieval (cosine)</option>
-                <option value="bm25">BM25 retrieval</option>
-                <option value="mnrl">MNRL retrieval (no rerank)</option>
-                <option value="rerank">Base + ensemble rerank</option>
-                <option value="mnrl_rerank">MNRL + ensemble rerank</option>
-                <option value="hybrid_rerank">BM25 + MNRL hybrid + rerank</option>
-                <option value="bm25_rerank">BM25 + ensemble rerank</option>
+                <option value="base" selected>Base MiniLM retrieval (R@10 15.60)</option>
+                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
+                <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
+                <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD hybrid (R@10 18.62)</option>
+                <option value="bm25">BM25 retrieval (R@10 19.50)</option>
+                <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
+                <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
+                <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
+                <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
+                <option value="bm25_rerank">BM25 + ensemble rerank (R@10 21.11)</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -879,14 +973,16 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_rerank" selected>BM25 + ensemble rerank (SOTA)</option>
-                <option value="hybrid_rerank">BM25 + MNRL hybrid + rerank</option>
-                <option value="mnrl_rerank">MNRL + ensemble rerank</option>
-                <option value="rerank">Base + ensemble rerank</option>
-                <option value="bm25">BM25 retrieval</option>
-                <option value="mnrl">MNRL retrieval (no rerank)</option>
-                <option value="retrieval">Fine-tuned retrieval (cosine)</option>
-                <option value="base">Base MiniLM retrieval</option>
+                <option value="bm25_rerank" selected>BM25 + ensemble rerank (SOTA, R@10 21.11)</option>
+                <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
+                <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
+                <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
+                <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
+                <option value="bm25">BM25 retrieval (R@10 19.50)</option>
+                <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)</option>
+                <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
+                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
+                <option value="base">Base MiniLM retrieval (R@10 15.60)</option>
                 <option value="bag">Build bag at query time</option>
             </select>
         </div>

@@ -348,6 +348,54 @@ def bm25_rerank_top_k(query, R, k_top, k_retrieve=100):
     return _ensemble_rerank_from_positions(query, R, positions, k_top)
 
 
+def _bm25_base_rrf_positions(query, R, k_retrieve):
+    """RRF positions from BM25 + base FAISS top-K_retrieve (non-BoD hybrid)."""
+    bm25_positions = _bm25_top_positions(query, R, k_retrieve)
+    base_positions = []
+    if R.get("base_model") is not None and R.get("index") is not None:
+        vec = R["base_model"].encode(query, normalize_embeddings=True)
+        vec = np.asarray(vec, dtype=np.float32).reshape(1, -1)
+        faiss.normalize_L2(vec)
+        try:
+            R["index"].hnsw.efSearch = 128
+        except Exception:
+            pass
+        _, I = R["index"].search(vec, k_retrieve)
+        base_positions = [int(p) for p in I[0] if p >= 0]
+    rrf_c = 60
+    rrf = {}
+    for source in (bm25_positions, base_positions):
+        for rank, p in enumerate(source):
+            rrf[p] = rrf.get(p, 0.0) + 1.0 / (rank + 1 + rrf_c)
+    fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:k_retrieve]
+    return [p for p, _ in fused]
+
+
+def bm25_base_rrf_top_k(query, R, k, k_retrieve=100):
+    """Setup Z: RRF(BM25, base) retrieval, no rerank. Non-BoD hybrid baseline.
+
+    R@10 18.62% on the 22,458-query ESCI test set — *worse* than BM25 alone
+    (19.50%); the base FAISS lane displaces BM25's exact-match top-1 with
+    semantically-similar near-misses.
+    """
+    titles = R["titles"]
+    positions = _bm25_base_rrf_positions(query, R, k_retrieve)
+    raw = [(titles[p], round(1.0 / (rank + 1), 4)) for rank, p in enumerate(positions)]
+    return _dedup_by_title(raw, k)
+
+
+def bm25_base_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """Setup AA: RRF(BM25, base) candidates → ensemble rerank.
+
+    R@10 20.43% — better than I (20.01%) and J (20.07%) but still loses
+    -0.68pp to K (BM25-only candidates + ensemble rerank).
+    """
+    positions = _bm25_base_rrf_positions(query, R, k_retrieve)
+    if not positions:
+        return bm25_base_rrf_top_k(query, R, k_top, k_retrieve)
+    return _ensemble_rerank_from_positions(query, R, positions, k_top)
+
+
 def hybrid_rerank_top_k(query, R, k_top, k_retrieve=100):
     """RRF(BM25, 6M-MNRL) → ensemble rerank. Previously shipped at R@10 20.01%.
 
@@ -433,31 +481,37 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + ensemble rerank (SOTA)",
-    "BM25 + MNRL hybrid + ensemble rerank",
-    "MNRL + BoD ensemble rerank",
-    "Base + BoD ensemble rerank",
-    "BM25 retrieval (no dense, no rerank)",
-    "MNRL retrieval (no rerank)",
-    "Fine-tuned retrieval (cosine BoD)",
-    "Base MiniLM retrieval",
+    "BM25 + ensemble rerank (SOTA, R@10 21.11)",
+    "RRF(BM25, base) + ensemble rerank (R@10 20.43)",
+    "RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)",
+    "MNRL + BoD ensemble rerank (R@10 19.83)",
+    "BM25 retrieval (R@10 19.50)",
+    "Base + BoD ensemble rerank (R@10 19.00)",
+    "RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)",
+    "MNRL retrieval, no rerank (R@10 18.10)",
+    "Fine-tuned retrieval, cosine BoD (historical)",
+    "Base MiniLM retrieval (R@10 15.60)",
 ]
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + ensemble rerank (SOTA)":
+    if mode == "BM25 + ensemble rerank (SOTA, R@10 21.11)":
         return bm25_rerank_top_k(query, R, k_top=k)
-    if mode == "BM25 + MNRL hybrid + ensemble rerank":
+    if mode == "RRF(BM25, base) + ensemble rerank (R@10 20.43)":
+        return bm25_base_rerank_top_k(query, R, k_top=k)
+    if mode == "RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)":
         return hybrid_rerank_top_k(query, R, k_top=k)
-    if mode == "MNRL + BoD ensemble rerank":
+    if mode == "MNRL + BoD ensemble rerank (R@10 19.83)":
         return mnrl_rerank_top_k(query, R, k_top=k)
-    if mode == "Base + BoD ensemble rerank":
-        return ensemble_rerank_top_k(query, R, k_top=k)
-    if mode == "BM25 retrieval (no dense, no rerank)":
+    if mode == "BM25 retrieval (R@10 19.50)":
         return bm25_top_k(query, R, k)
-    if mode == "MNRL retrieval (no rerank)":
+    if mode == "Base + BoD ensemble rerank (R@10 19.00)":
+        return ensemble_rerank_top_k(query, R, k_top=k)
+    if mode == "RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)":
+        return bm25_base_rrf_top_k(query, R, k=k)
+    if mode == "MNRL retrieval, no rerank (R@10 18.10)":
         return mnrl_top_k(query, R, k)
-    if mode == "Fine-tuned retrieval (cosine BoD)":
+    if mode == "Fine-tuned retrieval, cosine BoD (historical)":
         return retrieval_top_k(query, R, k)
     # Base MiniLM retrieval (default left)
     base_results, *_ = base_top_k(query, R, k)
@@ -520,12 +574,12 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
     with gr.Row():
         left_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="Base MiniLM retrieval",
+            value="Base MiniLM retrieval (R@10 15.60)",
             label="Left-column mode",
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + ensemble rerank (SOTA)",
+            value="BM25 + ensemble rerank (SOTA, R@10 21.11)",
             label="Right-column mode",
         )
 
