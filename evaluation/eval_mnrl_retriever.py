@@ -236,6 +236,18 @@ def main():
         qv_g = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_esci_supervised"), queries)
         print(f"  esci_supervised (rerank_G): {time.time() - t0:.0f}s", flush=True)
 
+    # Optional eighth reranker: query_model_us_bge_cos — BGE-base trained
+    # with cosine-to-centroid loss (the original BoD recipe). Tests whether
+    # the bag-MNRL recipe was specifically what failed for BGE, vs a deeper
+    # incompatibility between BGE and bag-derived signal.
+    rerank_h_vecs_path = os.path.join(INDEX_DIR, "rerank_H.vecs.fp16.npy")
+    pv_h = None
+    qv_h = None
+    if os.path.exists(rerank_h_vecs_path):
+        t0 = time.time()
+        qv_h = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_bge_cos"), queries)
+        print(f"  bge_cos (rerank_H): {time.time() - t0:.0f}s", flush=True)
+
     # Load cached product matrices
     print("\nloading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
@@ -256,6 +268,9 @@ def main():
     if qv_g is not None:
         pv_g = np.load(rerank_g_vecs_path).astype(np.float32)
         print(f"  pv_g: {pv_g.shape}", flush=True)
+    if qv_h is not None:
+        pv_h = np.load(rerank_h_vecs_path).astype(np.float32)
+        print(f"  pv_h: {pv_h.shape}", flush=True)
 
     # === Retrieve top-K_RETRIEVE per setup ===
     print("\nbase top-100 from MiniLM FAISS...", flush=True)
@@ -799,6 +814,65 @@ def main():
                     order = np.argsort(-avg)[:K_EVAL]
                     ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
                 orderings["CCnoB: BM25 + (A+G, no B) rerank"] = ords
+
+            # DD: BM25 + variants involving rerank_H (BGE + cos-to-centroid).
+            # DD1:    BM25 + rerank_H alone
+            # DD3:    BM25 + 3-way (A + B + H)
+            # DDnoA:  BM25 + (B + H), no A
+            # DDnoB:  BM25 + (A + H), no B
+            if pv_h is not None and qv_h is not None:
+                print("building DD* variants with rerank_H (bge+cos)...", flush=True)
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims = pv_h[positions] @ qv_h[qi]
+                    order = np.argsort(-sims)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["DD1: BM25 + rerank_H only (single reranker)"] = ords
+
+                for k_ret, label in ((50, "DD3-50"), (100, "DD3-100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_a = pv_a[positions] @ qv_a[qi]
+                        sims_b = pv_b[positions] @ qv_b[qi]
+                        sims_h = pv_h[positions] @ qv_h[qi]
+                        avg = (sims_a + sims_b + sims_h) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way (A+B+H) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    sims_h = pv_h[positions] @ qv_h[qi]
+                    avg = (sims_b + sims_h) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["DDnoA: BM25 + (B+H, no A) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_h = pv_h[positions] @ qv_h[qi]
+                    avg = (sims_a + sims_h) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["DDnoB: BM25 + (A+H, no B) rerank"] = ords
         else:
             print(f"\nskipping N: {bm25_top200_path} not found", flush=True)
 

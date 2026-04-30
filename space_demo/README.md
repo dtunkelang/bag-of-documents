@@ -15,17 +15,18 @@ Compare retrieval / rerank architectures on 1.2M Amazon ESCI products (75K real 
 
 ESCI 22,458-query R@10 in parens:
 
-- **BM25 + ensemble rerank** (default right, 21.11%) — tantivy BM25 retrieves top-100, two BoD-trained encoders rerank via sumsim fusion. Current SOTA. No HNSW index in the inference path.
-- **BM25 + MNRL hybrid + ensemble rerank** (20.01%) — RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks. Previously shipped; superseded since MNRL retrieval was found to dilute the candidate pool.
-- **MNRL + BoD ensemble rerank** (19.83%) — 6M-MNRL retrieves top-100, then ensemble rerank.
-- **BM25 retrieval** (19.50%) — tantivy en_stem alone, no dense, no rerank.
-- **Base + BoD ensemble rerank** (19.00%) — the same reranker stack on plain MiniLM retrieval.
-- **MNRL retrieval (no rerank)** (18.10%) — 6M-MNRL alone.
-- **RRF(BM25, base) hybrid retrieval** (18.62%) — non-BoD hybrid baseline (no fine-tuning, no rerank). Underperforms BM25 alone — the dense lane displaces BM25's exact-match top-1 with semantically-similar near-misses.
-- **Fine-tuned retrieval (cosine BoD)** — the originally deployed BoD-as-retriever; kept for historical comparison.
-- **Base MiniLM retrieval** (default left, 15.60%) — no fine-tuning, no rerank.
+- **BM25 + 3-way ensemble rerank** (default right, 21.32%) - tantivy BM25 retrieves top-50, three BoD-trained encoders rerank via sumsim fusion. Current SOTA. The third encoder is trained on ESCI labels directly (E as positives, I as hardnegs); it adds orthogonal signal to the bag-trained pair.
+- **BM25 + 2-way ensemble rerank** (21.11%) - the prior SOTA; same retrieval, two-encoder rerank.
+- **BM25 + MNRL hybrid + ensemble rerank** (20.01%) - RRF-fuses BM25 and 6M-MNRL retrieval, then ensemble-reranks. Adding MNRL retrieval to the candidate pool actually hurts.
+- **MNRL + BoD ensemble rerank** (19.83%) - 6M-MNRL retrieves top-100, then ensemble rerank.
+- **BM25 retrieval** (19.50%) - tantivy en_stem alone, no dense, no rerank.
+- **Base + BoD ensemble rerank** (19.00%) - the same reranker stack on plain MiniLM retrieval.
+- **RRF(BM25, base) hybrid retrieval** (18.62%) - non-BoD hybrid baseline. Underperforms BM25 alone.
+- **MNRL retrieval (no rerank)** (18.10%) - 6M-MNRL alone.
+- **Fine-tuned retrieval (cosine BoD)** - the originally deployed BoD-as-retriever; kept for historical comparison.
+- **Base MiniLM retrieval** (default left, 15.60%) - no fine-tuning, no rerank.
 
-The BoD rerank stack buys **+1.61pp R@10 over BM25 alone**, **+2.49pp over the strongest non-BoD baseline (RRF hybrid)**, and **+5.51pp over base MiniLM**. Precomputed product embeddings keep dense modes at sub-100ms; BM25 is faster still.
+The 3-way BoD rerank stack buys **+1.82pp R@10 over BM25 alone**, **+2.70pp over the strongest non-BoD baseline (RRF hybrid)**, and **+5.72pp over base MiniLM**. The 3-way ensemble adds **+0.21pp R@10 / +0.77pp E@1** over the 2-way by including an ESCI-label-supervised third encoder. Precomputed product embeddings keep dense modes at sub-100ms; BM25 is faster still.
 
 - **Blog post**: [Distilling Retrieval Pipelines to a Single Embedding Model](https://dtunkelang.medium.com/distilling-retrieval-pipelines-to-a-single-embedding-model-606f3ecf0c91)
 - **Model and data**: [huggingface.co/datasets/dtunkelang/bag-of-documents](https://huggingface.co/datasets/dtunkelang/bag-of-documents)

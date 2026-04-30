@@ -70,16 +70,20 @@ def load_resources():
     # Reranker ensemble (the deployable BoD-as-reranker architecture):
     # base FAISS top-100 → sumrank fusion of two rerankers' orderings → top-K.
     # Optional — set RERANK_A=skip / RERANK_B=skip to disable.
-    rerank_a = rerank_b = None
-    rerank_a_vecs = rerank_b_vecs = None
+    rerank_a = rerank_b = rerank_g = None
+    rerank_a_vecs = rerank_b_vecs = rerank_g_vecs = None
     rerank_a_path = os.environ.get(
         "RERANK_A", os.path.join(SCRIPT_DIR, "query_model_us_full_6m_mnrl")
     )
     rerank_b_path = os.environ.get(
         "RERANK_B", os.path.join(SCRIPT_DIR, "query_model_us_qrels_mnrl_hardneg")
     )
+    rerank_g_path = os.environ.get(
+        "RERANK_G", os.path.join(SCRIPT_DIR, "query_model_us_esci_supervised")
+    )
     rerank_a_vecs_path = os.path.join(index_dir, "rerank_A.vecs.fp16.npy")
     rerank_b_vecs_path = os.path.join(index_dir, "rerank_B.vecs.fp16.npy")
+    rerank_g_vecs_path = os.path.join(index_dir, "rerank_G.vecs.fp16.npy")
 
     if rerank_a_path != "skip" and os.path.exists(rerank_a_path):
         rerank_a = SentenceTransformer(rerank_a_path)
@@ -106,6 +110,19 @@ def load_resources():
             print(
                 f"  Reranker B: {os.path.basename(rerank_b_path)} "
                 f"(no precomputed vecs at {rerank_b_vecs_path}; will encode candidates live)"
+            )
+    if rerank_g_path != "skip" and os.path.exists(rerank_g_path):
+        rerank_g = SentenceTransformer(rerank_g_path)
+        if os.path.exists(rerank_g_vecs_path):
+            rerank_g_vecs = np.load(rerank_g_vecs_path)
+            print(
+                f"  Reranker G: {os.path.basename(rerank_g_path)} "
+                f"(precomputed vecs: {rerank_g_vecs.shape}, fp16)"
+            )
+        else:
+            print(
+                f"  Reranker G: {os.path.basename(rerank_g_path)} "
+                f"(no precomputed vecs at {rerank_g_vecs_path}; will encode candidates live)"
             )
 
     # Bag centroids for kNN specificity prediction
@@ -170,8 +187,10 @@ def load_resources():
         "base_model": base_model,
         "rerank_a": rerank_a,
         "rerank_b": rerank_b,
+        "rerank_g": rerank_g,
         "rerank_a_vecs": rerank_a_vecs,
         "rerank_b_vecs": rerank_b_vecs,
+        "rerank_g_vecs": rerank_g_vecs,
         "mnrl_index": mnrl_index,
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
@@ -364,6 +383,58 @@ def bm25_top_k(query, resources, k=10):
         seen.add(title)
         results.append({"title": title, "score": round(float(score), 4)})
         if len(results) >= k:
+            break
+    return results
+
+
+def bm25_3way_rerank_top_k(query, resources, k_top=10, k_retrieve=50):
+    """Setup CC3-50: BM25 top-K_retrieve -> 3-way ensemble rerank.
+
+    Three reranker encoders fused via sumsim (mean cosine):
+      rerank_a: query_model_us_full_6m_mnrl   (BoD, MNRL on full-6M bags)
+      rerank_b: query_model_us_qrels_mnrl_hardneg (BoD, qrels-derived bags + hardnegs)
+      rerank_g: query_model_us_esci_supervised (MNRL on ESCI E-as-positive,
+                                                I-as-hardneg triplets - no
+                                                bag construction at all)
+
+    R@10 21.32%, +0.21pp over K=21.11%; E@1 41.64%, +0.77pp. Default
+    k_retrieve=50 (the 3-way ensemble peaks at top-50; 100 also works).
+    Falls back to bm25_rerank_top_k if rerank_G is unavailable.
+    """
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    g = resources.get("rerank_g")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    g_vecs = resources.get("rerank_g_vecs")
+    titles = resources["titles"]
+
+    if g is None or g_vecs is None:
+        return bm25_rerank_top_k(query, resources, k_top, k_retrieve)
+
+    positions = _bm25_top_positions(query, resources, k_retrieve)
+    if not positions:
+        return ensemble_rerank(
+            query, resources, k_retrieve=k_retrieve, k_top=k_top, retriever="mnrl"
+        )
+
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qg = np.array(g.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    cv_g = g_vecs[positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
+    order = np.argsort(-avg_sim)
+
+    seen, results = set(), []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(avg_sim[int(idx)]), 4)})
+        if len(results) >= k_top:
             break
     return results
 
@@ -830,6 +901,8 @@ def _results_for_mode(mode, q, resources, k):
     bm25_base_rrf      — RRF(BM25, base) retrieval, no rerank (18.62%, non-BoD baseline)
     bm25_base_rerank   — RRF(BM25, base) + ensemble rerank (20.43%)
     """
+    if mode == "bm25_3way_rerank":
+        return bm25_3way_rerank_top_k(q, resources, k_top=k, k_retrieve=50)
     if mode == "bm25_rerank":
         return bm25_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
     if mode == "hybrid_rerank":
@@ -858,8 +931,8 @@ async def api_search(
     q: str = Query(..., description="Search query"),
     k: int = Query(50, description="Number of results (also scales candidate retrieval)"),
     mode: str = Query(
-        "bm25_rerank",
-        description="Right-column mode: base | retrieval | bm25 | mnrl | rerank | mnrl_rerank | hybrid_rerank | bm25_rerank",
+        "bm25_3way_rerank",
+        description="Right-column mode: base | retrieval | bm25 | mnrl | rerank | mnrl_rerank | hybrid_rerank | bm25_rerank | bm25_3way_rerank",
     ),
     left_mode: str = Query("base", description="Left-column mode (same options as `mode`)"),
 ):
@@ -965,7 +1038,8 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
-                <option value="bm25_rerank">BM25 + ensemble rerank (R@10 21.11)</option>
+                <option value="bm25_rerank">BM25 + 2-way ensemble rerank (R@10 21.11)</option>
+                <option value="bm25_3way_rerank">BM25 top-50 + 3-way ensemble rerank (R@10 21.32)</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -973,7 +1047,8 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_rerank" selected>BM25 + ensemble rerank (SOTA, R@10 21.11)</option>
+                <option value="bm25_3way_rerank" selected>BM25 top-50 + 3-way ensemble rerank (SOTA, R@10 21.32)</option>
+                <option value="bm25_rerank">BM25 + 2-way ensemble rerank (R@10 21.11)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>

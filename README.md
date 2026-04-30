@@ -13,11 +13,20 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% |
 | RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | BM25 alone (lexical retrieval only) | 19.50% | 0.3322 | 38.79% | 35.72% |
-| **BM25 + ensemble rerank (current SOTA)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
+| BM25 + 2-way ensemble rerank | 21.11% | 0.3566 | 40.87% | 38.04% |
+| **BM25 top-50 + 3-way ensemble rerank (current SOTA)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The BoD rerank stack buys **+1.61pp R@10 over BM25 alone**, **+2.49pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+5.51pp over base MiniLM**. No dense retrieval and no HNSW in the inference path.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The 3-way BoD rerank stack buys **+1.82pp R@10 over BM25 alone**, **+2.70pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+5.72pp over base MiniLM**. **+0.21pp R@10 / +0.77pp E@1 over the 2-way ensemble** by adding an ESCI-label-supervised third reranker. No dense retrieval and no HNSW in the inference path.
 
 The non-BoD hybrid baseline is included to make the comparison honest — RRF-fusing BM25 and base MiniLM is the standard "vanilla hybrid retrieval" recipe, available with no training, no fine-tuning, and one extra forward pass per query at inference. It actually *underperforms* BM25 alone on this benchmark (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 38.79% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
+
+The deployable architecture:
+
+1. **Retrieval**: tantivy BM25 (en_stem tokenizer) returns top-50 candidates.
+2. **Rerank**: three BoD-trained encoders score candidates -- two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
+3. **Fusion**: sumsim -- average the three cosine similarities; sort descending; return top-10.
+
+Three small forward passes per query, all over precomputed product embeddings; ~40ms wall-clock on commodity hardware.
 
 The deployable architecture is:
 
@@ -79,7 +88,8 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 | Z | RRF(BM25, base) retrieval (non-BoD hybrid baseline) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
 | AA | RRF(BM25, base) + ensemble rerank | 20.43% | 0.3451 | 39.42% | 36.73% |
-| **K** | **BM25 + ensemble rerank (no dense retrieval)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
+| K | BM25 + 2-way ensemble rerank (no dense retrieval) | 21.11% | 0.3566 | 40.87% | 38.04% |
+| **CC3-50** | **BM25 top-50 + 3-way ensemble rerank (with ESCI-supervised rerank_G)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
 
 **Read-outs:**
 

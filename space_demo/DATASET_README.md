@@ -104,7 +104,8 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
 | I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
 | AA | RRF(BM25, base) + ensemble rerank | 20.43% | 0.3451 | 39.42% | 36.73% |
-| **K** | **BM25 + ensemble rerank (no dense retrieval)** | **21.11%** | **0.3566** | **40.87%** | **38.04%** |
+| K | BM25 + 2-way ensemble rerank (no dense retrieval) | 21.11% | 0.3566 | 40.87% | 38.04% |
+| **CC3-50** | **BM25 top-50 + 3-way ensemble rerank (with ESCI-supervised rerank_G)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
 
 Three things to note:
 

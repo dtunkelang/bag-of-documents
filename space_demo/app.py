@@ -41,11 +41,13 @@ def download_data():
             "combined_index/titles.json",
             "combined_index/rerank_A.vecs.fp16.npy",
             "combined_index/rerank_B.vecs.fp16.npy",
+            "combined_index/rerank_G.vecs.fp16.npy",
             "combined_index/tantivy_index/*",
             "bags.jsonl",
             "query_model/*",
             "query_model_6m_mnrl/*",
             "query_model_hardneg/*",
+            "query_model_esci_supervised/*",
         ],
     )
     print(f"  Downloaded to {local_dir}")
@@ -77,11 +79,24 @@ def load_resources(data_dir):
 
     rerank_a = SentenceTransformer(os.path.join(data_dir, "query_model_6m_mnrl"))
     rerank_b = SentenceTransformer(os.path.join(data_dir, "query_model_hardneg"))
-    print("  Rerankers: 6M MNRL + qrels-hardneg")
+    rerank_g = None
+    rerank_g_path = os.path.join(data_dir, "query_model_esci_supervised")
+    if os.path.isdir(rerank_g_path) and os.listdir(rerank_g_path):
+        rerank_g = SentenceTransformer(rerank_g_path)
+        print("  Rerankers: 6M MNRL + qrels-hardneg + ESCI-supervised")
+    else:
+        print("  Rerankers: 6M MNRL + qrels-hardneg (3-way mode unavailable)")
 
     rerank_a_vecs = np.load(os.path.join(data_dir, "combined_index", "rerank_A.vecs.fp16.npy"))
     rerank_b_vecs = np.load(os.path.join(data_dir, "combined_index", "rerank_B.vecs.fp16.npy"))
-    print(f"  Cached vecs: {rerank_a_vecs.shape} fp16 each")
+    rerank_g_vecs = None
+    rerank_g_vecs_path = os.path.join(data_dir, "combined_index", "rerank_G.vecs.fp16.npy")
+    if os.path.exists(rerank_g_vecs_path):
+        rerank_g_vecs = np.load(rerank_g_vecs_path)
+    print(f"  Cached vecs: A={rerank_a_vecs.shape}, B={rerank_b_vecs.shape}", end="")
+    if rerank_g_vecs is not None:
+        print(f", G={rerank_g_vecs.shape}", end="")
+    print()
 
     bag_queries, bag_centroids, bag_specs = [], [], []
     with open(os.path.join(data_dir, "bags.jsonl")) as f:
@@ -128,8 +143,10 @@ def load_resources(data_dir):
         "retrieval_model": retrieval_model,
         "rerank_a": rerank_a,
         "rerank_b": rerank_b,
+        "rerank_g": rerank_g,
         "rerank_a_vecs": rerank_a_vecs,
         "rerank_b_vecs": rerank_b_vecs,
+        "rerank_g_vecs": rerank_g_vecs,
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
         "bag_specs": bag_specs,
@@ -333,19 +350,46 @@ def bm25_top_k(query, R, k, oversample=3):
 
 
 def bm25_rerank_top_k(query, R, k_top, k_retrieve=100):
-    """BM25 top-K_retrieve → ensemble rerank with two BoD models. ESCI SOTA.
+    """BM25 top-K_retrieve -> ensemble rerank with two BoD models. R@10 21.11%.
 
-    R@10 21.11% on the 22,458-query ESCI test set, +5.51pp over base. Adding
-    MNRL retrieval to the candidate pool (the previous shipped hybrid)
-    actually hurt rerank quality — its dense candidates diluted BM25's
-    lexically-anchored ones. Strip MNRL retrieval and the architecture is
-    both simpler (no HNSW index in the inference path) and stronger.
     Falls back to mnrl_rerank_top_k if the BM25 index isn't loaded.
     """
     positions = _bm25_top_positions(query, R, k_retrieve)
     if not positions:
         return mnrl_rerank_top_k(query, R, k_top, k_retrieve)
     return _ensemble_rerank_from_positions(query, R, positions, k_top)
+
+
+def bm25_3way_rerank_top_k(query, R, k_top, k_retrieve=50):
+    """Setup CC3-50: BM25 top-K_retrieve -> 3-way ensemble rerank. ESCI SOTA.
+
+    Three reranker encoders fused via sumsim (mean cosine):
+      rerank_a: query_model_6m_mnrl     (BoD, MNRL on full-6M bags)
+      rerank_b: query_model_hardneg     (BoD, qrels-derived bags + hardnegs)
+      rerank_g: query_model_esci_supervised (MNRL on ESCI E-as-positive,
+                                             I-as-hardneg triplets - no
+                                             bag construction)
+
+    R@10 21.32% on the 22,458-query ESCI test set, +0.21pp over the
+    2-way ensemble (K). E@1 41.64%, +0.77pp over K. Default k_retrieve=50;
+    100 also works (21.30%). Falls back to bm25_rerank_top_k if rerank_G
+    is unavailable.
+    """
+    if R.get("rerank_g") is None or R.get("rerank_g_vecs") is None:
+        return bm25_rerank_top_k(query, R, k_top, k_retrieve)
+    positions = _bm25_top_positions(query, R, k_retrieve)
+    if not positions:
+        return mnrl_rerank_top_k(query, R, k_top, k_retrieve)
+    qa = np.asarray(R["rerank_a"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.asarray(R["rerank_b"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    qg = np.asarray(R["rerank_g"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = R["rerank_a_vecs"][positions].astype(np.float32)
+    cv_b = R["rerank_b_vecs"][positions].astype(np.float32)
+    cv_g = R["rerank_g_vecs"][positions].astype(np.float32)
+    avg_sim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
+    order = np.argsort(-avg_sim)
+    raw = [(R["titles"][positions[int(idx)]], round(float(avg_sim[idx]), 4)) for idx in order]
+    return _dedup_by_title(raw, k_top)
 
 
 def _bm25_base_rrf_positions(query, R, k_retrieve):
@@ -481,7 +525,8 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + ensemble rerank (SOTA, R@10 21.11)",
+    "BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)",
+    "BM25 + 2-way ensemble rerank (R@10 21.11)",
     "RRF(BM25, base) + ensemble rerank (R@10 20.43)",
     "RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)",
     "MNRL + BoD ensemble rerank (R@10 19.83)",
@@ -495,7 +540,9 @@ MODE_LABELS = [
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + ensemble rerank (SOTA, R@10 21.11)":
+    if mode == "BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)":
+        return bm25_3way_rerank_top_k(query, R, k_top=k)
+    if mode == "BM25 + 2-way ensemble rerank (R@10 21.11)":
         return bm25_rerank_top_k(query, R, k_top=k)
     if mode == "RRF(BM25, base) + ensemble rerank (R@10 20.43)":
         return bm25_base_rerank_top_k(query, R, k_top=k)
@@ -579,7 +626,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + ensemble rerank (SOTA, R@10 21.11)",
+            value="BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)",
             label="Right-column mode",
         )
 
