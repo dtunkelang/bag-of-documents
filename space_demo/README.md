@@ -21,10 +21,11 @@ ESCI 22,458-query R@10 in parens:
 - **BM25 retrieval** (19.50%) — tantivy en_stem alone, no dense, no rerank.
 - **Base + BoD ensemble rerank** (19.00%) — the same reranker stack on plain MiniLM retrieval.
 - **MNRL retrieval (no rerank)** (18.10%) — 6M-MNRL alone.
+- **RRF(BM25, base) hybrid retrieval** (18.62%) — non-BoD hybrid baseline (no fine-tuning, no rerank). Underperforms BM25 alone — the dense lane displaces BM25's exact-match top-1 with semantically-similar near-misses.
 - **Fine-tuned retrieval (cosine BoD)** — the originally deployed BoD-as-retriever; kept for historical comparison.
 - **Base MiniLM retrieval** (default left, 15.60%) — no fine-tuning, no rerank.
 
-Precomputed product embeddings keep dense modes at sub-100ms; BM25 is faster still.
+The BoD rerank stack buys **+1.61pp R@10 over BM25 alone**, **+2.49pp over the strongest non-BoD baseline (RRF hybrid)**, and **+5.51pp over base MiniLM**. Precomputed product embeddings keep dense modes at sub-100ms; BM25 is faster still.
 
 - **Blog post**: [Distilling Retrieval Pipelines to a Single Embedding Model](https://dtunkelang.medium.com/distilling-retrieval-pipelines-to-a-single-embedding-model-606f3ecf0c91)
 - **Model and data**: [huggingface.co/datasets/dtunkelang/bag-of-documents](https://huggingface.co/datasets/dtunkelang/bag-of-documents)
