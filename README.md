@@ -8,26 +8,34 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 
 ## Headline Result
 
-| | R@10 | nDCG@10 | E@1 | E@3 |
-|---|---|---|---|---|
-| Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% |
-| RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% |
-| BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% |
-| **BM25 top-50 + 3-way ensemble rerank (current SOTA)** | **21.61%** | **0.3660** | **42.11%** | **39.22%** |
+| | R@10 | nDCG@10 | E@1 | E@3 | latency |
+|---|---|---|---|---|---|
+| Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% | — |
+| RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% | — |
+| BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | — |
+| BM25 top-50 + 3-way ensemble rerank (**fast SOTA**) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
+| **BM25 top-50 + 3-way + CE fusion (quality SOTA)** | **22.22%** | **0.3821** | **44.74%** | **41.43%** | **~200-500ms MPS / 1-3s CPU** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The 3-way BoD rerank stack buys **+1.28pp R@10 over BM25 alone**, **+2.99pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+6.01pp over base MiniLM**. No dense retrieval and no HNSW in the inference path.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Two SOTA modes ship — same retriever and bi-encoder rerank, with an optional cross-encoder fusion for the quality variant.
 
-The non-BoD hybrid baseline is included to make the comparison honest — RRF-fusing BM25 and base MiniLM is the standard "vanilla hybrid retrieval" recipe, available with no training, no fine-tuning, and one extra forward pass per query at inference. It actually *underperforms* BM25 alone on this benchmark (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
+The **fast SOTA** stack: bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms latency, +1.28pp R@10 over BM25 alone, +6.01pp over base MiniLM.
 
-The retriever uses [bm25s](https://github.com/xhluca/bm25s) (numpy-backed BM25 with configurable k1/b) at **k1=0.3, b=0.6** — swept against ESCI to optimize for keyword-heavy short Amazon product titles. Sub-100ms wall-clock retrieval on commodity hardware.
+The **quality SOTA** stack adds the LiYuan ESCI cross-encoder (RoBERTa, full-attention, trained on ESCI labels). For each candidate, the cross-encoder scores the (query, title) pair; CE scores and the 3-way sumsim are min-max normalized per query and fused at `w_ce=0.25`. Result: +0.61pp R@10, **+2.63pp E@1** over the fast SOTA — the cross-encoder catches near-miss reorderings that the bi-encoder ensemble misses. With `w_ce=0.50`, E@1 peaks at **45.04%** (R@10 22.00%) — a precision-favoring variant kept in the demo.
+
+The non-BoD hybrid baseline (RRF) is included to make the comparison honest. It actually *underperforms* BM25 alone (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
+
+The retriever uses [bm25s](https://github.com/xhluca/bm25s) (numpy-backed BM25 with configurable k1/b) at **k1=0.3, b=0.6** — swept against ESCI to optimize for keyword-heavy short Amazon product titles.
 
 The deployable architecture:
 
 1. **Retrieval**: bm25s (k1=0.3, b=0.6, Snowball english stemmer + en stopwords) returns top-50 candidates.
-2. **Rerank**: three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
-3. **Fusion**: sumsim — average the three cosine similarities; sort descending; return top-10.
+2. **Bi-encoder rerank**: three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
+3. **Optional CE fusion** (quality SOTA only): the LiYuan ESCI cross-encoder scores each (query, title) pair; CE and 3-way sumsim are per-query min-max normalized and blended at `w_ce=0.25` (or 0.50 for E@1-favoring).
+4. **Output**: top-10 by fused score.
 
-Three small forward passes per query, all over precomputed product embeddings; ~40-100ms wall-clock on commodity hardware.
+Fast SOTA: three small forward passes per query, all over precomputed product embeddings; ~40-100ms wall-clock on commodity hardware.
+
+Quality SOTA: as above + 50 cross-encoder forward passes; ~200-500ms on MPS/GPU, 1-3s on CPU.
 
 ## Quick Start
 

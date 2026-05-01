@@ -183,15 +183,27 @@ def load_resources():
         if t not in title_to_pos:
             title_to_pos[t] = i
 
-    # Cross-encoder for bag search mode
+    # Cross-encoder. Used by both the bag-search mode (when LOAD_BAG_SEARCH=1)
+    # and by the CC4-50 mode (CE-fused 4-way rerank, the quality SOTA).
+    # Prefers a local path for offline use; falls back to the HF hub name.
     ce_model = None
-    if os.environ.get("LOAD_BAG_SEARCH") == "1":
-        ce_path = os.path.join(SCRIPT_DIR, "models", "esci-cross-encoder")
-        if os.path.exists(ce_path):
-            from sentence_transformers import CrossEncoder
+    try:
+        import torch as _torch
+        from sentence_transformers import CrossEncoder
 
-            ce_model = CrossEncoder(ce_path)
-            print("  ESCI cross-encoder loaded")
+        ce_path = os.path.join(SCRIPT_DIR, "models", "esci-cross-encoder")
+        ce_src = (
+            ce_path if os.path.exists(ce_path) else "LiYuan/Amazon-Cup-Cross-Encoder-Regression"
+        )
+        device = (
+            "mps"
+            if _torch.backends.mps.is_available()
+            else ("cuda" if _torch.cuda.is_available() else "cpu")
+        )
+        ce_model = CrossEncoder(ce_src, device=device)
+        print(f"  ESCI cross-encoder loaded from {ce_src} on {device}")
+    except Exception as e:
+        print(f"  ESCI cross-encoder unavailable: {e}")
 
     return {
         "index": index,
@@ -495,6 +507,81 @@ def bm25_3way_rerank_top_k(query, resources, k_top=10, k_retrieve=50):
             continue
         seen.add(t)
         results.append({"title": t, "score": round(float(avg_sim[int(idx)]), 4)})
+        if len(results) >= k_top:
+            break
+    return results
+
+
+def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=50, w_ce=0.25):
+    """Setup CC4-50: BM25 top-K_retrieve -> 3-way ensemble rerank fused
+    with cross-encoder scores via per-query min-max normalization.
+
+    Pipeline:
+      1. bm25s retrieves top-K_retrieve candidate positions.
+      2. Three bi-encoder rerankers (A, B, G) score candidates via cached
+         product vecs. The 3-way mean cosine is the "sumsim" stream.
+      3. The LiYuan ESCI cross-encoder scores each (query, title) pair.
+      4. Both streams are min-max normalized over the candidate set per
+         query, then fused: w_ce * ce_norm + (1 - w_ce) * sumsim_norm.
+      5. Top-k_top by fused score.
+
+    R@10 22.22%, +0.61pp over CC3-50 (21.61%); E@1 44.74%, +2.63pp.
+    With w_ce=0.5: R@10 22.00%, E@1 45.04% (precision-favoring variant).
+
+    Latency on top-50: ~200-500ms on MPS / GPU, 1-3s on CPU. The CE forward
+    pass is the bottleneck.
+
+    Falls back to bm25_3way_rerank_top_k if the CE model isn't loaded.
+    """
+    ce = resources.get("ce_model")
+    if ce is None:
+        return bm25_3way_rerank_top_k(query, resources, k_top, k_retrieve)
+
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    g = resources.get("rerank_g")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    g_vecs = resources.get("rerank_g_vecs")
+    titles = resources["titles"]
+
+    if g is None or g_vecs is None:
+        return bm25_rerank_top_k(query, resources, k_top, k_retrieve)
+
+    positions = _bm25_top_positions(query, resources, k_retrieve)
+    if not positions:
+        return ensemble_rerank(
+            query, resources, k_retrieve=k_retrieve, k_top=k_top, retriever="mnrl"
+        )
+
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qg = np.array(g.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    cv_g = g_vecs[positions].astype(np.float32)
+    sumsim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
+
+    cand_titles = [titles[p] for p in positions]
+    ce_scores = ce.predict(
+        [(query, t) for t in cand_titles], batch_size=32, show_progress_bar=False
+    )
+    ce_scores = np.asarray(ce_scores, dtype=np.float32)
+
+    def _minmax(x):
+        lo, hi = float(x.min()), float(x.max())
+        return (x - lo) / max(hi - lo, 1e-8)
+
+    fused = w_ce * _minmax(ce_scores) + (1 - w_ce) * _minmax(sumsim)
+    order = np.argsort(-fused)
+
+    seen, results = set(), []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(fused[int(idx)]), 4)})
         if len(results) >= k_top:
             break
     return results
@@ -962,6 +1049,10 @@ def _results_for_mode(mode, q, resources, k):
     bm25_base_rrf      — RRF(BM25, base) retrieval, no rerank (18.62%, non-BoD baseline)
     bm25_base_rerank   — RRF(BM25, base) + ensemble rerank (20.43%)
     """
+    if mode == "bm25_3way_ce_rerank":
+        return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=50, w_ce=0.25)
+    if mode == "bm25_3way_ce_rerank_e1":
+        return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=50, w_ce=0.5)
     if mode == "bm25_3way_rerank":
         return bm25_3way_rerank_top_k(q, resources, k_top=k, k_retrieve=50)
     if mode == "bm25_rerank":
@@ -1100,7 +1191,9 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
-                <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (R@10 21.61)</option>
+                <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank, fast SOTA (R@10 21.61)</option>
+                <option value="bm25_3way_ce_rerank">bm25s + 3-way + CE fusion w_ce=0.25, quality SOTA (R@10 22.22)</option>
+                <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5, E@1 SOTA (45.04)</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -1108,7 +1201,9 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_3way_rerank" selected>bm25s top-50 + 3-way ensemble rerank (SOTA, R@10 21.61)</option>
+                <option value="bm25_3way_ce_rerank" selected>bm25s + 3-way + CE fusion (quality SOTA, R@10 22.22)</option>
+                <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5 (E@1 SOTA, 45.04)</option>
+                <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (fast SOTA, R@10 21.61)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>

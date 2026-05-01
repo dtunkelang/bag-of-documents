@@ -150,7 +150,14 @@ def main():
 
     # Setup K: BM25 top-100 -> ensemble rerank
     print("loading BM25 top-100...", flush=True)
-    I_bm25 = np.load(os.path.join(INDEX_DIR, "bm25_top100.npy"))
+    # Prefer bm25s top-200 (k1=0.3, b=0.6) over the legacy tantivy top-100.
+    bm25s_path = os.path.join(INDEX_DIR, "bm25s_top200.npy")
+    if os.path.exists(bm25s_path):
+        I_bm25 = np.load(bm25s_path)[:, :100]
+        print(f"  using bm25s top-200 -> top-100 ({I_bm25.shape})", flush=True)
+    else:
+        I_bm25 = np.load(os.path.join(INDEX_DIR, "bm25_top100.npy"))
+        print(f"  using tantivy top-100 ({I_bm25.shape})", flush=True)
 
     # Per-query orderings
     a_order = [row[:K_EVAL] for row in base_pids]
