@@ -14,13 +14,13 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% | — |
 | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | — |
 | BM25 top-50 + 3-way ensemble rerank (**fast SOTA**) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
-| **BM25 top-50 + 3-way + CE fusion (quality SOTA)** | **22.22%** | **0.3821** | **44.74%** | **41.43%** | **~200-500ms MPS / 1-3s CPU** |
+| **BM25 top-100 + 3-way + CE fusion (quality SOTA)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** | **~400ms-1s MPS / 2-6s CPU** |
 
 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Two SOTA modes ship — same retriever and bi-encoder rerank, with an optional cross-encoder fusion for the quality variant.
 
 The **fast SOTA** stack: bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms latency, +1.28pp R@10 over BM25 alone, +6.01pp over base MiniLM.
 
-The **quality SOTA** stack adds the LiYuan ESCI cross-encoder (RoBERTa, full-attention, trained on ESCI labels). For each candidate, the cross-encoder scores the (query, title) pair; CE scores and the 3-way sumsim are min-max normalized per query and fused at `w_ce=0.25`. Result: +0.61pp R@10, **+2.63pp E@1** over the fast SOTA — the cross-encoder catches near-miss reorderings that the bi-encoder ensemble misses. With `w_ce=0.50`, E@1 peaks at **45.04%** (R@10 22.00%) — a precision-favoring variant kept in the demo.
+The **quality SOTA** stack adds the LiYuan ESCI cross-encoder (RoBERTa, full-attention, trained on ESCI labels) over BM25 top-100 candidates. CE scores and the 3-way sumsim are min-max normalized per query and fused at `w_ce=0.25`. Result: +0.72pp R@10, **+2.74pp E@1** over the fast SOTA — the cross-encoder catches near-miss reorderings the bi-encoder ensemble misses. K_retrieve=100 is the swept optimum: the bi-encoder filter at top-50 was hiding products CE could rescue. With `w_ce=0.50`, E@1 peaks at **45.20%** (R@10 22.03%) — a precision-favoring variant kept in the demo.
 
 The non-BoD hybrid baseline (RRF) is included to make the comparison honest. It actually *underperforms* BM25 alone (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
 
@@ -35,7 +35,7 @@ The deployable architecture:
 
 Fast SOTA: three small forward passes per query, all over precomputed product embeddings; ~40-100ms wall-clock on commodity hardware.
 
-Quality SOTA: as above + 50 cross-encoder forward passes; ~200-500ms on MPS/GPU, 1-3s on CPU.
+Quality SOTA: as above + 100 cross-encoder forward passes (over BM25 top-100, no bi-encoder pre-filter); ~400ms-1s on MPS/GPU, 2-6s on CPU.
 
 ## Quick Start
 

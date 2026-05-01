@@ -113,7 +113,8 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | K' | BM25 (bm25s) + 2-way ensemble rerank | 21.27% | 0.3588 | 41.12% | 38.27% |
 | CC3-50 (tantivy) | BM25 top-50 + 3-way ensemble rerank | 21.32% | 0.3613 | 41.64% | 38.80% |
 | CC3-50 (bm25s, fast SOTA) | BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank | 21.61% | 0.3660 | 42.11% | 39.22% |
-| **CC4-50 (bm25s + CE fusion, quality SOTA)** | **+ LiYuan ESCI CE, w_ce=0.25 fused with 3-way sumsim** | **22.22%** | **0.3821** | **44.74%** | **41.43%** |
+| CC4-50 (bm25s + CE fusion over top-50) | + LiYuan ESCI CE, w_ce=0.25 fused with 3-way sumsim | 22.24% | 0.3829 | 44.94% | 41.55% |
+| **CC4-100 (bm25s + CE fusion over top-100, quality SOTA)** | **same fusion, K_retrieve=100 (the swept optimum)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** |
 
 Four things to note:
 

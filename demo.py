@@ -512,8 +512,8 @@ def bm25_3way_rerank_top_k(query, resources, k_top=10, k_retrieve=50):
     return results
 
 
-def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=50, w_ce=0.25):
-    """Setup CC4-50: BM25 top-K_retrieve -> 3-way ensemble rerank fused
+def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=100, w_ce=0.25):
+    """Setup CC4-100: BM25 top-K_retrieve -> 3-way ensemble rerank fused
     with cross-encoder scores via per-query min-max normalization.
 
     Pipeline:
@@ -525,11 +525,15 @@ def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=50, w_ce=0.
          query, then fused: w_ce * ce_norm + (1 - w_ce) * sumsim_norm.
       5. Top-k_top by fused score.
 
-    R@10 22.22%, +0.61pp over CC3-50 (21.61%); E@1 44.74%, +2.63pp.
-    With w_ce=0.5: R@10 22.00%, E@1 45.04% (precision-favoring variant).
+    R@10 22.33%, +0.72pp over CC3-50 (21.61%); E@1 44.85%, +2.74pp.
+    With w_ce=0.5: R@10 22.03%, E@1 45.20% (precision-favoring variant).
 
-    Latency on top-50: ~200-500ms on MPS / GPU, 1-3s on CPU. The CE forward
-    pass is the bottleneck.
+    K_retrieve=100 is the swept optimum (CC4-30 21.65%, CC4-50 22.24%,
+    CC4-75 22.27%, CC4-100 22.33%). The bi-encoder filter at top-50 was
+    hiding products CE could rescue; widening the candidate pool catches
+    them at 2x CE latency.
+
+    Latency on top-100: ~400ms-1s on MPS / GPU, 2-6s on CPU.
 
     Falls back to bm25_3way_rerank_top_k if the CE model isn't loaded.
     """
@@ -1192,7 +1196,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank, fast SOTA (R@10 21.61)</option>
-                <option value="bm25_3way_ce_rerank">bm25s + 3-way + CE fusion w_ce=0.25, quality SOTA (R@10 22.22)</option>
+                <option value="bm25_3way_ce_rerank">bm25s + 3-way + CE fusion w_ce=0.25, quality SOTA (R@10 22.33)</option>
                 <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5, E@1 SOTA (45.04)</option>
             </select>
         </div>
@@ -1201,7 +1205,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_3way_ce_rerank" selected>bm25s + 3-way + CE fusion (quality SOTA, R@10 22.22)</option>
+                <option value="bm25_3way_ce_rerank" selected>bm25s + 3-way + CE fusion (quality SOTA, R@10 22.33)</option>
                 <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5 (E@1 SOTA, 45.04)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (fast SOTA, R@10 21.61)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>

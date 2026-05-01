@@ -456,16 +456,19 @@ def bm25_3way_rerank_top_k(query, R, k_top, k_retrieve=50):
     return _dedup_by_title(raw, k_top)
 
 
-def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=50, w_ce=0.25):
-    """Setup CC4-50: bm25s top-K -> 3-way bi-encoder rerank fused with the
+def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100, w_ce=0.25):
+    """Setup CC4-100: bm25s top-K -> 3-way bi-encoder rerank fused with the
     LiYuan ESCI cross-encoder via per-query min-max normalization.
 
-    R@10 22.22% (+0.61pp over CC3-50), nDCG 0.3821 (+0.0161),
-    E@1 44.74% (+2.63pp), E@3 62.50% (+2.13pp) at w_ce=0.25.
-    With w_ce=0.5: E@1 peaks at 45.04% but R@10 drops to 22.00%.
+    R@10 22.33% (+0.72pp over CC3-50), nDCG 0.3842 (+0.0182),
+    E@1 44.85% (+2.74pp), E@3 41.61% at w_ce=0.25.
+    With w_ce=0.5: E@1 peaks at 45.20% but R@10 drops to 22.03%.
 
-    Latency tradeoff: ~200-500ms on MPS / GPU, 1-3s on CPU. The CE forward
-    pass over 50 (q, t) pairs dominates wall-clock.
+    K_retrieve=100 is the swept optimum (CE benefits from a wider pool;
+    the bi-encoder filter at top-50 was hiding products CE could rescue).
+
+    Latency tradeoff: ~400ms-1s on MPS / GPU, 2-6s on CPU. The CE forward
+    pass over 100 (q, t) pairs dominates wall-clock.
 
     Falls back to CC3-50 if the CE model isn't loaded.
     """
@@ -633,7 +636,7 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.22, ~1-3s)",
+    "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)",
     "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
     "BM25 retrieval (R@10 20.33)",
     "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
@@ -642,7 +645,7 @@ MODE_LABELS = [
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.22, ~1-3s)":
+    if mode == "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)":
         return bm25_3way_ce_rerank_top_k(query, R, k_top=k, w_ce=0.25)
     if mode == "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
@@ -689,10 +692,10 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         "on this corpus it actually loses to BM25 alone.\n"
         "* **BM25 + 3-way ensemble rerank** — fast SOTA (21.61%), ~50ms/query. "
         "BM25 top-50 reranked by three BoD-trained MiniLM encoders via sumsim fusion.\n"
-        "* **BM25 + 3-way + CE fusion** — quality SOTA (22.22%, E@1 44.74%), "
-        "~1-3s/query on Space CPU. Adds the LiYuan ESCI cross-encoder, fused at "
-        "w_ce=0.25 with the 3-way sumsim via per-query min-max normalization. "
-        "+0.61pp R@10, +2.63pp E@1 over the fast SOTA.\n\n"
+        "* **BM25 + 3-way + CE fusion** — quality SOTA (22.33%, E@1 44.85%), "
+        "~2-6s/query on Space CPU. Adds the LiYuan ESCI cross-encoder over BM25 "
+        "top-100, fused at w_ce=0.25 with the 3-way sumsim via per-query min-max "
+        "normalization. +0.72pp R@10, +2.74pp E@1 over the fast SOTA.\n\n"
         "The fast SOTA does three forward passes against precomputed product "
         "embeddings then averages cosine — sub-100ms wall-clock. The quality SOTA "
         "adds 50 cross-encoder forward passes (full attention, ESCI-supervised) "
@@ -714,7 +717,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + 3-way + CE fusion (quality SOTA, R@10 22.22, ~1-3s)",
+            value="BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)",
             label="Right-column mode",
         )
 
