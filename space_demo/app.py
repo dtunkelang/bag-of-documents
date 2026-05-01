@@ -649,7 +649,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
     with gr.Row():
         left_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="Base MiniLM retrieval (R@10 15.60)",
+            value="BM25 retrieval (R@10 20.33)",
             label="Left-column mode",
         )
         right_mode_input = gr.Dropdown(
