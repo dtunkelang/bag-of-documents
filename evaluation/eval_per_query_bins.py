@@ -129,17 +129,19 @@ def main():
     K_RETRIEVE = 100
     K_EVAL = 10
 
-    # Encode queries with the 3 models we need (skip 6M-MNRL retrieval —
-    # we don't need it for setups A or K).
-    print("encoding queries with base, rerank_a, rerank_b...", flush=True)
+    # Encode queries with the 4 models we need: base, rerank_a, rerank_b,
+    # rerank_g (ESCI-supervised, used by setup CC3-50).
+    print("encoding queries with base, rerank_a, rerank_b, rerank_g...", flush=True)
     qv_base = encode_subproc("all-MiniLM-L6-v2", queries)
     qv_a = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_full_6m_mnrl"), queries)
     qv_b = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_qrels_mnrl_hardneg"), queries)
+    qv_g = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_esci_supervised"), queries)
 
     # Cached product vecs
     print("loading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
     pv_b = np.load(os.path.join(INDEX_DIR, "rerank_B.vecs.fp16.npy")).astype(np.float32)
+    pv_g = np.load(os.path.join(INDEX_DIR, "rerank_G.vecs.fp16.npy")).astype(np.float32)
 
     # Setup A: base FAISS top-10
     print("retrieving base FAISS top-100...", flush=True)
@@ -156,14 +158,26 @@ def main():
         [faiss_pos_to_pid[int(p)] for p in row[:K_EVAL] if p >= 0] for row in I_bm25
     ]  # BM25 top-10, no rerank
     k_order = []
+    cc_order = []  # CC3-50: BM25 top-50 + 3-way (A+B+G) sumsim rerank
     for qi in range(len(queries)):
         positions = [int(p) for p in I_bm25[qi] if p >= 0]
         if not positions:
             k_order.append([])
+            cc_order.append([])
             continue
-        sims = (pv_a[positions] @ qv_a[qi] + pv_b[positions] @ qv_b[qi]) / 2
-        order = np.argsort(-sims)[:K_EVAL]
-        k_order.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+        # K: BM25 top-100 + 2-way (A+B) sumsim
+        sims_k = (pv_a[positions] @ qv_a[qi] + pv_b[positions] @ qv_b[qi]) / 2
+        order_k = np.argsort(-sims_k)[:K_EVAL]
+        k_order.append([faiss_pos_to_pid[positions[int(j)]] for j in order_k])
+        # CC3-50: BM25 top-50 + 3-way (A+B+G) sumsim
+        positions50 = positions[:50]
+        sims_cc = (
+            pv_a[positions50] @ qv_a[qi]
+            + pv_b[positions50] @ qv_b[qi]
+            + pv_g[positions50] @ qv_g[qi]
+        ) / 3
+        order_cc = np.argsort(-sims_cc)[:K_EVAL]
+        cc_order.append([faiss_pos_to_pid[positions50[int(j)]] for j in order_cc])
 
     # Per-query metrics
     print("computing per-query metrics + binning...", flush=True)
@@ -185,6 +199,9 @@ def main():
         k_m = per_query_metrics(k_order[qi], qrels[qid])
         bins_es[bin_key]["K"].append(k_m.get("recall", 0))
         bins_es[bin_key]["K_ndcg"].append(k_m.get("ndcg", 0))
+        cc_m = per_query_metrics(cc_order[qi], qrels[qid])
+        bins_es[bin_key]["CC"].append(cc_m.get("recall", 0))
+        bins_es[bin_key]["CC_ndcg"].append(cc_m.get("ndcg", 0))
         if "e_at_1" in a_m:
             bins_n_e[bin_key] += 1
             bins_es[bin_key]["A_e1"].append(a_m["e_at_1"])
@@ -193,6 +210,8 @@ def main():
             bins_es[bin_key]["H_e3"].append(h_m.get("e_at_3", 0))
             bins_es[bin_key]["K_e1"].append(k_m.get("e_at_1", 0))
             bins_es[bin_key]["K_e3"].append(k_m.get("e_at_3", 0))
+            bins_es[bin_key]["CC_e1"].append(cc_m.get("e_at_1", 0))
+            bins_es[bin_key]["CC_e3"].append(cc_m.get("e_at_3", 0))
 
     # Output
     total_es = sum(bins_n_es.values())
@@ -200,10 +219,10 @@ def main():
     print(f"=== Per-bin breakdown (binned by base MiniLM R@10), {total_es:,} queries with E+S ===")
     print("=" * 100)
     print(
-        f"{'bin':<22} {'n':>6} {'A R@10':>9} {'H R@10':>9} {'K R@10':>9} "
-        f"{'K-A':>8} {'A E@1':>9} {'K E@1':>9} {'K-A E@1':>10}"
+        f"{'bin':<22} {'n':>6} {'A R@10':>8} {'H R@10':>8} {'K R@10':>8} {'CC R@10':>8} "
+        f"{'CC-K':>7} {'A E@1':>8} {'K E@1':>8} {'CC E@1':>8} {'CC-K E@1':>9}"
     )
-    print("-" * 100)
+    print("-" * 130)
 
     def mean(xs):
         return statistics.mean(xs) if xs else 0.0
@@ -214,14 +233,16 @@ def main():
         rec_a = mean(bins_es[bin_key]["A"])
         rec_h = mean(bins_es[bin_key]["H"])
         rec_k = mean(bins_es[bin_key]["K"])
+        rec_cc = mean(bins_es[bin_key]["CC"])
         e1_a = mean(bins_es[bin_key]["A_e1"])
         e1_k = mean(bins_es[bin_key]["K_e1"])
+        e1_cc = mean(bins_es[bin_key]["CC_e1"])
         n = bins_n_es[bin_key]
         print(
             f"{bin_key:<22} {n:>6} "
-            f"{rec_a:>8.2%} {rec_h:>8.2%} {rec_k:>8.2%} "
-            f"{(rec_k - rec_a) * 100:>+7.2f} "
-            f"{e1_a:>8.2%} {e1_k:>8.2%} {(e1_k - e1_a) * 100:>+9.2f}"
+            f"{rec_a:>7.2%} {rec_h:>7.2%} {rec_k:>7.2%} {rec_cc:>7.2%} "
+            f"{(rec_cc - rec_k) * 100:>+6.2f} "
+            f"{e1_a:>7.2%} {e1_k:>7.2%} {e1_cc:>7.2%} {(e1_cc - e1_k) * 100:>+8.2f}"
         )
 
     print("\n" + "=" * 100)

@@ -248,6 +248,37 @@ def main():
         qv_h = encode_subproc(os.path.join(SCRIPT_DIR, "query_model_us_bge_cos"), queries)
         print(f"  bge_cos (rerank_H): {time.time() - t0:.0f}s", flush=True)
 
+    # Optional ninth reranker: query_model_us_esci_supervised_with_s — MiniLM
+    # trained with MNRL on ESCI label triplets where positives include both
+    # E (relevance=3) and S (relevance=2), instead of E only. Tests whether
+    # the supervision-resolution hypothesis (rerank_G dropping S left signal
+    # on the table) holds.
+    rerank_i_vecs_path = os.path.join(INDEX_DIR, "rerank_I.vecs.fp16.npy")
+    pv_i = None
+    qv_i = None
+    if os.path.exists(rerank_i_vecs_path):
+        t0 = time.time()
+        qv_i = encode_subproc(
+            os.path.join(SCRIPT_DIR, "query_model_us_esci_supervised_with_s"), queries
+        )
+        print(f"  esci_supervised_with_s (rerank_I): {time.time() - t0:.0f}s", flush=True)
+
+    # Optional tenth reranker: query_model_us_esci_supervised_e_vs_ic — MiniLM
+    # trained with MNRL on ESCI label triplets where positives are E only
+    # (relevance=3) and hard negatives include both I (relevance=0) and C
+    # (relevance=1). Tests negative-side widening of supervision: C labels
+    # are "related but not substitute", semantically harder negatives than I.
+    # Pairs with rerank_I to probe orthogonal axes of supervision resolution.
+    rerank_j_vecs_path = os.path.join(INDEX_DIR, "rerank_J.vecs.fp16.npy")
+    pv_j = None
+    qv_j = None
+    if os.path.exists(rerank_j_vecs_path):
+        t0 = time.time()
+        qv_j = encode_subproc(
+            os.path.join(SCRIPT_DIR, "query_model_us_esci_supervised_e_vs_ic"), queries
+        )
+        print(f"  esci_supervised_e_vs_ic (rerank_J): {time.time() - t0:.0f}s", flush=True)
+
     # Load cached product matrices
     print("\nloading cached product vecs...", flush=True)
     pv_a = np.load(os.path.join(INDEX_DIR, "rerank_A.vecs.fp16.npy")).astype(np.float32)
@@ -271,6 +302,12 @@ def main():
     if qv_h is not None:
         pv_h = np.load(rerank_h_vecs_path).astype(np.float32)
         print(f"  pv_h: {pv_h.shape}", flush=True)
+    if qv_i is not None:
+        pv_i = np.load(rerank_i_vecs_path).astype(np.float32)
+        print(f"  pv_i: {pv_i.shape}", flush=True)
+    if qv_j is not None:
+        pv_j = np.load(rerank_j_vecs_path).astype(np.float32)
+        print(f"  pv_j: {pv_j.shape}", flush=True)
 
     # === Retrieve top-K_RETRIEVE per setup ===
     print("\nbase top-100 from MiniLM FAISS...", flush=True)
@@ -873,6 +910,195 @@ def main():
                     order = np.argsort(-avg)[:K_EVAL]
                     ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
                 orderings["DDnoB: BM25 + (A+H, no B) rerank"] = ords
+
+            # EE: BM25 + variants involving rerank_I (ESCI-supervised E+S
+            # positives, vs rerank_G's E-only). Tests whether dropping S
+            # judgments from rerank_G left signal on the table.
+            # EE1:    BM25 + rerank_I alone
+            # EE3:    BM25 + 3-way (A + B + I)
+            # EEnoA:  BM25 + (B + I), no A
+            # EEnoB:  BM25 + (A + I), no B
+            # EEswapG: BM25 + 3-way (A + B + I) — same as EE3, framed as
+            #         direct CC3-50 substitution candidate
+            if pv_i is not None and qv_i is not None:
+                print(
+                    "building EE* variants with rerank_I (esci-supervised E+S)...",
+                    flush=True,
+                )
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims = pv_i[positions] @ qv_i[qi]
+                    order = np.argsort(-sims)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["EE1: BM25 + rerank_I only (single reranker)"] = ords
+
+                for k_ret, label in ((50, "EE3-50"), (100, "EE3-100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_a = pv_a[positions] @ qv_a[qi]
+                        sims_b = pv_b[positions] @ qv_b[qi]
+                        sims_i = pv_i[positions] @ qv_i[qi]
+                        avg = (sims_a + sims_b + sims_i) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way (A+B+I) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    sims_i = pv_i[positions] @ qv_i[qi]
+                    avg = (sims_b + sims_i) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["EEnoA: BM25 + (B+I, no A) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_i = pv_i[positions] @ qv_i[qi]
+                    avg = (sims_a + sims_i) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["EEnoB: BM25 + (A+I, no B) rerank"] = ords
+
+                # FF4-50: 4-way ensemble (A + B + G + I) at top-50.
+                # Tests if rerank_G and rerank_I add orthogonal signal — if
+                # both contribute, this beats CC3-50 and EE3-50 individually.
+                if pv_g is not None and qv_g is not None:
+                    for k_ret, label in ((50, "FF4-50"), (100, "FF4-100")):
+                        ords = []
+                        for qi in range(len(queries)):
+                            positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                            if not positions:
+                                ords.append([])
+                                continue
+                            sims_a = pv_a[positions] @ qv_a[qi]
+                            sims_b = pv_b[positions] @ qv_b[qi]
+                            sims_g = pv_g[positions] @ qv_g[qi]
+                            sims_i = pv_i[positions] @ qv_i[qi]
+                            avg = (sims_a + sims_b + sims_g + sims_i) / 4
+                            order = np.argsort(-avg)[:K_EVAL]
+                            ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                        orderings[f"{label}: BM25 top-{k_ret} + 4-way (A+B+G+I) rerank"] = ords
+
+            # GG: BM25 + variants involving rerank_J (ESCI-supervised E vs
+            # I+C negatives — negative-side widening of rerank_G's supervision).
+            # GG1:    BM25 + rerank_J alone
+            # GG3:    BM25 + 3-way (A + B + J)
+            # GGnoA:  BM25 + (B + J), no A
+            # GGnoB:  BM25 + (A + J), no B
+            if pv_j is not None and qv_j is not None:
+                print(
+                    "building GG* variants with rerank_J (esci-supervised E vs I+C)...",
+                    flush=True,
+                )
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims = pv_j[positions] @ qv_j[qi]
+                    order = np.argsort(-sims)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["GG1: BM25 + rerank_J only (single reranker)"] = ords
+
+                for k_ret, label in ((50, "GG3-50"), (100, "GG3-100")):
+                    ords = []
+                    for qi in range(len(queries)):
+                        positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                        if not positions:
+                            ords.append([])
+                            continue
+                        sims_a = pv_a[positions] @ qv_a[qi]
+                        sims_b = pv_b[positions] @ qv_b[qi]
+                        sims_j = pv_j[positions] @ qv_j[qi]
+                        avg = (sims_a + sims_b + sims_j) / 3
+                        order = np.argsort(-avg)[:K_EVAL]
+                        ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                    orderings[f"{label}: BM25 top-{k_ret} + 3-way (A+B+J) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_b = pv_b[positions] @ qv_b[qi]
+                    sims_j = pv_j[positions] @ qv_j[qi]
+                    avg = (sims_b + sims_j) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["GGnoA: BM25 + (B+J, no A) rerank"] = ords
+
+                ords = []
+                for qi in range(len(queries)):
+                    positions = [int(p) for p in I_bm25[qi] if p >= 0]
+                    if not positions:
+                        ords.append([])
+                        continue
+                    sims_a = pv_a[positions] @ qv_a[qi]
+                    sims_j = pv_j[positions] @ qv_j[qi]
+                    avg = (sims_a + sims_j) / 2
+                    order = np.argsort(-avg)[:K_EVAL]
+                    ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                orderings["GGnoB: BM25 + (A+J, no B) rerank"] = ords
+
+                # HH4-50: 4-way ensemble (A + B + G + J) at top-50/100.
+                # Tests rerank_J as a substitute for rerank_I in the 4-way.
+                if pv_g is not None and qv_g is not None:
+                    for k_ret, label in ((50, "HH4-50"), (100, "HH4-100")):
+                        ords = []
+                        for qi in range(len(queries)):
+                            positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                            if not positions:
+                                ords.append([])
+                                continue
+                            sims_a = pv_a[positions] @ qv_a[qi]
+                            sims_b = pv_b[positions] @ qv_b[qi]
+                            sims_g = pv_g[positions] @ qv_g[qi]
+                            sims_j = pv_j[positions] @ qv_j[qi]
+                            avg = (sims_a + sims_b + sims_g + sims_j) / 4
+                            order = np.argsort(-avg)[:K_EVAL]
+                            ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                        orderings[f"{label}: BM25 top-{k_ret} + 4-way (A+B+G+J) rerank"] = ords
+
+                # II5-50: 5-way ensemble (A + B + G + I + J) at top-50/100.
+                # Maximum-information ensemble — all four ESCI-derived
+                # supervision variants plus the bag-derived siblings.
+                if pv_g is not None and qv_g is not None and pv_i is not None and qv_i is not None:
+                    for k_ret, label in ((50, "II5-50"), (100, "II5-100")):
+                        ords = []
+                        for qi in range(len(queries)):
+                            positions = [int(p) for p in I_bm25_200[qi, :k_ret] if p >= 0]
+                            if not positions:
+                                ords.append([])
+                                continue
+                            sims_a = pv_a[positions] @ qv_a[qi]
+                            sims_b = pv_b[positions] @ qv_b[qi]
+                            sims_g = pv_g[positions] @ qv_g[qi]
+                            sims_i = pv_i[positions] @ qv_i[qi]
+                            sims_j = pv_j[positions] @ qv_j[qi]
+                            avg = (sims_a + sims_b + sims_g + sims_i + sims_j) / 5
+                            order = np.argsort(-avg)[:K_EVAL]
+                            ords.append([faiss_pos_to_pid[positions[int(j)]] for j in order])
+                        orderings[f"{label}: BM25 top-{k_ret} + 5-way (A+B+G+I+J) rerank"] = ords
         else:
             print(f"\nskipping N: {bm25_top200_path} not found", flush=True)
 
