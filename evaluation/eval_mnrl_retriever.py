@@ -411,10 +411,23 @@ def main():
     # BM25 retrieval, if precomputed top-100 positions are available. Tests
     # whether a *non-dense* retriever supplies candidates that base+BoD miss
     # — the brand+entity hard regime where dense retrievers collapse.
-    bm25_path = os.path.join(INDEX_DIR, "bm25_top100.npy")
+    # Prefer bm25s (the optimized retriever, k1=0.3 b=0.6) over tantivy if both
+    # caches exist. Fall back to tantivy for backward compat.
+    bm25s_top200_path = os.path.join(INDEX_DIR, "bm25s_top200.npy")
+    bm25_top100_path = os.path.join(INDEX_DIR, "bm25_top100.npy")
+    if os.path.exists(bm25s_top200_path):
+        print("\nbuilding H/I/J: BM25 fusion setups (bm25s @ k1=0.3, b=0.6)...", flush=True)
+        I_bm25_200_preview = np.load(bm25s_top200_path)
+        I_bm25 = I_bm25_200_preview[:, :100]
+        bm25_path = bm25s_top200_path  # for the setup-N gate below
+        del I_bm25_200_preview
+    elif os.path.exists(bm25_top100_path):
+        print("\nbuilding H/I/J: BM25 fusion setups (tantivy)...", flush=True)
+        I_bm25 = np.load(bm25_top100_path)
+        bm25_path = bm25_top100_path
+    else:
+        bm25_path = bm25_top100_path
     if os.path.exists(bm25_path):
-        print("\nbuilding H/I/J: BM25 fusion setups...", flush=True)
-        I_bm25 = np.load(bm25_path)
         bm25_pids = to_pids(I_bm25)
         # H: BM25 retrieval alone, top-10
         orderings["H: BM25 retrieval"] = [row[:K_EVAL] for row in bm25_pids]
@@ -522,10 +535,15 @@ def main():
         orderings["M: BM25 + sumrank ensemble"] = m_orderings
 
         # N50, N200: K_retrieve sweep at 50 and 200 (vs K's 100). Requires
-        # bm25_top200.npy with K_retrieve >= 200.
-        bm25_top200_path = os.path.join(INDEX_DIR, "bm25_top200.npy")
+        # bm25_top200.npy with K_retrieve >= 200. Prefer bm25s if available.
+        bm25_top200_path = os.path.join(INDEX_DIR, "bm25s_top200.npy")
+        if not os.path.exists(bm25_top200_path):
+            bm25_top200_path = os.path.join(INDEX_DIR, "bm25_top200.npy")
         if os.path.exists(bm25_top200_path):
-            print("building N: K_retrieve sweep on BM25 + ensemble rerank...", flush=True)
+            print(
+                f"building N: K_retrieve sweep on BM25 + ensemble rerank (using {os.path.basename(bm25_top200_path)})...",
+                flush=True,
+            )
             I_bm25_200 = np.load(bm25_top200_path)
             for k_ret, label in (
                 (40, "N40"),

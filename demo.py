@@ -147,7 +147,20 @@ def load_resources():
     bag_specs = np.array(bag_specificities) if bag_specificities else None
     print(f"  Bag centroids: {len(bag_queries)} bags")
 
-    # Tantivy index for hybrid retrieval
+    # bm25s index (optimized k1=0.3, b=0.6 — see evaluation/eval_bm25_sweep.py).
+    # Preferred over tantivy when present. Falls back to tantivy for back-compat.
+    bm25s_idx = None
+    bm25s_stemmer = None
+    bm25s_path = os.path.join(index_dir, "bm25s_index")
+    if os.path.exists(bm25s_path):
+        import bm25s
+        import Stemmer
+
+        bm25s_idx = bm25s.BM25.load(bm25s_path, mmap=False)
+        bm25s_stemmer = Stemmer.Stemmer("english")
+        print("  bm25s index loaded (k1=0.3, b=0.6)")
+
+    # Tantivy index for hybrid retrieval (legacy fallback).
     tantivy_searcher = None
     tantivy_idx = None
     tantivy_path = os.path.join(index_dir, "tantivy_index")
@@ -161,7 +174,7 @@ def load_resources():
         tv_index.reload()
         tantivy_searcher = tv_index.searcher()
         tantivy_idx = tv_index
-        print("  Tantivy index loaded")
+        print("  Tantivy index loaded (legacy fallback)")
 
     # Title -> first FAISS position map for BM25 hybrid retrieval. Built once
     # at load time; tantivy returns titles, hybrid fusion needs positions.
@@ -197,6 +210,8 @@ def load_resources():
         "bag_specs": bag_specs,
         "tantivy_searcher": tantivy_searcher,
         "tantivy_index": tantivy_idx,
+        "bm25s_index": bm25s_idx,
+        "bm25s_stemmer": bm25s_stemmer,
         "title_to_pos": title_to_pos,
         "ce_model": ce_model,
     }
@@ -335,8 +350,30 @@ def _safe_parse_bm25(tv_index, query):
             return None
 
 
+def _bm25s_top_positions(query, resources, k):
+    """Top-k FAISS positions from bm25s retrieval (optimized k1=0.3, b=0.6).
+
+    bm25s returns title-array indices directly, which are the same as FAISS
+    positions (titles.json is parallel to the FAISS index).
+    """
+    idx = resources.get("bm25s_index")
+    stemmer = resources.get("bm25s_stemmer")
+    if idx is None or stemmer is None:
+        return []
+    import bm25s
+
+    qt = bm25s.tokenize([query], stopwords="en", stemmer=stemmer, show_progress=False)
+    if not qt.ids or not qt.ids[0]:
+        return []
+    results, _ = idx.retrieve(qt, k=k, show_progress=False)
+    return [int(p) for p in results[0]]
+
+
 def _bm25_top_positions(query, resources, k):
-    """Top-k FAISS positions from BM25 retrieval over the tantivy index."""
+    """Top-k FAISS positions from BM25 retrieval. Prefers bm25s if loaded
+    (optimized k1=0.3, b=0.6), falls back to tantivy."""
+    if resources.get("bm25s_index") is not None:
+        return _bm25s_top_positions(query, resources, k)
     tv_idx = resources.get("tantivy_index")
     tv_searcher = resources.get("tantivy_searcher")
     title_to_pos = resources.get("title_to_pos") or {}
@@ -361,11 +398,35 @@ def _bm25_top_positions(query, resources, k):
 
 
 def bm25_top_k(query, resources, k=10):
-    """BM25 retrieval over the tantivy index (en_stem tokenizer).
+    """BM25 retrieval. Prefers bm25s (k1=0.3, b=0.6) if loaded; falls back
+    to tantivy en_stem.
 
-    On the 22,458-query ESCI test set, BM25 alone scores R@10 19.50% / E@1
-    38.79% — within rounding of the dense ensemble-rerank stack.
+    On the 22,458-query ESCI test set, bm25s alone scores R@10 20.32% / E@1
+    40.08% (vs tantivy 19.50% / 38.79%) — the optimized k1/b lift the
+    retriever side meaningfully.
     """
+    titles = resources.get("titles") or []
+    bm25s_idx = resources.get("bm25s_index")
+    bm25s_stemmer = resources.get("bm25s_stemmer")
+    if bm25s_idx is not None and bm25s_stemmer is not None:
+        import bm25s
+
+        qt = bm25s.tokenize([query], stopwords="en", stemmer=bm25s_stemmer, show_progress=False)
+        if not qt.ids or not qt.ids[0]:
+            return []
+        results, scores = bm25s_idx.retrieve(qt, k=k * 3, show_progress=False)
+        seen = set()
+        out = []
+        for pos, sc in zip(results[0], scores[0]):
+            pos = int(pos)
+            title = titles[pos] if 0 <= pos < len(titles) else ""
+            if not title or title in seen:
+                continue
+            seen.add(title)
+            out.append({"title": title, "score": round(float(sc), 4)})
+            if len(out) >= k:
+                break
+        return out
     tv_idx = resources.get("tantivy_index")
     tv_searcher = resources.get("tantivy_searcher")
     if tv_idx is None or tv_searcher is None:

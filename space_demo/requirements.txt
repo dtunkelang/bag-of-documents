@@ -4,3 +4,5 @@ numpy>=2.0
 gradio>=4.0
 huggingface_hub>=1.0
 tantivy>=0.22
+bm25s>=0.3.8
+PyStemmer>=3.0

@@ -67,6 +67,10 @@ DATASET_FOLDERS = [
         ROOT / "query_model_us_qrels_mnrl_hardneg",
         "query_model_hardneg",
     ),
+    (
+        ROOT / "combined_index_us_minilm" / "bm25s_index",
+        "combined_index/bm25s_index",
+    ),
 ]
 
 SPACE_FILES = [

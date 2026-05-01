@@ -18,9 +18,11 @@ import os
 import re
 import time
 
+import bm25s
 import faiss
 import gradio as gr
 import numpy as np
+import Stemmer
 import tantivy
 from huggingface_hub import snapshot_download
 from sentence_transformers import SentenceTransformer
@@ -43,6 +45,7 @@ def download_data():
             "combined_index/rerank_B.vecs.fp16.npy",
             "combined_index/rerank_G.vecs.fp16.npy",
             "combined_index/tantivy_index/*",
+            "combined_index/bm25s_index/*",
             "bags.jsonl",
             "query_model/*",
             "query_model_6m_mnrl/*",
@@ -112,7 +115,17 @@ def load_resources(data_dir):
     bag_specs = np.array(bag_specs)
     print(f"  Bag centroids: {len(bag_queries)} bags")
 
-    # Tantivy BM25 index. en_stem tokenizer matches the offline build.
+    # bm25s BM25 index (k1=0.3, b=0.6, optimized — see eval_bm25_sweep.py).
+    # Preferred over tantivy when present.
+    bm25s_path = os.path.join(data_dir, "combined_index", "bm25s_index")
+    bm25s_idx = None
+    bm25s_stemmer = None
+    if os.path.isdir(bm25s_path) and os.listdir(bm25s_path):
+        bm25s_idx = bm25s.BM25.load(bm25s_path, mmap=False)
+        bm25s_stemmer = Stemmer.Stemmer("english")
+        print("  bm25s BM25 index loaded (k1=0.3, b=0.6)")
+
+    # Tantivy BM25 index — legacy fallback when bm25s isn't available.
     tantivy_path = os.path.join(data_dir, "combined_index", "tantivy_index")
     tantivy_searcher = None
     tantivy_idx = None
@@ -124,9 +137,9 @@ def load_resources(data_dir):
         tv_index.reload()
         tantivy_searcher = tv_index.searcher()
         tantivy_idx = tv_index
-        print(f"  Tantivy BM25 index: {tantivy_searcher.num_docs:,} docs")
-    else:
-        print("  Tantivy BM25 index: missing — BM25 + hybrid modes will be unavailable")
+        print(f"  Tantivy BM25 index (fallback): {tantivy_searcher.num_docs:,} docs")
+    elif bm25s_idx is None:
+        print("  No BM25 index loaded — BM25 + hybrid modes will be unavailable")
 
     # Title -> first FAISS position map for hybrid (BM25 returns titles; RRF
     # fusion needs positions parallel to the dense index).
@@ -152,6 +165,8 @@ def load_resources(data_dir):
         "bag_specs": bag_specs,
         "tantivy_searcher": tantivy_searcher,
         "tantivy_index": tantivy_idx,
+        "bm25s_index": bm25s_idx,
+        "bm25s_stemmer": bm25s_stemmer,
         "title_to_pos": title_to_pos,
     }
 
@@ -305,7 +320,24 @@ def _safe_parse_bm25(tv_index, query):
             return None
 
 
+def _bm25s_top_positions(query, R, k):
+    """Top-k FAISS positions from bm25s retrieval (k1=0.3, b=0.6)."""
+    idx = R.get("bm25s_index")
+    stemmer = R.get("bm25s_stemmer")
+    if idx is None or stemmer is None:
+        return []
+    qt = bm25s.tokenize([query], stopwords="en", stemmer=stemmer, show_progress=False)
+    if not qt.ids or not qt.ids[0]:
+        return []
+    results, _ = idx.retrieve(qt, k=k, show_progress=False)
+    return [int(p) for p in results[0]]
+
+
 def _bm25_top_positions(query, R, k):
+    """Top-k FAISS positions from BM25 retrieval. Prefers bm25s if loaded
+    (optimized k1=0.3, b=0.6); falls back to tantivy."""
+    if R.get("bm25s_index") is not None:
+        return _bm25s_top_positions(query, R, k)
     tv_idx = R.get("tantivy_index")
     tv_searcher = R.get("tantivy_searcher")
     title_to_pos = R.get("title_to_pos") or {}
@@ -329,11 +361,28 @@ def _bm25_top_positions(query, R, k):
 
 
 def bm25_top_k(query, R, k, oversample=3):
-    """BM25 retrieval over the tantivy index — no dense, no rerank.
+    """BM25 retrieval — no dense, no rerank. Prefers bm25s (k1=0.3, b=0.6).
 
-    On the 22,458-query ESCI test set: R@10 19.50% / E@1 38.79%, within
-    rounding of the dense ensemble-rerank stack.
+    On the 22,458-query ESCI test set: bm25s scores R@10 20.32% / E@1 40.08%
+    (vs tantivy default 19.50% / 38.79%). The optimized k1/b lift the
+    retriever side meaningfully.
     """
+    titles = R.get("titles") or []
+    bm25s_idx = R.get("bm25s_index")
+    bm25s_stemmer = R.get("bm25s_stemmer")
+    if bm25s_idx is not None and bm25s_stemmer is not None:
+        qt = bm25s.tokenize([query], stopwords="en", stemmer=bm25s_stemmer, show_progress=False)
+        if not qt.ids or not qt.ids[0]:
+            return []
+        results, scores = bm25s_idx.retrieve(qt, k=k * oversample, show_progress=False)
+        raw = []
+        for pos, sc in zip(results[0], scores[0]):
+            pos = int(pos)
+            title = titles[pos] if 0 <= pos < len(titles) else ""
+            if not title:
+                continue
+            raw.append((title, round(float(sc), 4)))
+        return _dedup_by_title(raw, k)
     tv_idx = R.get("tantivy_index")
     tv_searcher = R.get("tantivy_searcher")
     if tv_idx is None or tv_searcher is None:

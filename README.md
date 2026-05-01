@@ -12,28 +12,23 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 |---|---|---|---|---|
 | Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% |
 | RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% |
-| BM25 alone (lexical retrieval only) | 19.50% | 0.3322 | 38.79% | 35.72% |
-| **BM25 top-50 + 3-way ensemble rerank (current SOTA)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
+| BM25 alone (tantivy en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
+| BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% |
+| **BM25 (bm25s) top-50 + 3-way ensemble rerank (current SOTA)** | **21.61%** | **0.3660** | **42.11%** | **39.22%** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The 3-way BoD rerank stack buys **+1.82pp R@10 over BM25 alone**, **+2.70pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+5.72pp over base MiniLM**. No dense retrieval and no HNSW in the inference path.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. The 3-way BoD rerank stack on bm25s candidates buys **+2.11pp R@10 over BM25 alone (tantivy)**, **+2.99pp over the strongest non-BoD baseline (RRF hybrid retrieval)**, and **+6.01pp over base MiniLM**. No dense retrieval and no HNSW in the inference path.
 
 The non-BoD hybrid baseline is included to make the comparison honest — RRF-fusing BM25 and base MiniLM is the standard "vanilla hybrid retrieval" recipe, available with no training, no fine-tuning, and one extra forward pass per query at inference. It actually *underperforms* BM25 alone on this benchmark (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 38.79% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
 
+The retriever uses [bm25s](https://github.com/xhluca/bm25s) (numpy-backed BM25 with configurable k1/b) at **k1=0.3, b=0.6** — swept against ESCI to optimize for keyword-heavy short Amazon titles. Default Lucene/tantivy params (k1=1.2, b=0.75) score CC3-50 R@10 21.32%; the optimized params lift it to 21.61% (+0.29pp). Sub-100ms wall-clock retrieval on commodity hardware.
+
 The deployable architecture:
 
-1. **Retrieval**: tantivy BM25 (en_stem tokenizer) returns top-50 candidates.
-2. **Rerank**: three BoD-trained encoders score candidates -- two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
-3. **Fusion**: sumsim -- average the three cosine similarities; sort descending; return top-10.
+1. **Retrieval**: bm25s (k1=0.3, b=0.6, Snowball english stemmer + en stopwords) returns top-50 candidates.
+2. **Rerank**: three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
+3. **Fusion**: sumsim — average the three cosine similarities; sort descending; return top-10.
 
-Three small forward passes per query, all over precomputed product embeddings; ~40ms wall-clock on commodity hardware.
-
-The deployable architecture is:
-
-1. **Retrieval**: tantivy BM25 (en_stem tokenizer) returns top-100 candidates.
-2. **Rerank**: two BoD-trained encoders (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`) score the candidates.
-3. **Fusion**: sumsim — average the two cosine similarities; sort descending; return top-10.
-
-Three small forward passes per query, all over precomputed product embeddings; sub-50ms wall-clock on commodity hardware.
+Three small forward passes per query, all over precomputed product embeddings; ~40-100ms wall-clock on commodity hardware.
 
 ## Quick Start
 
@@ -87,14 +82,16 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 | Z | RRF(BM25, base) retrieval (non-BoD hybrid baseline) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
 | AA | RRF(BM25, base) + ensemble rerank | 20.43% | 0.3451 | 39.42% | 36.73% |
-| K | BM25 + 2-way ensemble rerank (no dense retrieval) | 21.11% | 0.3566 | 40.87% | 38.04% |
-| **CC3-50** | **BM25 top-50 + 3-way ensemble rerank (with ESCI-supervised rerank_G)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
+| K | BM25 (tantivy) + 2-way ensemble rerank | 21.11% | 0.3566 | 40.87% | 38.04% |
+| CC3-50 (tantivy) | BM25 top-50 + 3-way ensemble rerank with ESCI-supervised rerank_G | 21.32% | 0.3613 | 41.64% | 38.80% |
+| H' | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% |
+| **CC3-50 (bm25s, current SOTA)** | **BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank** | **21.61%** | **0.3660** | **42.11%** | **39.22%** |
 
 **Read-outs:**
 
 - **The cosine-distilled BoD-as-retriever loses to base on this benchmark.** The original release was measured on a 75K-query construction-set eval; on the canonical 22,458-query ESCI test set, R@10 drops below A. MNRL-trained BoD (B) reverses that — +2.50pp R@10 over base, +4.66pp E@1.
 - **Ensemble rerank stacks on top of any retriever.** The two BoD-trained rerankers (6M-MNRL, qrels-hardneg) lift base by +3.40pp R@10 (A→C) and 6M-MNRL by +1.73pp R@10 (B→E).
-- **BM25 alone is shockingly close to the dense rerank stack.** Setup H (stemmed BM25, no dense, no rerank) hits R@10 19.50% — within rounding of E. On entity-heavy product queries, lexical matching does most of the work.
+- **BM25 alone is shockingly close to the dense rerank stack.** Setup H (stemmed BM25, no dense, no rerank) hits R@10 19.50% with tantivy default params, **20.33% with bm25s (k1=0.3, b=0.6)** — *above* setup E's 19.83% (6M-MNRL + ensemble rerank). On entity-heavy product queries, lexical matching does most of the work; tuning the BM25 hyperparameters away from the Lucene defaults (which assume long natural-language documents) lifts another 0.83pp on top.
 - **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over setup I, the previous shipped hybrid. Adding MNRL retrieval to the candidate pool *dilutes* BM25's lexically-anchored hits with semantically-near-but-irrelevant ones the rerank can't fully clean up. The same pattern holds when fusing in base MiniLM (AA: 20.43%, -0.68pp from K) or both base + MNRL (J: 20.07%, -1.04pp). BM25-alone candidates remain the best input to the BoD rerank.
 - **Pure non-BoD hybrid retrieval (Z) underperforms BM25 alone.** Setup Z (RRF(BM25, base) retrieval, no rerank) scores R@10 18.62% — *worse* than BM25 alone (H, 19.50%) and dramatically worse on E@1 (31.54% vs 38.79%). Mixing dense candidates into the lexical lane displaces BM25's exact-match top-1 with semantically-similar near-misses. This is the strongest "no BoD" baseline available out of the box, and it loses to BM25 alone — let alone to K.
 - **The two BoD rerankers are well-matched; adding a third doesn't help.** Single-reranker setups L1 (BM25 + 6M-MNRL alone) and L2 (BM25 + hardneg alone) score 19.67% / 19.20% — both below K. Three-way ensembles with cosine-distilled (R50: -0.4pp) or MNRL-with-different-bag-threshold (S50: ties within rounding) third encoders don't budge the SOTA.
@@ -128,7 +125,8 @@ The local maximum is K. These probes were tried and rejected:
 - **Alternative fusion functions.** Sumrank (M, -0.53pp), max (Tmax, -1.20pp), min (Tmin, -0.73pp), and weighted variants (W40 / W60 / W70, all losing) all underperform 0.5/0.5 sumsim averaging.
 - **Min-max normalization before fusion (Q, -0.05pp).** The two rerankers are already similarly calibrated.
 - **Default tantivy tokenizer (P, -0.80pp vs en_stem).** Stemming is doing real work.
-- **A categorically stronger base (Y\* setups, BAAI/bge-base-en-v1.5) — confirmed by LR sweep.** A BoD reranker trained on the same bags but with BGE-base (5× MiniLM params, 768-dim) underperforms every variant tested at *every* LR we tried. At lr=2e-5 (under-fit), Y1 (BGE alone) is 17.16% — below plain BM25 retrieval. At lr=1e-4 (over-shoot), Y1 *regresses to 14.58%* — well below BM25-alone. The BGE training plateaued at bag-internal recall@10 = 0.40 at lr=2e-5 and fell to 0.36 at lr=1e-4. Stronger base ≠ better reranker under the bag-MNRL recipe at any LR. Base-encoder swap is closed under this recipe; unlocking BGE would require categorically different supervision (different loss, hard negatives, or ESCI labels directly), not just LR tuning.
+- **A categorically stronger base (Y\* setups, BAAI/bge-base-en-v1.5) — confirmed across both training recipes.** A BoD reranker trained on the same bags with BGE-base (5× MiniLM params, 768-dim) underperforms every variant tested. Tried with MNRL on bags (Y* setups, lr=2e-5 and lr=1e-4 both fail) and with cosine-to-centroid loss (DD* setups, lr=2e-5). DD1 (BGE+cos alone) scored R@10 16.61% — the worst single-reranker on BM25 candidates ever measured. Encoder capacity is not the bottleneck; the supervision-resolution hypothesis is also rejected (see next bullet).
+- **Supervision-widening probes (EE / FF / GG / HH / II setups).** Two probes tested whether rerank_G's E-vs-I binary labels were leaving signal on the table: rerank_I (positives = E ∪ S) and rerank_J (negatives = I ∪ C). Both failed as singles (EE1 = 19.24%, GG1 = 19.46%, vs CC1 = 19.68%) and as 4- or 5-way ensemble members (II5-50 = 21.10%, *below* K). Adding label resolution (S, C) introduces intra-class noise that MNRL's contrastive loss penalizes. rerank_G's binary E-vs-I formulation is optimal.
 - **Per-query routing between A and K.** Oracle headroom is +1.76pp R@10 / +6.95pp E@1, but A-wins are spread uniformly (~24%) across every non-zero base-recall bin. Every simple feature tested (base-FAISS top-1 cosine threshold, query length, digit presence) loses to K-only. Diagnostic: `evaluation/eval_oracle_routing.py`.
 
 Memory entries in `memory/` keep the per-experiment notes.

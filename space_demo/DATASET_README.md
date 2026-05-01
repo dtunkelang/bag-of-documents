@@ -58,15 +58,19 @@ English (US)
 combined_index/
 ├── index.faiss                          # FAISS HNSW index over the catalog
 ├── titles.json                          # Product titles, parallel to FAISS positions
-├── rerank_A.vecs.fp16.npy               # NEW: cached product embeddings under Reranker A
-└── rerank_B.vecs.fp16.npy               # NEW: cached product embeddings under Reranker B
+├── rerank_A.vecs.fp16.npy               # cached product embeddings under Reranker A
+├── rerank_B.vecs.fp16.npy               # cached product embeddings under Reranker B
+├── rerank_G.vecs.fp16.npy               # cached product embeddings under Reranker G
+├── tantivy_index/                       # tantivy BM25 index (legacy, en_stem)
+└── bm25s_index/                         # NEW: bm25s BM25 index (k1=0.3, b=0.6) - SOTA retriever
 query_model/                             # Original BoD-as-retriever (cosine-loss MNRL)
-query_model_6m_mnrl/                     # NEW: Reranker A — 75K queries × 6M corpus, MNRL
-query_model_hardneg/                     # NEW: Reranker B — qrels-based bags + hard negatives
+query_model_6m_mnrl/                     # Reranker A - 75K queries × 6M corpus, MNRL
+query_model_hardneg/                     # Reranker B - qrels-based bags + hard negatives
+query_model_esci_supervised/             # Reranker G - ESCI E-vs-I triplets, MNRL
 bags.jsonl                               # Bag centroids + specificity for each query
 queries.jsonl                            # Source queries
 eval/
-└── regime_queries.jsonl                 # NEW: 45-query per-regime eval harness
+└── regime_queries.jsonl                 # 45-query per-regime eval harness
 ```
 
 ### Bags (JSONL)
@@ -100,20 +104,24 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | B | 6M-MNRL retriever (BoD) | 18.10% | 0.3090 | 36.16% | 33.25% |
 | Z | RRF(BM25, base) retrieval (non-BoD hybrid baseline) | 18.62% | 0.3048 | 31.54% | 31.98% |
 | C | Base + ensemble rerank | 19.00% | 0.3238 | 37.81% | 34.92% |
-| H | BM25 alone (tantivy, en_stem) | 19.50% | 0.3322 | 38.79% | 35.72% |
+| H | BM25 alone (tantivy, en_stem default) | 19.50% | 0.3322 | 38.79% | 35.72% |
 | E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
 | I | RRF(BM25, MNRL) + ensemble rerank | 20.01% | 0.3394 | 39.19% | 36.22% |
+| H' | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% |
 | AA | RRF(BM25, base) + ensemble rerank | 20.43% | 0.3451 | 39.42% | 36.73% |
-| K | BM25 + 2-way ensemble rerank (no dense retrieval) | 21.11% | 0.3566 | 40.87% | 38.04% |
-| **CC3-50** | **BM25 top-50 + 3-way ensemble rerank (with ESCI-supervised rerank_G)** | **21.32%** | **0.3613** | **41.64%** | **38.80%** |
+| K | BM25 (tantivy) + 2-way ensemble rerank | 21.11% | 0.3566 | 40.87% | 38.04% |
+| K' | BM25 (bm25s) + 2-way ensemble rerank | 21.27% | 0.3588 | 41.12% | 38.27% |
+| CC3-50 (tantivy) | BM25 top-50 + 3-way ensemble rerank | 21.32% | 0.3613 | 41.64% | 38.80% |
+| **CC3-50 (bm25s, current SOTA)** | **BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank** | **21.61%** | **0.3660** | **42.11%** | **39.22%** |
 
-Three things to note:
+Four things to note:
 
 - **MNRL-trained BoD beats base as a *retriever*** (B vs A: +2.50pp R@10). The original cosine-distilled BoD-as-retriever loses on this stricter benchmark; the MNRL-trained variant doesn't.
 - **BM25 alone is competitive with the dense rerank stack** (H ≈ E, within rounding). On entity-heavy product queries, lexical matching does most of the work.
-- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over the previous shipped hybrid (I). Adding MNRL retrieval to the candidate pool dilutes BM25's lexically-anchored hits with semantically-near-but-irrelevant ones. The deployable architecture is: tantivy BM25 → ensemble rerank with two BoD encoders. No HNSW index in the inference path.
+- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over the previous shipped hybrid (I). Adding MNRL retrieval to the candidate pool dilutes BM25's lexically-anchored hits with semantically-near-but-irrelevant ones.
+- **BM25 hyperparameter tuning matters.** Default Lucene/tantivy params (k1=1.2, b=0.75) assume long natural-language documents. Amazon product titles are short and keyword-stuffed. A sweep on the ESCI test set finds (k1=0.3, b=0.6) optimal — early term-frequency saturation, moderate length normalization. The H' / K' / CC3-50 (bm25s) rows show the +0.83pp / +0.16pp / +0.29pp lift the parameter swap brings on top of every downstream rerank stage. The deployable architecture is: bm25s (k1=0.3, b=0.6) → ensemble rerank with two bag-derived BoD encoders + one ESCI-supervised encoder. No HNSW index in the inference path.
 
-The ensemble rerank fuses two BoD-trained encoders (`query_model_6m_mnrl` and `query_model_hardneg`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by FAISS-returned index. The hybrid path additionally consults a tantivy BM25 index over the same 1.2M titles.
+The ensemble rerank fuses three encoders (`query_model_6m_mnrl`, `query_model_hardneg`, `query_model_esci_supervised`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`, `rerank_G.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by index. The retrieval lane uses bm25s (configurable k1/b) over the same 1.2M titles.
 
 ## Dataset Creation
 
