@@ -1094,13 +1094,13 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
                 <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
                 <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD hybrid (R@10 18.62)</option>
-                <option value="bm25">BM25 retrieval (R@10 19.50)</option>
+                <option value="bm25">bm25s (k1=0.3, b=0.6) retrieval (R@10 20.33)</option>
                 <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
-                <option value="bm25_rerank">BM25 + 2-way ensemble rerank (R@10 21.11)</option>
-                <option value="bm25_3way_rerank">BM25 top-50 + 3-way ensemble rerank (R@10 21.32)</option>
+                <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
+                <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (R@10 21.61)</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -1108,13 +1108,13 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_3way_rerank" selected>BM25 top-50 + 3-way ensemble rerank (SOTA, R@10 21.32)</option>
-                <option value="bm25_rerank">BM25 + 2-way ensemble rerank (R@10 21.11)</option>
+                <option value="bm25_3way_rerank" selected>bm25s top-50 + 3-way ensemble rerank (SOTA, R@10 21.61)</option>
+                <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
                 <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
-                <option value="bm25">BM25 retrieval (R@10 19.50)</option>
+                <option value="bm25">bm25s (k1=0.3, b=0.6) retrieval (R@10 20.33)</option>
                 <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)</option>
                 <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
                 <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>

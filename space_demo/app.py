@@ -574,41 +574,20 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)",
-    "BM25 + 2-way ensemble rerank (R@10 21.11)",
-    "RRF(BM25, base) + ensemble rerank (R@10 20.43)",
-    "RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)",
-    "MNRL + BoD ensemble rerank (R@10 19.83)",
-    "BM25 retrieval (R@10 19.50)",
-    "Base + BoD ensemble rerank (R@10 19.00)",
-    "RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)",
-    "MNRL retrieval, no rerank (R@10 18.10)",
-    "Fine-tuned retrieval, cosine BoD (historical)",
+    "BM25 + 3-way ensemble rerank (SOTA, R@10 21.61)",
+    "BM25 retrieval (R@10 20.33)",
+    "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
     "Base MiniLM retrieval (R@10 15.60)",
 ]
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)":
+    if mode == "BM25 + 3-way ensemble rerank (SOTA, R@10 21.61)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
-    if mode == "BM25 + 2-way ensemble rerank (R@10 21.11)":
-        return bm25_rerank_top_k(query, R, k_top=k)
-    if mode == "RRF(BM25, base) + ensemble rerank (R@10 20.43)":
-        return bm25_base_rerank_top_k(query, R, k_top=k)
-    if mode == "RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)":
-        return hybrid_rerank_top_k(query, R, k_top=k)
-    if mode == "MNRL + BoD ensemble rerank (R@10 19.83)":
-        return mnrl_rerank_top_k(query, R, k_top=k)
-    if mode == "BM25 retrieval (R@10 19.50)":
+    if mode == "BM25 retrieval (R@10 20.33)":
         return bm25_top_k(query, R, k)
-    if mode == "Base + BoD ensemble rerank (R@10 19.00)":
-        return ensemble_rerank_top_k(query, R, k_top=k)
-    if mode == "RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)":
+    if mode == "RRF(BM25, base) retrieval - non-BoD hybrid baseline":
         return bm25_base_rrf_top_k(query, R, k=k)
-    if mode == "MNRL retrieval, no rerank (R@10 18.10)":
-        return mnrl_top_k(query, R, k)
-    if mode == "Fine-tuned retrieval, cosine BoD (historical)":
-        return retrieval_top_k(query, R, k)
     # Base MiniLM retrieval (default left)
     base_results, *_ = base_top_k(query, R, k)
     return base_results
@@ -675,7 +654,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + 3-way ensemble rerank (SOTA, R@10 21.32)",
+            value="BM25 + 3-way ensemble rerank (SOTA, R@10 21.61)",
             label="Right-column mode",
         )
 
