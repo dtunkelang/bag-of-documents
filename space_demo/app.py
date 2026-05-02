@@ -138,12 +138,13 @@ def load_resources(data_dir):
         try:
             from spellchecker import SpellChecker
 
-            with open(spell_vocab_path) as f:
-                _vocab = json.load(f)
             spell = SpellChecker(language=None, distance=2)
-            for tok, freq in _vocab.items():
-                spell.word_frequency.add(tok, freq)
-            spell_vocab_set = set(_vocab.keys())
+            # Use load_dictionary on the JSON directly. The `.add(word, freq)`
+            # loop is O(n^2) (each call rebuilds the internal letter set over
+            # the whole dictionary) and OOMs on high-frequency tokens like
+            # 'for' (freq 453K) — the loop creates a [word]*freq list per call.
+            spell.word_frequency.load_dictionary(spell_vocab_path)
+            spell_vocab_set = set(spell.word_frequency.dictionary.keys())
             print(f"  spell corrector loaded ({len(spell_vocab_set):,} catalog tokens)")
         except Exception as e:
             print(f"  spell corrector unavailable: {e}")
