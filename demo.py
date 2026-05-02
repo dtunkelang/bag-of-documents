@@ -160,6 +160,28 @@ def load_resources():
         bm25s_stemmer = Stemmer.Stemmer("english")
         print("  bm25s index loaded (k1=0.3, b=0.6)")
 
+    # Catalog-vocabulary spell corrector (see indexing/build_spell_vocab.py).
+    # Pre-BM25 query preprocessing fixes typos like 'moniter pivot' -> 'monitor
+    # pivot' against the catalog's own vocabulary. +0.23pp R@10 / +0.42pp E@1
+    # statistically significant; +4.25pp R@10 on the 5.4% of queries that get
+    # corrected.
+    spell = None
+    spell_vocab_set = None
+    spell_vocab_path = os.path.join(index_dir, "spell_vocab.json")
+    if os.path.exists(spell_vocab_path):
+        try:
+            from spellchecker import SpellChecker
+
+            with open(spell_vocab_path) as f:
+                vocab = json.load(f)
+            spell = SpellChecker(language=None, distance=2)
+            for tok, freq in vocab.items():
+                spell.word_frequency.add(tok, freq)
+            spell_vocab_set = set(vocab.keys())
+            print(f"  spell corrector loaded ({len(spell_vocab_set):,} catalog tokens)")
+        except Exception as e:
+            print(f"  spell corrector unavailable: {e}")
+
     # Tantivy index for hybrid retrieval (legacy fallback).
     tantivy_searcher = None
     tantivy_idx = None
@@ -224,6 +246,8 @@ def load_resources():
         "tantivy_index": tantivy_idx,
         "bm25s_index": bm25s_idx,
         "bm25s_stemmer": bm25s_stemmer,
+        "spell": spell,
+        "spell_vocab_set": spell_vocab_set,
         "title_to_pos": title_to_pos,
         "ce_model": ce_model,
     }
@@ -362,8 +386,48 @@ def _safe_parse_bm25(tv_index, query):
             return None
 
 
+_TOK_RE = re.compile(r"[a-z0-9]+")
+
+
+def _spell_correct(query, resources):
+    """Catalog-vocab spell correction. Returns the corrected query string.
+
+    Skips tokens already in vocab, very short tokens, alphanumeric (model
+    numbers like 'k380'), and tokens with no in-vocab candidate. Picks the
+    highest-catalog-frequency candidate within edit distance 2.
+
+    See indexing/build_spell_vocab.py + the spell-correction probe lift
+    measurement in evaluation/eval_spell_correct.py.
+    """
+    spell = resources.get("spell")
+    vocab_set = resources.get("spell_vocab_set")
+    if spell is None or vocab_set is None:
+        return query
+    tokens = _TOK_RE.findall(query.lower())
+    if not tokens:
+        return query
+    out = []
+    for tok in tokens:
+        if tok in vocab_set or len(tok) <= 2 or tok.isdigit() or any(c.isdigit() for c in tok):
+            out.append(tok)
+            continue
+        candidates = spell.candidates(tok) or set()
+        best = None
+        best_freq = -1
+        for c in candidates:
+            if c not in vocab_set:
+                continue
+            f = spell.word_frequency[c]
+            if f > best_freq:
+                best_freq = f
+                best = c
+        out.append(best if best and best != tok else tok)
+    return " ".join(out)
+
+
 def _bm25s_top_positions(query, resources, k):
     """Top-k FAISS positions from bm25s retrieval (optimized k1=0.3, b=0.6).
+    Spell-corrects the query first using the catalog vocabulary if loaded.
 
     bm25s returns title-array indices directly, which are the same as FAISS
     positions (titles.json is parallel to the FAISS index).
@@ -374,7 +438,8 @@ def _bm25s_top_positions(query, resources, k):
         return []
     import bm25s
 
-    qt = bm25s.tokenize([query], stopwords="en", stemmer=stemmer, show_progress=False)
+    corrected = _spell_correct(query, resources)
+    qt = bm25s.tokenize([corrected], stopwords="en", stemmer=stemmer, show_progress=False)
     if not qt.ids or not qt.ids[0]:
         return []
     results, _ = idx.retrieve(qt, k=k, show_progress=False)
@@ -423,7 +488,8 @@ def bm25_top_k(query, resources, k=10):
     if bm25s_idx is not None and bm25s_stemmer is not None:
         import bm25s
 
-        qt = bm25s.tokenize([query], stopwords="en", stemmer=bm25s_stemmer, show_progress=False)
+        corrected = _spell_correct(query, resources)
+        qt = bm25s.tokenize([corrected], stopwords="en", stemmer=bm25s_stemmer, show_progress=False)
         if not qt.ids or not qt.ids[0]:
             return []
         results, scores = bm25s_idx.retrieve(qt, k=k * 3, show_progress=False)

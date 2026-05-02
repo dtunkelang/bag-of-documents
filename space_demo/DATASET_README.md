@@ -62,7 +62,8 @@ combined_index/
 ├── rerank_B.vecs.fp16.npy               # cached product embeddings under Reranker B
 ├── rerank_G.vecs.fp16.npy               # cached product embeddings under Reranker G
 ├── tantivy_index/                       # tantivy BM25 index (legacy, en_stem)
-└── bm25s_index/                         # NEW: bm25s BM25 index (k1=0.3, b=0.6) - SOTA retriever
+├── bm25s_index/                         # bm25s BM25 index (k1=0.3, b=0.6) - SOTA retriever
+└── spell_vocab.json                     # NEW: catalog-vocab spell-correction dict (172K tokens)
 query_model/                             # Original BoD-as-retriever (cosine-loss MNRL)
 query_model_6m_mnrl/                     # Reranker A - 75K queries × 6M corpus, MNRL
 query_model_hardneg/                     # Reranker B - qrels-based bags + hard negatives
@@ -112,7 +113,8 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | K | BM25 (tantivy) + 2-way ensemble rerank | 21.11% | 0.3566 | 40.87% | 38.04% |
 | K' | BM25 (bm25s) + 2-way ensemble rerank | 21.27% | 0.3588 | 41.12% | 38.27% |
 | CC3-50 (tantivy) | BM25 top-50 + 3-way ensemble rerank | 21.32% | 0.3613 | 41.64% | 38.80% |
-| CC3-50 (bm25s, fast SOTA) | BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank | 21.61% | 0.3660 | 42.11% | 39.22% |
+| CC3-50 (bm25s, no spell-correct) | BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank | 21.61% | 0.3660 | 42.11% | 39.22% |
+| **CC3-50 (bm25s + spell, fast SOTA)** | **+ catalog-vocab spell correction (pyspellchecker over title vocab)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** |
 | CC4-50 (bm25s + CE fusion over top-50) | + LiYuan ESCI CE, w_ce=0.25 fused with 3-way sumsim | 22.24% | 0.3829 | 44.94% | 41.55% |
 | **CC4-100 (bm25s + CE fusion over top-100, quality SOTA)** | **same fusion, K_retrieve=100 (the swept optimum)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** |
 

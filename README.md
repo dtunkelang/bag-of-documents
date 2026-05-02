@@ -13,12 +13,13 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% | — |
 | RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% | — |
 | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | — |
-| BM25 top-50 + 3-way ensemble rerank (**fast SOTA**) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
+| BM25 + 3-way ensemble rerank (no spell-correct) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
+| **BM25 + 3-way ensemble rerank + spell-correct (fast SOTA)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** | **~50ms** |
 | **BM25 top-100 + 3-way + CE fusion (quality SOTA)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** | **~400ms-1s MPS / 2-6s CPU** |
 
 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Two SOTA modes ship — same retriever and bi-encoder rerank, with an optional cross-encoder fusion for the quality variant.
 
-The **fast SOTA** stack: bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms latency, +1.28pp R@10 over BM25 alone, +6.01pp over base MiniLM.
+The **fast SOTA** stack: pre-BM25 catalog-vocab spell correction → bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms latency, +1.51pp R@10 over BM25 alone, +6.24pp over base MiniLM. Spell correction adds **+0.23pp R@10 / +0.42pp E@1** (statistically significant; bootstrap CI excludes 0). On the 5.4% of queries that actually get corrected, the lift is **+4.25pp R@10 / +7.82pp E@1**.
 
 The **quality SOTA** stack adds the LiYuan ESCI cross-encoder (RoBERTa, full-attention, trained on ESCI labels) over BM25 top-100 candidates. CE scores and the 3-way sumsim are min-max normalized per query and fused at `w_ce=0.25`. Result: +0.72pp R@10, **+2.74pp E@1** over the fast SOTA — the cross-encoder catches near-miss reorderings the bi-encoder ensemble misses. K_retrieve=100 is the swept optimum: the bi-encoder filter at top-50 was hiding products CE could rescue. With `w_ce=0.50`, E@1 peaks at **45.20%** (R@10 22.03%) — a precision-favoring variant kept in the demo.
 
@@ -28,6 +29,7 @@ The retriever uses [bm25s](https://github.com/xhluca/bm25s) (numpy-backed BM25 w
 
 The deployable architecture:
 
+0. **Spell correction**: each out-of-catalog-vocab query token is matched against the title vocabulary (~172K tokens) at edit distance ≤ 2 via [pyspellchecker](https://github.com/barrust/pyspell-checker), preserving brand names and model numbers. Sub-millisecond per query.
 1. **Retrieval**: bm25s (k1=0.3, b=0.6, Snowball english stemmer + en stopwords) returns top-50 candidates.
 2. **Bi-encoder rerank**: three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
 3. **Optional CE fusion** (quality SOTA only): the LiYuan ESCI cross-encoder scores each (query, title) pair; CE and 3-way sumsim are per-query min-max normalized and blended at `w_ce=0.25` (or 0.50 for E@1-favoring).

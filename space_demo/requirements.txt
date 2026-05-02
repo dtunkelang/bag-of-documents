@@ -6,3 +6,4 @@ huggingface_hub>=1.0
 tantivy>=0.22
 bm25s>=0.3.8
 PyStemmer>=3.0
+pyspellchecker>=0.7
