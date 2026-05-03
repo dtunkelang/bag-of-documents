@@ -18,27 +18,32 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | BM25 top-100 + 3-way + LiYuan CE fusion (medium quality) | 22.33% | 0.3842 | 44.85% | 41.61% | ~400ms-1s MPS / 2-6s CPU |
 | **BM25 top-100 + sumsim + LiYuan + BGE 3-way mean (quality SOTA)** | **23.33%** | **0.4045** | **47.81%** | **43.83%** | **~2.6s MPS / 5-15s CPU** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Two SOTA modes ship — same retriever and bi-encoder rerank, with an optional cross-encoder fusion for the quality variant.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Three discrete SOTA tiers ship — each ~10× the latency of the previous, each adding ~+0.6pp R@10 / ~+2pp E@1.
 
-The **fast SOTA** stack: pre-BM25 catalog-vocab spell correction → bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms latency, +1.51pp R@10 over BM25 alone, +6.24pp over base MiniLM. Spell correction adds **+0.23pp R@10 / +0.42pp E@1** (statistically significant; bootstrap CI excludes 0). On the 5.4% of queries that actually get corrected, the lift is **+4.25pp R@10 / +7.82pp E@1**.
+**Fast SOTA** — pre-BM25 catalog-vocab spell correction → bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms wall-clock; +1.51pp R@10 over BM25 alone, +6.24pp over base MiniLM. Spell correction adds **+0.23pp R@10 / +0.42pp E@1** (significant via bootstrap); on the 5.4% of queries that actually get corrected, the lift is **+4.25pp R@10 / +7.82pp E@1**.
 
-The **quality SOTA** stack adds the LiYuan ESCI cross-encoder (RoBERTa, full-attention, trained on ESCI labels) over BM25 top-100 candidates. CE scores and the 3-way sumsim are min-max normalized per query and fused at `w_ce=0.25`. Result: +0.72pp R@10, **+2.74pp E@1** over the fast SOTA — the cross-encoder catches near-miss reorderings the bi-encoder ensemble misses. K_retrieve=100 is the swept optimum: the bi-encoder filter at top-50 was hiding products CE could rescue. With `w_ce=0.50`, E@1 peaks at **45.20%** (R@10 22.03%) — a precision-favoring variant kept in the demo.
+**Medium tier** — fast SOTA candidates + the LiYuan ESCI cross-encoder (RoBERTa-base, ESCI-supervised). LiYuan scores and 3-way sumsim are per-query min-max normalized and blended at `w_ce=0.25`. +0.49pp R@10 / +2.32pp E@1 over fast SOTA, at ~10× the latency.
 
-The non-BoD hybrid baseline (RRF) is included to make the comparison honest. It actually *underperforms* BM25 alone (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
+**Quality SOTA** — three-way equal-weight mean of (sumsim, LiYuan, [BGE-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3)) over BM25 top-100. BGE-reranker is XLM-RoBERTa-large (~568M params, BEIR-tested), much stronger than LiYuan; LiYuan stays in the fusion because it specializes on ESCI labels and contributes orthogonal top-1 signal. **+1.00pp R@10 [+0.90, +1.10] / +2.95pp E@1 [+2.55, +3.39]** over the medium tier (1000-resample paired bootstrap). At ~3× the medium-tier latency. This is the biggest single-experiment lift in the project.
+
+The non-BoD hybrid baseline (RRF) is included to keep the comparison honest. It actually *underperforms* BM25 alone (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
 
 The retriever uses [bm25s](https://github.com/xhluca/bm25s) (numpy-backed BM25 with configurable k1/b) at **k1=0.3, b=0.6** — swept against ESCI to optimize for keyword-heavy short Amazon product titles.
 
 The deployable architecture:
 
 0. **Spell correction**: each out-of-catalog-vocab query token is matched against the title vocabulary (~172K tokens) at edit distance ≤ 2 via [pyspellchecker](https://github.com/barrust/pyspell-checker), preserving brand names and model numbers. Sub-millisecond per query.
-1. **Retrieval**: bm25s (k1=0.3, b=0.6, Snowball english stemmer + en stopwords) returns top-50 candidates.
-2. **Bi-encoder rerank**: three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`).
-3. **Optional CE fusion** (quality SOTA only): the LiYuan ESCI cross-encoder scores each (query, title) pair; CE and 3-way sumsim are per-query min-max normalized and blended at `w_ce=0.25` (or 0.50 for E@1-favoring).
+1. **Retrieval**: bm25s (k1=0.3, b=0.6, Snowball english stemmer + en stopwords) returns top-50 (fast tier) or top-100 (medium / quality tiers) candidates.
+2. **Bi-encoder rerank** (all tiers): three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`). Mean cosine over the three is the "sumsim" stream.
+3. **Cross-encoder fusion** (medium + quality tiers):
+   - *Medium*: LiYuan CE only; fused with sumsim at `w_ce=0.25`.
+   - *Quality*: LiYuan + BGE-reranker-v2-m3 both score, then equal-weight mean of (sumsim_norm, LiYuan_norm, BGE_norm) per-query min-max.
 4. **Output**: top-10 by fused score.
 
-Fast SOTA: three small forward passes per query, all over precomputed product embeddings; ~40-100ms wall-clock on commodity hardware.
-
-Quality SOTA: as above + 100 cross-encoder forward passes (over BM25 top-100, no bi-encoder pre-filter); ~400ms-1s on MPS/GPU, 2-6s on CPU.
+Latencies (per query):
+- Fast: ~40-100ms wall-clock; three small forward passes against precomputed product embeddings.
+- Medium: + 100 LiYuan (RoBERTa-base) forward passes; ~400ms-1s on MPS/GPU, 2-6s on CPU.
+- Quality: + 100 BGE-reranker (XLM-RoBERTa-large) forward passes; ~2.6s on MPS/GPU, 5-15s on CPU. BGE is ~6× slower than LiYuan but adds orthogonal signal worth the cost.
 
 ## Quick Start
 
@@ -75,11 +80,10 @@ A query encoder is then trained on (query text → bag) pairs. The original fram
 
 **The bags themselves are constructed by:** hybrid retrieval (tantivy keyword + FAISS embedding) → cross-encoder scoring against the query → threshold ≥ 0.3 → top-50 candidates as bag members.
 
-## Architecture progression (Apr 2026)
+## Architecture progression (Apr–May 2026)
 
 Per-query measurements on the full ESCI test set (22,458 queries with at
-least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
-= 100, K_eval = 10):
+least one E or S judgment, against the 1.2M-product ESCI index, K_eval = 10):
 
 | # | Pipeline | R@10 | nDCG@10 | E@1 | E@3 |
 |---|---|---|---|---|---|
@@ -90,7 +94,10 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 | E | 6M-MNRL + ensemble rerank | 19.83% | 0.3375 | 39.13% | 36.12% |
 | H | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% |
 | K | BM25 + 2-way ensemble rerank | 21.27% | 0.3588 | 41.12% | 38.27% |
-| **CC3-50 (current SOTA)** | **BM25 top-50 + 3-way ensemble rerank with ESCI-supervised rerank_G** | **21.61%** | **0.3660** | **42.11%** | **39.22%** |
+| CC3-50 | BM25 top-50 + 3-way ensemble rerank (ESCI-supervised rerank_G added) | 21.61% | 0.3660 | 42.11% | 39.22% |
+| CC3-50 + spell | + catalog-vocab spell correction (fast SOTA) | 21.84% | 0.3698 | 42.53% | 39.60% |
+| CC4-100 | + LiYuan CE @ w=0.25 (medium tier) | 22.33% | 0.3842 | 44.85% | 41.61% |
+| **CC5-100 (quality SOTA)** | **+ BGE-reranker-v2-m3 fused 3-way mean (sumsim + LiYuan + BGE)** | **23.33%** | **0.4045** | **47.81%** | **43.83%** |
 
 **Read-outs:**
 
@@ -98,7 +105,11 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_retrieve
 - **Ensemble rerank stacks on top of any retriever.** The two BoD-trained rerankers (6M-MNRL, qrels-hardneg) lift base by +3.40pp R@10 (A→C) and 6M-MNRL by +1.73pp R@10 (B→E).
 - **BM25 alone beats the dense rerank stack.** Setup H (bm25s with k1=0.3, b=0.6 — tuned for short keyword-stuffed product titles) hits R@10 20.33% — *above* setup E's 19.83% (6M-MNRL + ensemble rerank). On entity-heavy product queries lexical matching does most of the work; tuning BM25 hyperparameters away from Lucene defaults (which assume long natural-language documents) is what makes lexical retrieval beat a tuned dense rerank stack.
 - **Pure non-BoD hybrid retrieval (Z) underperforms BM25 alone.** Setup Z (RRF(BM25, base) retrieval, no rerank) scores R@10 18.62% — *worse* than BM25 alone (H, 20.33%) and dramatically worse on E@1 (31.54% vs 40.06%). Mixing dense candidates into the lexical lane displaces BM25's exact-match top-1 with semantically-similar near-misses. This is the strongest "no BoD" baseline available out of the box, and it loses to BM25 alone — let alone to the BoD rerank stack.
-- **The third reranker (rerank_G, ESCI-supervised) is real but small.** K (2-way) → CC3-50 (3-way) is +0.34pp R@10 / +0.99pp E@1. The third encoder is trained on ESCI labels directly (E as positives, I as hard negatives) instead of on bag-derived signals, contributing orthogonal signal. The 4- and 5-way ensembles with additional encoders all *lose* to CC3-50 — five rerankers averaged together dilute the signal.
+- **The third reranker (rerank_G, ESCI-supervised) is real but small.** K (2-way) → CC3-50 (3-way) is +0.34pp R@10 / +0.99pp E@1. The third encoder is trained on ESCI labels directly (E as positives, I as hard negatives) instead of on bag-derived signals, contributing orthogonal signal.
+- **Spell correction was the first query-side win** (CC3-50 → CC3-50 + spell, +0.23pp R@10). Five other query-rewriting probes (PRF, LLM rewriting via Qwen3-4B-4bit, composite waterfall, phrase BM25, phonetic-fallback spell) all *hurt*. Spell correction wins because it's high-precision, low-coverage (5.4% of queries get touched, mostly real typos); the others transformed too many queries and broke correctly-spelled ones.
+- **Cross-encoder fusion is the biggest single lift.** CC3-50+spell → CC4-100 (medium) adds +0.49pp R@10 / +2.32pp E@1 by fusing the LiYuan ESCI cross-encoder. CC4-100 → CC5-100 (quality) adds another +1.00pp R@10 / +2.95pp E@1 by adding BGE-reranker-v2-m3 to the fusion (XLM-RoBERTa-large vs LiYuan's RoBERTa-base). All deltas statistically significant (1000-resample paired bootstrap, 95% CIs exclude 0).
+- **CE distillation back into a bi-encoder didn't work** at 50K or 375K MarginMSE triplets. The student matches relative margins on training queries but its embedding space doesn't generalize to retrieval ranking; net effect on R@10 was within noise of CC3-100. Production-scale distillation (5M+ pairs) might unlock it but wasn't pursued.
+- **Encoder capacity is not the bottleneck for the bi-encoder reranker.** A BGE-base bi-encoder (5× MiniLM params) trained on the same bags via MNRL or cosine-to-centroid loss underperforms MiniLM at every learning rate. Encoder capacity helps only at the cross-encoder stage, where BGE-reranker-v2-m3 (568M params) beats LiYuan (125M) cleanly.
 
 ### Where the lift comes from (per-query-bin breakdown)
 
@@ -114,16 +125,27 @@ by being uniformly better.** Diagnostic: `evaluation/eval_per_query_bins.py`.
 
 ### What didn't work (negatives worth recording)
 
-The local maximum is K. These probes were tried and rejected:
+These probes were tried and rejected. Each closes a direction; collectively they shape what the next investment should *not* be.
 
-- **Score-fusion of dense retrievers (F, G, J).** RRF-fusing base + 6M-MNRL retrieval contributes nothing additive; both fail on overlapping query types.
-- **K_retrieve sweeps (N40 / N50 / N60 / N75 / N200).** Peak around top-50 to top-100; +0.06pp gain over K is within noise.
-- **Alternative fusion functions.** Sumrank (M, -0.53pp), max (Tmax, -1.20pp), min (Tmin, -0.73pp), and weighted variants (W40 / W60 / W70, all losing) all underperform 0.5/0.5 sumsim averaging.
-- **Min-max normalization before fusion (Q, -0.05pp).** The two rerankers are already similarly calibrated.
-- **Default tantivy tokenizer (P, -0.80pp vs en_stem).** Stemming is doing real work.
-- **A categorically stronger base (Y\* setups, BAAI/bge-base-en-v1.5) — confirmed across both training recipes.** A BoD reranker trained on the same bags with BGE-base (5× MiniLM params, 768-dim) underperforms every variant tested. Tried with MNRL on bags (Y* setups, lr=2e-5 and lr=1e-4 both fail) and with cosine-to-centroid loss (DD* setups, lr=2e-5). DD1 (BGE+cos alone) scored R@10 16.61% — the worst single-reranker on BM25 candidates ever measured. Encoder capacity is not the bottleneck; the supervision-resolution hypothesis is also rejected (see next bullet).
-- **Supervision-widening probes (EE / FF / GG / HH / II setups).** Two probes tested whether rerank_G's E-vs-I binary labels were leaving signal on the table: rerank_I (positives = E ∪ S) and rerank_J (negatives = I ∪ C). Both failed as singles (EE1 = 19.24%, GG1 = 19.46%, vs CC1 = 19.68%) and as 4- or 5-way ensemble members (II5-50 = 21.10%, *below* K). Adding label resolution (S, C) introduces intra-class noise that MNRL's contrastive loss penalizes. rerank_G's binary E-vs-I formulation is optimal.
-- **Per-query routing between A and K.** Oracle headroom is +1.76pp R@10 / +6.95pp E@1, but A-wins are spread uniformly (~24%) across every non-zero base-recall bin. Every simple feature tested (base-FAISS top-1 cosine threshold, query length, digit presence) loses to K-only. Diagnostic: `evaluation/eval_oracle_routing.py`.
+**Bi-encoder side:**
+- **Score-fusion of dense retrievers (F, G, J, AA).** RRF-fusing base + 6M-MNRL retrieval (or base + BM25 + MNRL) contributes nothing additive; the dense lanes share failure modes on entity queries.
+- **A categorically stronger bi-encoder base (Y/DD setups, BAAI/bge-base-en-v1.5).** Trained on the same bags via MNRL (Y, lr=2e-5 and lr=1e-4) and via cosine-to-centroid (DD). All worse than MiniLM at every LR. DD1 (BGE+cos alone) scored R@10 16.61% — the worst single-reranker we ever measured. **Encoder capacity is not the bi-encoder bottleneck.** It is, however, the *cross-encoder* bottleneck: BGE-reranker-v2-m3 (568M params) beats LiYuan (125M) by +1.00pp R@10 in the quality SOTA.
+- **Supervision-widening probes (EE / FF / GG / HH / II).** rerank_I (E∪S positives) and rerank_J (I∪C negatives) both lose to rerank_G as singles (EE1 19.24%, GG1 19.46% vs CC1 19.68%) and dilute existing ensembles. Adding ESCI label resolution (S, C) introduces intra-class noise MNRL penalizes.
+- **CE distillation into MiniLM bi-encoder** at 50K and 375K MarginMSE triplets. Student matches CE relative margins on training queries but its embedding space doesn't generalize to retrieval ranking. Production-scale (5M+ pairs) might unlock it; not pursued.
+
+**Retriever / query side:**
+- **K_retrieve sweeps (N40 / N50 / N60 / N75 / N200).** Peak around K=40-50 for the 2-way (CC3-50), K=100 for CC5 (with CE), but the curves are flat within ±0.05pp.
+- **Alternative bi-encoder fusion functions.** Sumrank (M, -0.53pp), max (-1.20pp), min (-0.73pp), weighted variants (W40 / W60 / W70). 1/3-1/3-1/3 sumsim averaging is optimal.
+- **Default tantivy tokenizer (-0.80pp vs en_stem).** Stemming is doing real work.
+- **Per-query routing on cheap features.** Oracle headroom is +1.76pp R@10 / +6.95pp E@1 over K, but A-wins distribute uniformly across base-recall bins. Token-count, has-digit, capitalization, base-FAISS top-1 cosine threshold — all predict no better than uniform.
+- **Per-query w_ce routing (CC4 fusion).** Same shape: per-bin optimal w_ce is ~0.30 across all token-count bins; routing buys +0.03pp.
+- **PRF expansion** (top-3 BM25 docs, 2 highest-IDF tokens appended). Fires on 99.7% of queries — too aggressive. R@10 -0.51pp.
+- **LLM query rewriting** via Qwen3-4B-4bit (mlx_lm) on conversational queries. The model strips signal-bearing tokens. R@10 -0.17pp.
+- **Composite query rewriting (LLM > spell > original)**. Worse than spell-only; LLM occupies query slots that spell would have done better.
+- **Phonetic-fallback spell correction.** Vowel-stripping skeleton too coarse: `'shall'≡'shell'`, `'punk'≡'pink'`, `'earp'≡'europe'`. R@10 -0.60pp vs spell-only.
+- **Phrase / 2-gram BM25.** Naive bigram inclusion lets each bigram's huge IDF dominate scoring (each bigram in 1-3 docs), rankings go random. R@10 0.01%. Real phrase BM25 needs BM25F-style field weighting.
+- **BM25F first-token brand split.** Splitting titles into [first-token brand] + [rest] and fusing two BM25 streams underperforms full-title BM25.
+- **bm25s scoring methods (lucene/atire/bm25l/bm25+).** All within 0.01pp of robertson at (k1=0.3, b=0.6).
 
 Memory entries in `memory/` keep the per-experiment notes.
 
@@ -131,14 +153,22 @@ Memory entries in `memory/` keep the per-experiment notes.
 
 The demo (`demo.py`) shows two columns side by side. Each column has its own
 mode dropdown so any two architectures can be compared on the same query.
-Default left = base MiniLM, default right = the SOTA (BM25 + ensemble rerank).
+Default left = base MiniLM (anchor); default right = the quality SOTA
+(CC5-100, sumsim + LiYuan + BGE 3-way mean).
 
-Other selectable modes include MNRL retrieval, base + ensemble rerank, BM25-alone,
-the original BoD-as-retriever (kept for historical comparison), and a live
-"build bag at query time" mode that simulates the offline bag pipeline.
+Selectable modes span the three SOTA tiers (fast / medium / quality) plus
+historical baselines: MNRL retrieval, base + ensemble rerank, BM25 alone, the
+original BoD-as-retriever, and a live "build bag at query time" mode that
+simulates the offline bag pipeline.
 
-Precomputed product embeddings (`indexing/precompute_rerank_vecs.py`) keep dense
-modes at sub-100ms; the BM25 path is faster still.
+The Hugging Face Space at [huggingface.co/spaces/dtunkelang/bag-of-documents-demo](https://huggingface.co/spaces/dtunkelang/bag-of-documents-demo)
+runs a slimmed 4-mode dropdown (base, BM25, RRF baseline, quality SOTA) on
+the same code path. CPU-basic Space hardware makes the quality tier visibly
+slow (~5-15s per query); the fast and BM25 tiers stay sub-second.
+
+Precomputed product embeddings (`indexing/precompute_rerank_vecs.py`) keep the
+bi-encoder rerankers at sub-100ms. The cross-encoder forward passes (LiYuan
+in medium, LiYuan + BGE in quality) dominate quality-tier latency.
 
 ## Repository Layout
 
@@ -213,10 +243,13 @@ Specificity correctly correlates with query breadth ("laptop" 0.70 < "hp laptop"
 
 - **Product catalog**: [Amazon Reviews 2023](https://amazon-reviews-2023.github.io/) (McAuley Lab, UCSD; 1996–2023)
 - **ESCI relevance judgments**: [Shopping Queries Dataset](https://arxiv.org/abs/2206.06588) (Reddy et al., KDD Cup 2022). ~130K queries with Exact/Substitute/Complement/Irrelevant labels.
-- **Cross-encoder**: [LiYuan/Amazon-Cup-Cross-Encoder-Regression](https://huggingface.co/LiYuan/Amazon-Cup-Cross-Encoder-Regression) — RoBERTa-based cross-encoder trained on ESCI data for the KDD Cup 2022 competition. Used for bag member scoring (threshold 0.3).
-- **Base embedding model**: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (Sentence Transformers). Fine-tuned via MNRL on bags to produce the two rerankers.
-- **Vector index**: [FAISS](https://github.com/facebookresearch/faiss) (Meta AI) — HNSW for product embeddings (used by historical retrieval modes; not in the SOTA inference path)
-- **Keyword index**: [bm25s](https://github.com/xhluca/bm25s) — numpy-backed BM25 with configurable k1/b; the SOTA's retrieval lane (k1=0.3, b=0.6 tuned for short keyword-stuffed product titles). [tantivy](https://github.com/quickwit-oss/tantivy) is kept as a legacy fallback for build/eval reproducibility.
+- **Cross-encoders** (used in fusion at the medium/quality SOTA tiers and during bag construction):
+   - [LiYuan/Amazon-Cup-Cross-Encoder-Regression](https://huggingface.co/LiYuan/Amazon-Cup-Cross-Encoder-Regression) — RoBERTa-base, ESCI-supervised. Used at medium tier and as one component of the quality-tier fusion. Originally used for bag-member CE filtering (threshold 0.3).
+   - [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) — XLM-RoBERTa-large (~568M params), BEIR-tested. Added to the quality SOTA fusion (CC5-100); +1.00pp R@10 / +2.95pp E@1 over CC4-100 (LiYuan-only fusion).
+- **Base embedding model**: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (Sentence Transformers). Fine-tuned via MNRL on bag-derived signals to produce two of the three bi-encoder rerankers.
+- **Spell correction**: [pyspellchecker](https://github.com/barrust/pyspell-checker) over a catalog-derived vocabulary (~172K title tokens, freq ≥ 2) at edit distance ≤ 2.
+- **Vector index**: [FAISS](https://github.com/facebookresearch/faiss) (Meta AI) — HNSW for product embeddings (used by historical retrieval modes; not in the SOTA inference path).
+- **Keyword index**: [bm25s](https://github.com/xhluca/bm25s) — numpy-backed BM25 with configurable k1/b; the SOTA's retrieval lane at (k1=0.3, b=0.6, Snowball english stemmer + en stopwords). [tantivy](https://github.com/quickwit-oss/tantivy) is kept as a legacy fallback for build/eval reproducibility.
 
 ## Acknowledgments
 

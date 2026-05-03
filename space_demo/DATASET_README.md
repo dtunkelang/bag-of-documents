@@ -119,14 +119,15 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | CC4-100 (bm25s + LiYuan fusion, medium quality) | sumsim + LiYuan @ w=0.25, K_retrieve=100 | 22.33% | 0.3842 | 44.85% | 41.61% |
 | **CC5-100 (bm25s + LiYuan + BGE 3-way mean, quality SOTA)** | **+ BGE-reranker-v2-m3 (XLM-RoBERTa-large), equal-weight 3-way mean** | **23.33%** | **0.4045** | **47.81%** | **43.83%** |
 
-Four things to note:
+Five things to note:
 
 - **MNRL-trained BoD beats base as a *retriever*** (B vs A: +2.50pp R@10). The original cosine-distilled BoD-as-retriever loses on this stricter benchmark; the MNRL-trained variant doesn't.
 - **BM25 alone is competitive with the dense rerank stack** (H ≈ E, within rounding). On entity-heavy product queries, lexical matching does most of the work.
-- **MNRL retrieval is dead weight in the SOTA pipeline.** Setup K (BM25 + ensemble rerank, *no* dense retrieval) scores R@10 21.11% — +1.10pp over the previous shipped hybrid (I). Adding MNRL retrieval to the candidate pool dilutes BM25's lexically-anchored hits with semantically-near-but-irrelevant ones.
-- **BM25 hyperparameter tuning matters.** Default Lucene/tantivy params (k1=1.2, b=0.75) assume long natural-language documents. Amazon product titles are short and keyword-stuffed. A sweep on the ESCI test set finds (k1=0.3, b=0.6) optimal — early term-frequency saturation, moderate length normalization. The H' / K' / CC3-50 (bm25s) rows show the +0.83pp / +0.16pp / +0.29pp lift the parameter swap brings on top of every downstream rerank stage. The deployable architecture is: bm25s (k1=0.3, b=0.6) → ensemble rerank with two bag-derived BoD encoders + one ESCI-supervised encoder. No HNSW index in the inference path.
+- **MNRL retrieval is dead weight in the SOTA pipeline.** Adding MNRL retrieval to the candidate pool dilutes BM25's lexically-anchored hits with semantically-near-but-irrelevant ones. The deployable architecture has *no* dense retrieval lane in the inference path.
+- **BM25 hyperparameter tuning matters.** Default Lucene/tantivy params (k1=1.2, b=0.75) assume long natural-language documents. Amazon product titles are short and keyword-stuffed. A sweep finds (k1=0.3, b=0.6) optimal — early term-frequency saturation, moderate length normalization. The bm25s rows show the +0.83pp / +0.16pp / +0.29pp lift the parameter swap brings on top of every downstream rerank stage.
+- **Cross-encoder fusion is the biggest single lift at the quality tier.** The fast SOTA (CC3-50 + spell) → CC4-100 (medium, + LiYuan CE @ w=0.25) is +0.49pp R@10 / +2.32pp E@1. CC4-100 → CC5-100 (quality, + BGE-reranker-v2-m3 fused 3-way mean) is +1.00pp R@10 / +2.95pp E@1 — both deltas statistically significant via 1000-resample paired bootstrap. BGE-reranker (XLM-RoBERTa-large, ~568M params, BEIR-tested) is ~6× slower than LiYuan but adds orthogonal signal worth the cost.
 
-The ensemble rerank fuses three encoders (`query_model_6m_mnrl`, `query_model_hardneg`, `query_model_esci_supervised`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`, `rerank_G.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by index. The retrieval lane uses bm25s (configurable k1/b) over the same 1.2M titles.
+The bi-encoder rerank fuses three encoders (`query_model_6m_mnrl`, `query_model_hardneg`, `query_model_esci_supervised`) by averaging their cosine similarities. With cached product embeddings (`rerank_A.vecs.fp16.npy`, `rerank_B.vecs.fp16.npy`, `rerank_G.vecs.fp16.npy`), only the query is encoded live; candidate vectors are looked up by index. The retrieval lane uses bm25s (k1=0.3, b=0.6) with optional pre-BM25 catalog-vocab spell correction (`spell_vocab.json`). Cross-encoders (`LiYuan/Amazon-Cup-Cross-Encoder-Regression` and `BAAI/bge-reranker-v2-m3`) are loaded directly from HF Hub at runtime — no dataset artifact.
 
 ## Dataset Creation
 

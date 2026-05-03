@@ -19,7 +19,7 @@ Side-by-side comparison of five retrieval architectures on 1.2M Amazon ESCI prod
 - **BM25 + 3-way ensemble rerank + spell-correct** (fast SOTA, 21.84) - catalog-vocab spell correction (pyspellchecker over the ~172K-token title vocabulary) + BM25 top-50 reranked by three BoD-trained MiniLM encoders. Spell correction lifts R@10 +0.23pp / E@1 +0.42pp (sig.) at no latency cost. ~50ms/query.
 - **BM25 + sumsim + LiYuan + BGE** (quality SOTA, 23.33; E@1 47.81) - equal-weight 3-way fusion of sumsim (3 bi-encoders), the LiYuan ESCI cross-encoder, and BGE-reranker-v2-m3 (568M-param XLM-RoBERTa-large reranker). All three streams are per-query min-max normalized then averaged. +1.49pp R@10, +5.28pp E@1 over the fast SOTA. ~5-15s/query on Space CPU.
 
-The fast SOTA does three forward passes against precomputed product embeddings then averages cosine — sub-100ms wall-clock. The quality SOTA adds 100 cross-encoder forward passes over the unfiltered BM25 top-100 (full attention, ESCI-supervised) for a meaningful E@1 lift on near-miss queries.
+The fast SOTA does three forward passes against precomputed product embeddings then averages cosine — sub-100ms wall-clock. The quality SOTA adds 200 cross-encoder forward passes (100 LiYuan + 100 BGE-reranker) over the BM25 top-100, then equal-weight averages all three streams (sumsim, LiYuan, BGE) per-query min-max normalized. The CE forward passes dominate latency on CPU.
 
 - **Blog post**: [Distilling Retrieval Pipelines to a Single Embedding Model](https://dtunkelang.medium.com/distilling-retrieval-pipelines-to-a-single-embedding-model-606f3ecf0c91)
 - **Model and data**: [huggingface.co/datasets/dtunkelang/bag-of-documents](https://huggingface.co/datasets/dtunkelang/bag-of-documents)
