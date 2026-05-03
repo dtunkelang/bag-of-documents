@@ -91,29 +91,51 @@ def per_query_metrics(retrieved_pids, qrels_q):
     return recall, ndcg, e1, e3
 
 
-def expand_with_bigrams(token_ids_per_doc):
-    """Take bm25s.Tokenized.ids (list of [int]) and append bigram pseudo-IDs.
+def build_unigram_bigram_corpus(title_ids, query_ids):
+    """Reassign contiguous IDs over (unigrams + bigrams) so bm25s can index
+    them without exploding into trillion-size IDF arrays. Returns:
+      title_combined_ids, query_combined_ids, vocab_dict, n_unigram, n_bigram
 
-    Bigrams are encoded as (a + 1) * (max_unigram_id + 1) + (b + 1) so they
-    don't collide with unigram IDs. Returns: ids_per_doc, max_id.
+    Bigram tuples that don't appear in the title corpus are dropped from
+    queries (they wouldn't match any document anyway).
     """
-    out_ids = []
-    for ids in token_ids_per_doc:
-        bigrams = []
+    # Collect all unique unigrams + bigrams from titles.
+    title_unigrams = set()
+    title_bigrams = set()
+    for ids in title_ids:
+        title_unigrams.update(ids)
         for i in range(len(ids) - 1):
-            bigrams.append(ids[i], ids[i + 1])
-        out_ids.append(list(ids) + bigrams)
-    return out_ids
+            title_bigrams.add((ids[i], ids[i + 1]))
 
+    # Assign contiguous IDs.
+    new_id = {}
+    for i, uid in enumerate(sorted(title_unigrams)):
+        new_id[uid] = i
+    offset = len(title_unigrams)
+    for i, bg in enumerate(sorted(title_bigrams)):
+        new_id[bg] = offset + i
 
-def encode_bigrams(token_ids_per_doc, max_unigram_id):
-    """Append bigram IDs (offset to avoid collision with unigrams)."""
-    base = max_unigram_id + 1
-    out = []
-    for ids in token_ids_per_doc:
-        bigrams = [base + ids[i] * base + ids[i + 1] for i in range(len(ids) - 1)]
-        out.append(list(ids) + bigrams)
-    return out
+    # Re-encode docs: original unigram IDs + bigram tuples.
+    title_combined = []
+    for ids in title_ids:
+        new_ids = [new_id[u] for u in ids]
+        for i in range(len(ids) - 1):
+            new_ids.append(new_id[(ids[i], ids[i + 1])])
+        title_combined.append(new_ids)
+
+    # Re-encode queries: drop tokens / bigrams not in title vocab.
+    query_combined = []
+    for ids in query_ids:
+        new_ids = [new_id[u] for u in ids if u in new_id]
+        for i in range(len(ids) - 1):
+            bg = (ids[i], ids[i + 1])
+            if bg in new_id:
+                new_ids.append(new_id[bg])
+        query_combined.append(new_ids)
+
+    n_total = len(title_unigrams) + len(title_bigrams)
+    vocab = {f"id_{i}": i for i in range(n_total)}
+    return title_combined, query_combined, vocab, len(title_unigrams), len(title_bigrams)
 
 
 def main():
@@ -146,27 +168,15 @@ def main():
     title_tok = bm25s.tokenize(index_titles, stopwords="en", stemmer=stemmer, show_progress=False)
     query_tok = bm25s.tokenize(queries, stopwords="en", stemmer=stemmer, show_progress=False)
 
-    # Find max token id across vocab.
-    max_id = max(title_tok.vocab.values()) if title_tok.vocab else 0
-    print(f"  vocab size: {max_id + 1:,}", flush=True)
-
-    # Append bigrams to each doc / query token stream.
-    print("appending adjacent-token bigrams...", flush=True)
+    # Build contiguous-ID unigram+bigram corpus.
+    print("building unigram+bigram corpus with contiguous IDs...", flush=True)
     t0 = time.time()
-    title_combined_ids = encode_bigrams(title_tok.ids, max_id)
-    query_combined_ids = encode_bigrams(query_tok.ids, max_id)
-
-    # Now build a bm25s index manually from the combined ids by abusing the
-    # tokenizer output: bm25s expects a Tokenized object. We construct a
-    # synthetic vocab mapping that maps every observed combined id to itself.
-    used_ids = set()
-    for ids in title_combined_ids:
-        used_ids.update(ids)
-    for ids in query_combined_ids:
-        used_ids.update(ids)
-    vocab = {f"__id_{i}__": i for i in used_ids}
+    title_combined_ids, query_combined_ids, vocab, n_uni, n_bi = build_unigram_bigram_corpus(
+        title_tok.ids, query_tok.ids
+    )
     print(
-        f"  combined unigram+bigram vocab: {len(vocab):,}, build {time.time() - t0:.0f}s",
+        f"  {n_uni:,} unigrams + {n_bi:,} bigrams = {len(vocab):,} total vocab "
+        f"({time.time() - t0:.0f}s)",
         flush=True,
     )
 
