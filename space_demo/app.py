@@ -794,7 +794,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)",
+            value="BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
             label="Right-column mode",
         )
 
