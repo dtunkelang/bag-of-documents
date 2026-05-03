@@ -116,7 +116,8 @@ The originally-published architecture treats BoD as a retrieval-stage model (sin
 | CC3-50 (bm25s, no spell-correct) | BM25 (bm25s, k1=0.3, b=0.6) top-50 + 3-way ensemble rerank | 21.61% | 0.3660 | 42.11% | 39.22% |
 | **CC3-50 (bm25s + spell, fast SOTA)** | **+ catalog-vocab spell correction (pyspellchecker over title vocab)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** |
 | CC4-50 (bm25s + CE fusion over top-50) | + LiYuan ESCI CE, w_ce=0.25 fused with 3-way sumsim | 22.24% | 0.3829 | 44.94% | 41.55% |
-| **CC4-100 (bm25s + CE fusion over top-100, quality SOTA)** | **same fusion, K_retrieve=100 (the swept optimum)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** |
+| CC4-100 (bm25s + LiYuan fusion, medium quality) | sumsim + LiYuan @ w=0.25, K_retrieve=100 | 22.33% | 0.3842 | 44.85% | 41.61% |
+| **CC5-100 (bm25s + LiYuan + BGE 3-way mean, quality SOTA)** | **+ BGE-reranker-v2-m3 (XLM-RoBERTa-large), equal-weight 3-way mean** | **23.33%** | **0.4045** | **47.81%** | **43.83%** |
 
 Four things to note:
 

@@ -206,27 +206,39 @@ def load_resources():
         if t not in title_to_pos:
             title_to_pos[t] = i
 
-    # Cross-encoder. Used by both the bag-search mode (when LOAD_BAG_SEARCH=1)
-    # and by the CC4-50 mode (CE-fused 4-way rerank, the quality SOTA).
-    # Prefers a local path for offline use; falls back to the HF hub name.
+    # Cross-encoders for the quality-tier 3-way fusion (CC5):
+    #   ce_model:  LiYuan/Amazon-Cup-Cross-Encoder-Regression (RoBERTa-base).
+    #   bge_model: BAAI/bge-reranker-v2-m3 (XLM-RoBERTa-large, ~6x slower
+    #              than LiYuan but adds orthogonal signal — sumsim + LiYuan
+    #              + BGE 3-way mean lifts R@10 +1.00pp, E@1 +2.95pp over
+    #              LiYuan-only fusion at the same candidate pool).
     ce_model = None
+    bge_model = None
+    device = "cpu"
     try:
         import torch as _torch
         from sentence_transformers import CrossEncoder
 
-        ce_path = os.path.join(SCRIPT_DIR, "models", "esci-cross-encoder")
-        ce_src = (
-            ce_path if os.path.exists(ce_path) else "LiYuan/Amazon-Cup-Cross-Encoder-Regression"
-        )
         device = (
             "mps"
             if _torch.backends.mps.is_available()
             else ("cuda" if _torch.cuda.is_available() else "cpu")
         )
+        ce_path = os.path.join(SCRIPT_DIR, "models", "esci-cross-encoder")
+        ce_src = (
+            ce_path if os.path.exists(ce_path) else "LiYuan/Amazon-Cup-Cross-Encoder-Regression"
+        )
         ce_model = CrossEncoder(ce_src, device=device)
-        print(f"  ESCI cross-encoder loaded from {ce_src} on {device}")
+        print(f"  LiYuan ESCI cross-encoder loaded from {ce_src} on {device}")
     except Exception as e:
-        print(f"  ESCI cross-encoder unavailable: {e}")
+        print(f"  LiYuan ESCI cross-encoder unavailable: {e}")
+    try:
+        from sentence_transformers import CrossEncoder
+
+        bge_model = CrossEncoder("BAAI/bge-reranker-v2-m3", device=device)
+        print(f"  BGE-reranker-v2-m3 loaded on {device}")
+    except Exception as e:
+        print(f"  BGE-reranker unavailable: {e}")
 
     return {
         "index": index,
@@ -251,6 +263,7 @@ def load_resources():
         "spell_vocab_set": spell_vocab_set,
         "title_to_pos": title_to_pos,
         "ce_model": ce_model,
+        "bge_model": bge_model,
     }
 
 
@@ -579,33 +592,34 @@ def bm25_3way_rerank_top_k(query, resources, k_top=10, k_retrieve=50):
     return results
 
 
-def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=100, w_ce=0.25):
-    """Setup CC4-100: BM25 top-K_retrieve -> 3-way ensemble rerank fused
-    with cross-encoder scores via per-query min-max normalization.
+def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
+    """Setup CC5-100 - quality SOTA: BM25 top-K_retrieve -> equal-weight 3-way
+    fusion of sumsim (3 bi-encoders) + LiYuan CE + BGE-reranker-v2-m3.
 
     Pipeline:
-      1. bm25s retrieves top-K_retrieve candidate positions.
-      2. Three bi-encoder rerankers (A, B, G) score candidates via cached
-         product vecs. The 3-way mean cosine is the "sumsim" stream.
-      3. The LiYuan ESCI cross-encoder scores each (query, title) pair.
-      4. Both streams are min-max normalized over the candidate set per
-         query, then fused: w_ce * ce_norm + (1 - w_ce) * sumsim_norm.
-      5. Top-k_top by fused score.
+      1. bm25s retrieves top-K_retrieve candidates.
+      2. Three bi-encoder rerankers (A, B, G) score via cached product vecs;
+         the 3-way mean cosine is the "sumsim" stream.
+      3. LiYuan ESCI cross-encoder scores each (query, title) pair.
+      4. BGE-reranker-v2-m3 scores the same pairs.
+      5. All three streams are min-max normalized per query, then averaged
+         equally: (sumsim_norm + liyuan_norm + bge_norm) / 3.
+      6. Top-k_top by fused score.
 
-    R@10 22.33%, +0.72pp over CC3-50 (21.61%); E@1 44.85%, +2.74pp.
-    With w_ce=0.5: R@10 22.03%, E@1 45.20% (precision-favoring variant).
+    Full ESCI test (22,458 queries): R@10 23.33% [23.05, 23.61],
+    nDCG 0.4045, E@1 47.81% [47.20, 48.47], E@3 43.83%.
+    vs CC4 (sumsim + LiYuan only): +1.00pp R@10, +2.95pp E@1 - both
+    statistically significant via paired bootstrap.
 
-    K_retrieve=100 is the swept optimum (CC4-30 21.65%, CC4-50 22.24%,
-    CC4-75 22.27%, CC4-100 22.33%). The bi-encoder filter at top-50 was
-    hiding products CE could rescue; widening the candidate pool catches
-    them at 2x CE latency.
+    Latency on top-100: ~2.6s on MPS, 5-15s on CPU. BGE-reranker-v2-m3
+    (XLM-RoBERTa-large, ~568M params) is ~6x slower than LiYuan but
+    adds orthogonal signal worth the cost.
 
-    Latency on top-100: ~400ms-1s on MPS / GPU, 2-6s on CPU.
-
-    Falls back to bm25_3way_rerank_top_k if the CE model isn't loaded.
+    Falls back to bm25_3way_rerank_top_k if no cross-encoder is loaded.
     """
     ce = resources.get("ce_model")
-    if ce is None:
+    bge = resources.get("bge_model")
+    if ce is None and bge is None:
         return bm25_3way_rerank_top_k(query, resources, k_top, k_retrieve)
 
     a = resources.get("rerank_a")
@@ -634,16 +648,25 @@ def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=100, w_ce=0
     sumsim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
 
     cand_titles = [titles[p] for p in positions]
-    ce_scores = ce.predict(
-        [(query, t) for t in cand_titles], batch_size=32, show_progress_bar=False
-    )
-    ce_scores = np.asarray(ce_scores, dtype=np.float32)
+    pairs = [(query, t) for t in cand_titles]
 
     def _minmax(x):
         lo, hi = float(x.min()), float(x.max())
         return (x - lo) / max(hi - lo, 1e-8)
 
-    fused = w_ce * _minmax(ce_scores) + (1 - w_ce) * _minmax(sumsim)
+    components = [_minmax(sumsim)]
+    if ce is not None:
+        ce_scores = np.asarray(
+            ce.predict(pairs, batch_size=32, show_progress_bar=False), dtype=np.float32
+        )
+        components.append(_minmax(ce_scores))
+    if bge is not None:
+        bge_scores = np.asarray(
+            bge.predict(pairs, batch_size=16, show_progress_bar=False), dtype=np.float32
+        )
+        components.append(_minmax(bge_scores))
+
+    fused = sum(components) / len(components)
     order = np.argsort(-fused)
 
     seen, results = set(), []
@@ -1121,9 +1144,7 @@ def _results_for_mode(mode, q, resources, k):
     bm25_base_rerank   — RRF(BM25, base) + ensemble rerank (20.43%)
     """
     if mode == "bm25_3way_ce_rerank":
-        return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=50, w_ce=0.25)
-    if mode == "bm25_3way_ce_rerank_e1":
-        return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=50, w_ce=0.5)
+        return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
     if mode == "bm25_3way_rerank":
         return bm25_3way_rerank_top_k(q, resources, k_top=k, k_retrieve=50)
     if mode == "bm25_rerank":
@@ -1263,8 +1284,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank, fast SOTA (R@10 21.61)</option>
-                <option value="bm25_3way_ce_rerank">bm25s + 3-way + CE fusion w_ce=0.25, quality SOTA (R@10 22.33)</option>
-                <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5, E@1 SOTA (45.04)</option>
+                <option value="bm25_3way_ce_rerank">bm25s + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81)</option>
             </select>
         </div>
         <div id="base-results"></div>
@@ -1272,8 +1292,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
     <div class="column" id="main-column">
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
-                <option value="bm25_3way_ce_rerank" selected>bm25s + 3-way + CE fusion (quality SOTA, R@10 22.33)</option>
-                <option value="bm25_3way_ce_rerank_e1">bm25s + 3-way + CE fusion w_ce=0.5 (E@1 SOTA, 45.04)</option>
+                <option value="bm25_3way_ce_rerank" selected>bm25s + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (fast SOTA, R@10 21.61)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>

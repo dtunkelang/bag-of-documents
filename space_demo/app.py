@@ -172,19 +172,26 @@ def load_resources(data_dir):
         if t not in title_to_pos:
             title_to_pos[t] = i
 
-    # ESCI cross-encoder for the CC4-50 quality SOTA mode (CE-fused 4-way
-    # rerank). Loaded from HF directly. On CPU-basic Space hardware the
-    # CE forward passes dominate latency (~1-3s/query for 50 candidates),
-    # which is why CC4-50 is offered as an opt-in "quality" mode alongside
-    # the fast CC3-50.
+    # Quality-tier cross-encoders (CC5 = sumsim + LiYuan + BGE 3-way mean).
+    # On CPU-basic Space hardware these dominate latency (~5-15s/query
+    # combined for 100 candidates); CC5 is the opt-in quality mode
+    # alongside the fast CC3-50.
     ce_model = None
+    bge_model = None
     try:
         from sentence_transformers import CrossEncoder
 
         ce_model = CrossEncoder("LiYuan/Amazon-Cup-Cross-Encoder-Regression")
-        print("  ESCI cross-encoder loaded (CC4-50 quality mode available)")
+        print("  LiYuan ESCI cross-encoder loaded")
     except Exception as e:
-        print(f"  ESCI cross-encoder unavailable: {e} (CC4-50 will fall back to CC3-50)")
+        print(f"  LiYuan unavailable: {e}")
+    try:
+        from sentence_transformers import CrossEncoder
+
+        bge_model = CrossEncoder("BAAI/bge-reranker-v2-m3")
+        print("  BGE-reranker-v2-m3 loaded")
+    except Exception as e:
+        print(f"  BGE-reranker unavailable: {e}")
 
     return {
         "index": index,
@@ -199,6 +206,7 @@ def load_resources(data_dir):
         "rerank_b_vecs": rerank_b_vecs,
         "rerank_g_vecs": rerank_g_vecs,
         "ce_model": ce_model,
+        "bge_model": bge_model,
         "bag_queries": bag_queries,
         "bag_matrix": bag_matrix,
         "bag_specs": bag_specs,
@@ -516,24 +524,24 @@ def bm25_3way_rerank_top_k(query, R, k_top, k_retrieve=50):
     return _dedup_by_title(raw, k_top)
 
 
-def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100, w_ce=0.25):
-    """Setup CC4-100: bm25s top-K -> 3-way bi-encoder rerank fused with the
-    LiYuan ESCI cross-encoder via per-query min-max normalization.
+def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100):
+    """Setup CC5-100 - quality SOTA. bm25s top-K -> equal-weight 3-way fusion
+    of sumsim (3 bi-encoders) + LiYuan CE + BGE-reranker-v2-m3, all per-query
+    min-max normalized.
 
-    R@10 22.33% (+0.72pp over CC3-50), nDCG 0.3842 (+0.0182),
-    E@1 44.85% (+2.74pp), E@3 41.61% at w_ce=0.25.
-    With w_ce=0.5: E@1 peaks at 45.20% but R@10 drops to 22.03%.
+    Full ESCI test (22,458 queries): R@10 23.33% [23.05, 23.61],
+    nDCG 0.4045, E@1 47.81% [47.20, 48.47], E@3 43.83%.
+    vs CC4 (sumsim + LiYuan only): +1.00pp R@10, +2.95pp E@1 - both
+    statistically significant via paired bootstrap.
 
-    K_retrieve=100 is the swept optimum (CE benefits from a wider pool;
-    the bi-encoder filter at top-50 was hiding products CE could rescue).
+    Latency: ~2.6s on MPS, 5-15s on CPU. BGE-reranker-v2-m3 (XLM-RoBERTa-
+    large, 568M params) is ~6x slower than LiYuan but adds orthogonal signal.
 
-    Latency tradeoff: ~400ms-1s on MPS / GPU, 2-6s on CPU. The CE forward
-    pass over 100 (q, t) pairs dominates wall-clock.
-
-    Falls back to CC3-50 if the CE model isn't loaded.
+    Falls back to CC3 if no cross-encoder is loaded.
     """
     ce = R.get("ce_model")
-    if ce is None or R.get("rerank_g") is None or R.get("rerank_g_vecs") is None:
+    bge = R.get("bge_model")
+    if (ce is None and bge is None) or R.get("rerank_g") is None or R.get("rerank_g_vecs") is None:
         return bm25_3way_rerank_top_k(query, R, k_top, k_retrieve)
     positions = _bm25_top_positions(query, R, k_retrieve)
     if not positions:
@@ -547,17 +555,25 @@ def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100, w_ce=0.25):
     sumsim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
 
     titles = R["titles"]
-    cand_titles = [titles[p] for p in positions]
-    ce_scores = np.asarray(
-        ce.predict([(query, t) for t in cand_titles], batch_size=32, show_progress_bar=False),
-        dtype=np.float32,
-    )
+    pairs = [(query, titles[p]) for p in positions]
 
     def _minmax(x):
         lo, hi = float(x.min()), float(x.max())
         return (x - lo) / max(hi - lo, 1e-8)
 
-    fused = w_ce * _minmax(ce_scores) + (1 - w_ce) * _minmax(sumsim)
+    components = [_minmax(sumsim)]
+    if ce is not None:
+        ce_scores = np.asarray(
+            ce.predict(pairs, batch_size=32, show_progress_bar=False), dtype=np.float32
+        )
+        components.append(_minmax(ce_scores))
+    if bge is not None:
+        bge_scores = np.asarray(
+            bge.predict(pairs, batch_size=16, show_progress_bar=False), dtype=np.float32
+        )
+        components.append(_minmax(bge_scores))
+
+    fused = sum(components) / len(components)
     order = np.argsort(-fused)
     raw = [(titles[positions[int(idx)]], round(float(fused[idx]), 4)) for idx in order]
     return _dedup_by_title(raw, k_top)
@@ -696,7 +712,7 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)",
+    "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)",
     "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
     "BM25 retrieval (R@10 20.33)",
     "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
@@ -705,8 +721,8 @@ MODE_LABELS = [
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)":
-        return bm25_3way_ce_rerank_top_k(query, R, k_top=k, w_ce=0.25)
+    if mode == "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)":
+        return bm25_3way_ce_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 retrieval (R@10 20.33)":
@@ -752,10 +768,11 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         "on this corpus it actually loses to BM25 alone.\n"
         "* **BM25 + 3-way ensemble rerank** — fast SOTA (21.61%), ~50ms/query. "
         "BM25 top-50 reranked by three BoD-trained MiniLM encoders via sumsim fusion.\n"
-        "* **BM25 + 3-way + CE fusion** — quality SOTA (22.33%, E@1 44.85%), "
-        "~2-6s/query on Space CPU. Adds the LiYuan ESCI cross-encoder over BM25 "
-        "top-100, fused at w_ce=0.25 with the 3-way sumsim via per-query min-max "
-        "normalization. +0.72pp R@10, +2.74pp E@1 over the fast SOTA.\n\n"
+        "* **BM25 + sumsim + LiYuan + BGE** — quality SOTA (R@10 23.33%, E@1 47.81%), "
+        "~5-15s/query on Space CPU. Equal-weight 3-way fusion of sumsim, the "
+        "LiYuan ESCI cross-encoder, and BGE-reranker-v2-m3 (568M-param XLM-RoBERTa-"
+        "large reranker), each min-max normalized over the BM25 top-100. "
+        "+1.49pp R@10, +5.28pp E@1 over the fast SOTA.\n\n"
         "The fast SOTA does three forward passes against precomputed product "
         "embeddings then averages cosine — sub-100ms wall-clock. The quality SOTA "
         "adds 50 cross-encoder forward passes (full attention, ESCI-supervised) "
@@ -777,7 +794,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         )
         right_mode_input = gr.Dropdown(
             choices=MODE_LABELS,
-            value="BM25 + 3-way + CE fusion (quality SOTA, R@10 22.33, ~2-6s)",
+            value="BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)",
             label="Right-column mode",
         )
 

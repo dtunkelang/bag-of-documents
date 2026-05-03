@@ -15,7 +15,8 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | — |
 | BM25 + 3-way ensemble rerank (no spell-correct) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
 | **BM25 + 3-way ensemble rerank + spell-correct (fast SOTA)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** | **~50ms** |
-| **BM25 top-100 + 3-way + CE fusion (quality SOTA)** | **22.33%** | **0.3842** | **44.85%** | **41.61%** | **~400ms-1s MPS / 2-6s CPU** |
+| BM25 top-100 + 3-way + LiYuan CE fusion (medium quality) | 22.33% | 0.3842 | 44.85% | 41.61% | ~400ms-1s MPS / 2-6s CPU |
+| **BM25 top-100 + sumsim + LiYuan + BGE 3-way mean (quality SOTA)** | **23.33%** | **0.4045** | **47.81%** | **43.83%** | **~2.6s MPS / 5-15s CPU** |
 
 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Two SOTA modes ship — same retriever and bi-encoder rerank, with an optional cross-encoder fusion for the quality variant.
 
