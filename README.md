@@ -16,7 +16,7 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | BM25 + 3-way ensemble rerank (no spell-correct) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
 | **BM25 + 3-way ensemble rerank + spell-correct (fast SOTA)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** | **~50ms** |
 | BM25 top-100 + 3-way + LiYuan CE fusion (medium quality) | 22.33% | 0.3842 | 44.85% | 41.61% | ~400ms-1s MPS / 2-6s CPU |
-| **BM25 top-100 + sumsim + LiYuan + BGE 3-way mean (quality SOTA)** | **23.33%** | **0.4045** | **47.81%** | **43.83%** | **~2.6s MPS / 5-15s CPU** |
+| **BM25 top-100 + sumsim + LiYuan + BGE 3-way mean (quality SOTA)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** | **~2.6s MPS / 5-15s CPU** |
 
 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Three discrete SOTA tiers ship — each ~10× the latency of the previous, each adding ~+0.6pp R@10 / ~+2pp E@1.
 
@@ -24,7 +24,7 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 
 **Medium tier** — fast SOTA candidates + the LiYuan ESCI cross-encoder (RoBERTa-base, ESCI-supervised). LiYuan scores and 3-way sumsim are per-query min-max normalized and blended at `w_ce=0.25`. +0.49pp R@10 / +2.32pp E@1 over fast SOTA, at ~10× the latency.
 
-**Quality SOTA** — three-way equal-weight mean of (sumsim, LiYuan, [BGE-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3)) over BM25 top-100. BGE-reranker is XLM-RoBERTa-large (~568M params, BEIR-tested), much stronger than LiYuan; LiYuan stays in the fusion because it specializes on ESCI labels and contributes orthogonal top-1 signal. **+1.00pp R@10 [+0.90, +1.10] / +2.95pp E@1 [+2.55, +3.39]** over the medium tier (1000-resample paired bootstrap). At ~3× the medium-tier latency. This is the biggest single-experiment lift in the project.
+**Quality SOTA** — three-way weighted fusion of (sumsim, LiYuan, [BGE-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3)) over BM25 top-100, with weights (0.4, 0.2, 0.4). Found via 0.1-grid sweep over all weight tuples summing to 1; this combination strictly Pareto-dominates the original uniform 1/3-1/3-1/3 mean by +0.24pp R@10 / +0.13pp E@1 at zero added latency. BGE-reranker is XLM-RoBERTa-large (~568M params, BEIR-tested), much stronger than LiYuan; LiYuan stays in the fusion because it specializes on ESCI labels and contributes orthogonal top-1 signal even when down-weighted. **+1.24pp R@10 / +3.10pp E@1** over the medium tier; the BGE-reranker addition was the biggest single-experiment lift in the project.
 
 The non-BoD hybrid baseline (RRF) is included to keep the comparison honest. It actually *underperforms* BM25 alone (the base FAISS lane displaces BM25's exact-match top-1 with semantically-similar near-misses; E@1 drops from 40.06% to 31.54%), confirming that on entity-anchored product catalogs, lexical retrieval dominates dense.
 
@@ -37,7 +37,7 @@ The deployable architecture:
 2. **Bi-encoder rerank** (all tiers): three BoD-trained encoders score candidates — two trained on bag-derived signals (`query_model_us_full_6m_mnrl`, `query_model_us_qrels_mnrl_hardneg`), one trained on ESCI labels directly (`query_model_us_esci_supervised`). Mean cosine over the three is the "sumsim" stream.
 3. **Cross-encoder fusion** (medium + quality tiers):
    - *Medium*: LiYuan CE only; fused with sumsim at `w_ce=0.25`.
-   - *Quality*: LiYuan + BGE-reranker-v2-m3 both score, then equal-weight mean of (sumsim_norm, LiYuan_norm, BGE_norm) per-query min-max.
+   - *Quality*: LiYuan + BGE-reranker-v2-m3 both score, then weighted fusion (sumsim 0.4, LiYuan 0.2, BGE 0.4) of per-query min-max normalized streams.
 4. **Output**: top-10 by fused score.
 
 Latencies (per query):
@@ -97,7 +97,7 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_eval = 10):
 | CC3-50 | BM25 top-50 + 3-way ensemble rerank (ESCI-supervised rerank_G added) | 21.61% | 0.3660 | 42.11% | 39.22% |
 | CC3-50 + spell | + catalog-vocab spell correction (fast SOTA) | 21.84% | 0.3698 | 42.53% | 39.60% |
 | CC4-100 | + LiYuan CE @ w=0.25 (medium tier) | 22.33% | 0.3842 | 44.85% | 41.61% |
-| **CC5-100 (quality SOTA)** | **+ BGE-reranker-v2-m3 fused 3-way mean (sumsim + LiYuan + BGE)** | **23.33%** | **0.4045** | **47.81%** | **43.83%** |
+| **CC5-100 (quality SOTA)** | **+ BGE-reranker-v2-m3 fused 3-way mean (sumsim + LiYuan + BGE)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** |
 
 **Read-outs:**
 
