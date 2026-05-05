@@ -687,6 +687,69 @@ def bm25_3way_ce_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
     return results
 
 
+def bm25_sumsim_bge_rerank_top_k(query, resources, k_top=10, k_retrieve=50):
+    """Setup CC5_no_liyuan_K50 - bridge tier between medium and quality.
+
+    BM25 top-50 -> 0.5*sumsim_norm + 0.5*BGE_norm (drops LiYuan from CC5).
+    Halves CE forward passes vs CC5-100 (50 BGE only) and removes the LiYuan
+    100-pass branch entirely.
+
+    Full ESCI test (22,458 queries): R@10 23.10%, E@1 46.89%.
+    Latency: ~0.5s on MPS, ~2.5s on CPU. A new Pareto point between
+    CC4-100 (medium, ~1s, R@10 22.33) and CC5-100 (quality, ~6s, R@10 23.57).
+
+    Falls back to CC3 (3-way bi-encoder rerank) if BGE is not loaded.
+    """
+    bge = resources.get("bge_model")
+    a = resources.get("rerank_a")
+    b = resources.get("rerank_b")
+    g = resources.get("rerank_g")
+    a_vecs = resources.get("rerank_a_vecs")
+    b_vecs = resources.get("rerank_b_vecs")
+    g_vecs = resources.get("rerank_g_vecs")
+    titles = resources["titles"]
+
+    if bge is None or g is None or g_vecs is None:
+        return bm25_3way_rerank_top_k(query, resources, k_top, k_retrieve)
+
+    positions = _bm25_top_positions(query, resources, k_retrieve)
+    if not positions:
+        return ensemble_rerank(
+            query, resources, k_retrieve=k_retrieve, k_top=k_top, retriever="mnrl"
+        )
+
+    qa = np.array(a.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.array(b.encode(query, normalize_embeddings=True), dtype=np.float32)
+    qg = np.array(g.encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = a_vecs[positions].astype(np.float32)
+    cv_b = b_vecs[positions].astype(np.float32)
+    cv_g = g_vecs[positions].astype(np.float32)
+    sumsim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
+
+    pairs = [(query, titles[p]) for p in positions]
+
+    def _minmax(x):
+        lo, hi = float(x.min()), float(x.max())
+        return (x - lo) / max(hi - lo, 1e-8)
+
+    bge_scores = np.asarray(
+        bge.predict(pairs, batch_size=16, show_progress_bar=False), dtype=np.float32
+    )
+    fused = 0.5 * _minmax(sumsim) + 0.5 * _minmax(bge_scores)
+    order = np.argsort(-fused)
+
+    seen, results = set(), []
+    for idx in order:
+        t = titles[positions[int(idx)]]
+        if t in seen:
+            continue
+        seen.add(t)
+        results.append({"title": t, "score": round(float(fused[int(idx)]), 4)})
+        if len(results) >= k_top:
+            break
+    return results
+
+
 def bm25_rerank_top_k(query, resources, k_top=10, k_retrieve=100):
     """BM25 top-K_retrieve → ensemble rerank with two BoD models. ESCI SOTA.
 
@@ -1151,6 +1214,8 @@ def _results_for_mode(mode, q, resources, k):
     """
     if mode == "bm25_3way_ce_rerank":
         return bm25_3way_ce_rerank_top_k(q, resources, k_top=k, k_retrieve=100)
+    if mode == "bm25_sumsim_bge_rerank":
+        return bm25_sumsim_bge_rerank_top_k(q, resources, k_top=k, k_retrieve=50)
     if mode == "bm25_3way_rerank":
         return bm25_3way_rerank_top_k(q, resources, k_top=k, k_retrieve=50)
     if mode == "bm25_rerank":
@@ -1290,6 +1355,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank, fast SOTA (R@10 21.61)</option>
+                <option value="bm25_sumsim_bge_rerank">bm25s top-50 + sumsim + BGE bridge tier (R@10 23.10, E@1 46.89)</option>
                 <option value="bm25_3way_ce_rerank">bm25s + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95)</option>
             </select>
         </div>
@@ -1299,6 +1365,7 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
         <div class="column-header">
             <select id="right-mode" style="padding:2px 4px; font-size:0.9em;">
                 <option value="bm25_3way_ce_rerank" selected>bm25s + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95)</option>
+                <option value="bm25_sumsim_bge_rerank">bm25s top-50 + sumsim + BGE bridge tier (R@10 23.10, E@1 46.89)</option>
                 <option value="bm25_3way_rerank">bm25s top-50 + 3-way ensemble rerank (fast SOTA, R@10 21.61)</option>
                 <option value="bm25_rerank">bm25s + 2-way ensemble rerank (R@10 21.27)</option>
                 <option value="bm25_base_rerank">RRF(BM25, base) + ensemble rerank (R@10 20.43)</option>

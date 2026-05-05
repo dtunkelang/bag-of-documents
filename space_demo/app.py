@@ -581,6 +581,49 @@ def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100):
     return _dedup_by_title(raw, k_top)
 
 
+def bm25_sumsim_bge_rerank_top_k(query, R, k_top, k_retrieve=50):
+    """Setup CC5_no_liyuan_K50 - bridge tier between medium and quality.
+
+    bm25s top-50 -> 0.5*sumsim_norm + 0.5*BGE_norm (drops LiYuan from CC5).
+    Halves CE forward passes vs CC5-100 (50 BGE only) and removes the LiYuan
+    100-pass branch entirely.
+
+    Full ESCI test (22,458 queries): R@10 23.10%, E@1 46.89%.
+    Latency: ~0.5s on MPS, ~2.5s on CPU. A new Pareto point between
+    CC4-100 (medium, ~1s, R@10 22.33) and CC5-100 (quality, ~6s, R@10 23.57).
+
+    Falls back to CC3 if BGE is not loaded.
+    """
+    bge = R.get("bge_model")
+    if bge is None or R.get("rerank_g") is None or R.get("rerank_g_vecs") is None:
+        return bm25_3way_rerank_top_k(query, R, k_top, k_retrieve)
+    positions = _bm25_top_positions(query, R, k_retrieve)
+    if not positions:
+        return mnrl_rerank_top_k(query, R, k_top, k_retrieve)
+    qa = np.asarray(R["rerank_a"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    qb = np.asarray(R["rerank_b"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    qg = np.asarray(R["rerank_g"].encode(query, normalize_embeddings=True), dtype=np.float32)
+    cv_a = R["rerank_a_vecs"][positions].astype(np.float32)
+    cv_b = R["rerank_b_vecs"][positions].astype(np.float32)
+    cv_g = R["rerank_g_vecs"][positions].astype(np.float32)
+    sumsim = (cv_a @ qa + cv_b @ qb + cv_g @ qg) / 3
+
+    titles = R["titles"]
+    pairs = [(query, titles[p]) for p in positions]
+
+    def _minmax(x):
+        lo, hi = float(x.min()), float(x.max())
+        return (x - lo) / max(hi - lo, 1e-8)
+
+    bge_scores = np.asarray(
+        bge.predict(pairs, batch_size=16, show_progress_bar=False), dtype=np.float32
+    )
+    fused = 0.5 * _minmax(sumsim) + 0.5 * _minmax(bge_scores)
+    order = np.argsort(-fused)
+    raw = [(titles[positions[int(idx)]], round(float(fused[idx]), 4)) for idx in order]
+    return _dedup_by_title(raw, k_top)
+
+
 def _bm25_base_rrf_positions(query, R, k_retrieve):
     """RRF positions from BM25 + base FAISS top-K_retrieve (non-BoD hybrid)."""
     bm25_positions = _bm25_top_positions(query, R, k_retrieve)
@@ -715,6 +758,7 @@ R = load_resources(data_dir)
 
 MODE_LABELS = [
     "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95, ~5-15s CPU)",
+    "BM25 + sumsim + BGE bridge tier (R@10 23.10, E@1 46.89, ~2.5s CPU)",
     "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
     "BM25 retrieval (R@10 20.33)",
     "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
@@ -725,6 +769,8 @@ MODE_LABELS = [
 def _results_for_mode(mode, query, R, k):
     if mode == "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95, ~5-15s CPU)":
         return bm25_3way_ce_rerank_top_k(query, R, k_top=k)
+    if mode == "BM25 + sumsim + BGE bridge tier (R@10 23.10, E@1 46.89, ~2.5s CPU)":
+        return bm25_sumsim_bge_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 retrieval (R@10 20.33)":
@@ -770,15 +816,16 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         "on this corpus it actually loses to BM25 alone.\n"
         "* **BM25 + 3-way ensemble rerank** — fast SOTA (21.61%), ~50ms/query. "
         "BM25 top-50 reranked by three BoD-trained MiniLM encoders via sumsim fusion.\n"
+        "* **BM25 + sumsim + BGE** — bridge tier (R@10 23.10%, E@1 46.89%), "
+        "~2.5s/query on Space CPU. Drops LiYuan from the quality fusion and "
+        "halves the candidate pool to top-50; 0.5/0.5 sumsim + BGE.\n"
         "* **BM25 + sumsim + LiYuan + BGE** — quality SOTA (R@10 23.57%, E@1 47.95%), "
-        "~5-15s/query on Space CPU. Equal-weight 3-way fusion of sumsim, the "
-        "LiYuan ESCI cross-encoder, and BGE-reranker-v2-m3 (568M-param XLM-RoBERTa-"
-        "large reranker), each min-max normalized over the BM25 top-100. "
-        "+1.49pp R@10, +5.28pp E@1 over the fast SOTA.\n\n"
+        "~5-15s/query on Space CPU. Weighted 3-way fusion (sumsim 0.4, LiYuan 0.2, "
+        "BGE 0.4) over BM25 top-100. +1.96pp R@10, +5.42pp E@1 over the fast SOTA.\n\n"
         "The fast SOTA does three forward passes against precomputed product "
-        "embeddings then averages cosine — sub-100ms wall-clock. The quality SOTA "
-        "adds 50 cross-encoder forward passes (full attention, ESCI-supervised) "
-        "for a meaningful E@1 lift on near-miss queries."
+        "embeddings then averages cosine — sub-100ms wall-clock. The bridge tier "
+        "adds 50 BGE-reranker forward passes; the quality SOTA adds 100 LiYuan + "
+        "100 BGE forward passes."
     )
 
     with gr.Row():

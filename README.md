@@ -16,7 +16,8 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | BM25 + 3-way ensemble rerank (no spell-correct) | 21.61% | 0.3660 | 42.11% | 39.22% | ~50ms |
 | **BM25 + 3-way ensemble rerank + spell-correct (fast SOTA)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** | **~50ms** |
 | BM25 top-100 + 3-way + LiYuan CE fusion (medium quality) | 22.33% | 0.3842 | 44.85% | 41.61% | ~400ms-1s MPS / 2-6s CPU |
-| **BM25 top-100 + sumsim + LiYuan + BGE 3-way mean (quality SOTA)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** | **~2.6s MPS / 5-15s CPU** |
+| BM25 top-50 + sumsim + BGE (bridge tier, no LiYuan) | 23.10% | 0.3979 | 46.89% | 43.10% | ~0.5s MPS / 2.5s CPU |
+| **BM25 top-100 + sumsim + LiYuan + BGE 3-way weighted fusion (quality SOTA)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** | **~2.6s MPS / 5-15s CPU** |
 
 22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Three discrete SOTA tiers ship — each ~10× the latency of the previous, each adding ~+0.6pp R@10 / ~+2pp E@1.
 
@@ -97,7 +98,8 @@ least one E or S judgment, against the 1.2M-product ESCI index, K_eval = 10):
 | CC3-50 | BM25 top-50 + 3-way ensemble rerank (ESCI-supervised rerank_G added) | 21.61% | 0.3660 | 42.11% | 39.22% |
 | CC3-50 + spell | + catalog-vocab spell correction (fast SOTA) | 21.84% | 0.3698 | 42.53% | 39.60% |
 | CC4-100 | + LiYuan CE @ w=0.25 (medium tier) | 22.33% | 0.3842 | 44.85% | 41.61% |
-| **CC5-100 (quality SOTA)** | **+ BGE-reranker-v2-m3 fused 3-way mean (sumsim + LiYuan + BGE)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** |
+| CC5_no_liyuan_K50 | sumsim + BGE @ 0.5/0.5 over BM25 top-50 (bridge tier) | 23.10% | 0.3979 | 46.89% | 43.10% |
+| **CC5-100 (quality SOTA)** | **+ LiYuan @ 0.2: weighted 3-way fusion (sumsim 0.4, LiYuan 0.2, BGE 0.4)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** |
 
 **Read-outs:**
 
