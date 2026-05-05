@@ -525,14 +525,13 @@ def bm25_3way_rerank_top_k(query, R, k_top, k_retrieve=50):
 
 
 def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100):
-    """Setup CC5-100 - quality SOTA. bm25s top-K -> equal-weight 3-way fusion
-    of sumsim (3 bi-encoders) + LiYuan CE + BGE-reranker-v2-m3, all per-query
-    min-max normalized.
+    """Setup CC5-100 - quality SOTA. bm25s top-K -> weighted 3-way fusion of
+    sumsim (3 bi-encoders) + LiYuan CE + BGE-reranker-v2-m3, all per-query
+    min-max normalized. Weights (sumsim 0.4, liyuan 0.2, bge 0.4) found via
+    grid sweep — strictly Pareto-dominates uniform 1/3-1/3-1/3 on both metrics.
 
-    Full ESCI test (22,458 queries): R@10 23.33% [23.05, 23.61],
-    nDCG 0.4045, E@1 47.81% [47.20, 48.47], E@3 43.83%.
-    vs CC4 (sumsim + LiYuan only): +1.00pp R@10, +2.95pp E@1 - both
-    statistically significant via paired bootstrap.
+    Full ESCI test (22,458 queries): R@10 23.57%, E@1 47.95%.
+    vs uniform-mean baseline: +0.24pp R@10, +0.13pp E@1 at zero added latency.
 
     Latency: ~2.6s on MPS, 5-15s on CPU. BGE-reranker-v2-m3 (XLM-RoBERTa-
     large, 568M params) is ~6x slower than LiYuan but adds orthogonal signal.
@@ -561,19 +560,22 @@ def bm25_3way_ce_rerank_top_k(query, R, k_top, k_retrieve=100):
         lo, hi = float(x.min()), float(x.max())
         return (x - lo) / max(hi - lo, 1e-8)
 
-    components = [_minmax(sumsim)]
+    # Weighted 3-way fusion: sumsim 0.4, LiYuan 0.2, BGE 0.4. Strictly Pareto-
+    # dominates uniform 1/3-1/3-1/3 on both R@10 and E@1.
+    weighted = [(_minmax(sumsim), 0.4)]
     if ce is not None:
         ce_scores = np.asarray(
             ce.predict(pairs, batch_size=32, show_progress_bar=False), dtype=np.float32
         )
-        components.append(_minmax(ce_scores))
+        weighted.append((_minmax(ce_scores), 0.2))
     if bge is not None:
         bge_scores = np.asarray(
             bge.predict(pairs, batch_size=16, show_progress_bar=False), dtype=np.float32
         )
-        components.append(_minmax(bge_scores))
+        weighted.append((_minmax(bge_scores), 0.4))
 
-    fused = sum(components) / len(components)
+    total_w = sum(w for _, w in weighted)
+    fused = sum(w * c for c, w in weighted) / total_w
     order = np.argsort(-fused)
     raw = [(titles[positions[int(idx)]], round(float(fused[idx]), 4)) for idx in order]
     return _dedup_by_title(raw, k_top)
@@ -712,7 +714,7 @@ R = load_resources(data_dir)
 
 
 MODE_LABELS = [
-    "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)",
+    "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95, ~5-15s CPU)",
     "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
     "BM25 retrieval (R@10 20.33)",
     "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
@@ -721,7 +723,7 @@ MODE_LABELS = [
 
 
 def _results_for_mode(mode, query, R, k):
-    if mode == "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.33, E@1 47.81, ~5-15s CPU)":
+    if mode == "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95, ~5-15s CPU)":
         return bm25_3way_ce_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
@@ -768,7 +770,7 @@ with gr.Blocks(title="Bag-of-Documents Search") as demo:
         "on this corpus it actually loses to BM25 alone.\n"
         "* **BM25 + 3-way ensemble rerank** — fast SOTA (21.61%), ~50ms/query. "
         "BM25 top-50 reranked by three BoD-trained MiniLM encoders via sumsim fusion.\n"
-        "* **BM25 + sumsim + LiYuan + BGE** — quality SOTA (R@10 23.33%, E@1 47.81%), "
+        "* **BM25 + sumsim + LiYuan + BGE** — quality SOTA (R@10 23.57%, E@1 47.95%), "
         "~5-15s/query on Space CPU. Equal-weight 3-way fusion of sumsim, the "
         "LiYuan ESCI cross-encoder, and BGE-reranker-v2-m3 (568M-param XLM-RoBERTa-"
         "large reranker), each min-max normalized over the BM25 top-100. "
