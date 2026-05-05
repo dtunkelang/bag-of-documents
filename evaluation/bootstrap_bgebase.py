@@ -9,11 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-with open("/tmp/bgebase_probe_per_query.json") as _f:
-    DATA = json.load(_f)
-PER_Q = DATA["per_query"]
-SUMMARY = DATA["summary"]
-
 
 def boot(arr_a, arr_k, n_iter=1000, seed=42):
     arr_a = np.array(arr_a, dtype=float)
@@ -36,38 +31,47 @@ def boot(arr_a, arr_k, n_iter=1000, seed=42):
     }
 
 
-pairs = [
-    (
-        "retriever R@10: bge-base vs 6M-MNRL",
-        "K1_bge_base_bod_retriever",
-        "A1_6m_mnrl_minilm_retriever",
-        "recall",
-    ),
-    (
-        "retriever E@1:  bge-base vs 6M-MNRL",
-        "K1_bge_base_bod_retriever",
-        "A1_6m_mnrl_minilm_retriever",
-        "e_at_1",
-    ),
-    (
-        "rerank R@10:    bge-base vs MiniLM ",
-        "K2_bm25top50_bgebase_rerank",
-        "A2_bm25top50_minilm_rerank",
-        "recall",
-    ),
-    (
-        "rerank E@1:     bge-base vs MiniLM ",
-        "K2_bm25top50_bgebase_rerank",
-        "A2_bm25top50_minilm_rerank",
-        "e_at_1",
-    ),
-]
+def main():
+    with open("/tmp/bgebase_probe_per_query.json") as _f:
+        data = json.load(_f)
+    per_q = data["per_query"]
 
-print("setup                                  delta(K-A) [95% CI]              n     p(K>A)")
-print("-" * 90)
-for label, k_setup, a_setup, metric in pairs:
-    res = boot(PER_Q[a_setup][metric], PER_Q[k_setup][metric])
-    print(
-        f"{label}  {res['delta_mean'] * 100:+6.2f}pp [{res['ci_low'] * 100:+6.2f}, "
-        f"{res['ci_high'] * 100:+6.2f}]  {res['n']:>5}  {res['p_k_better']:.3f}"
-    )
+    pairs = [
+        (
+            "retriever R@10: bge-base vs 6M-MNRL",
+            "K1_bge_base_bod_retriever",
+            "A1_6m_mnrl_minilm_retriever",
+            "recall",
+        ),
+        (
+            "retriever E@1:  bge-base vs 6M-MNRL",
+            "K1_bge_base_bod_retriever",
+            "A1_6m_mnrl_minilm_retriever",
+            "e_at_1",
+        ),
+        (
+            "rerank R@10:    bge-base vs MiniLM ",
+            "K2_bm25top50_bgebase_rerank",
+            "A2_bm25top50_minilm_rerank",
+            "recall",
+        ),
+        (
+            "rerank E@1:     bge-base vs MiniLM ",
+            "K2_bm25top50_bgebase_rerank",
+            "A2_bm25top50_minilm_rerank",
+            "e_at_1",
+        ),
+    ]
+
+    print("setup                                  delta(K-A) [95% CI]              n     p(K>A)")
+    print("-" * 90)
+    for label, k_setup, a_setup, metric in pairs:
+        res = boot(per_q[a_setup][metric], per_q[k_setup][metric])
+        print(
+            f"{label}  {res['delta_mean'] * 100:+6.2f}pp [{res['ci_low'] * 100:+6.2f}, "
+            f"{res['ci_high'] * 100:+6.2f}]  {res['n']:>5}  {res['p_k_better']:.3f}"
+        )
+
+
+if __name__ == "__main__":
+    main()

@@ -25,18 +25,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-with open("/tmp/embedding_separation.json") as f:
-    DATA = json.load(f)
-
-# Filter to strong inversions: pn_max > pp_max. The saved file has pp_min and pp_max
-# in the per-record fields.
-strong = [r for r in DATA if r["pn_max"] > r["pp_max"]]
-all_inv = [r for r in DATA if r["pn_max"] > r["pp_min"]]
-
-print(f"loaded {len(DATA)} eligible queries")
-print(f"  pn_max > pp_min (any inversion):     {len(all_inv)} ({len(all_inv) / len(DATA):.1%})")
-print(f"  pn_max > pp_max (strong inversion):  {len(strong)} ({len(strong) / len(DATA):.1%})")
-
 NEGATION = re.compile(
     r"\b(without|no|non[\s-]|minus|free of|free from|except|excluding)\b|\b\w+-free\b",
     re.IGNORECASE,
@@ -111,31 +99,48 @@ def categorize_query_dependent_vs_independent(queries):
     return qd, qi, amb, by_cause
 
 
-print("\n" + "=" * 72)
-print("DISTRIBUTION OF FAILURE CAUSES")
-print("=" * 72)
-report("Strong inversions (pn_max > pp_max, encoder cannot fix)", strong)
-report("Any inversions (pn_max > pp_min)", all_inv)
+def main():
+    with open("/tmp/embedding_separation.json") as f:
+        data = json.load(f)
 
-print("\n" + "=" * 72)
-print("ROLLED UP: query-dependent (CE) vs query-independent (product rep)")
-print("=" * 72)
-qd_s, qi_s, amb_s, _ = categorize_query_dependent_vs_independent(strong)
-qd_a, qi_a, amb_a, _ = categorize_query_dependent_vs_independent(all_inv)
-n_s = len(strong)
-n_a = len(all_inv)
-print(f"\nstrong inversions (n={n_s}):")
-print(f"  query-dependent (compound + abstract):     {qd_s:>5}  ({qd_s / n_s:.1%})")
-print(f"  query-independent (negation + model_num):  {qi_s:>5}  ({qi_s / n_s:.1%})")
-print(f"  ambiguous (short / generic):                {amb_s:>5}  ({amb_s / n_s:.1%})")
-print(f"\nany inversions (n={n_a}):")
-print(f"  query-dependent (compound + abstract):     {qd_a:>5}  ({qd_a / n_a:.1%})")
-print(f"  query-independent (negation + model_num):  {qi_a:>5}  ({qi_a / n_a:.1%})")
-print(f"  ambiguous (short / generic):                {amb_a:>5}  ({amb_a / n_a:.1%})")
+    # Filter to strong inversions: pn_max > pp_max. The saved file has pp_min and pp_max
+    # in the per-record fields.
+    strong = [r for r in data if r["pn_max"] > r["pp_max"]]
+    all_inv = [r for r in data if r["pn_max"] > r["pp_min"]]
 
-# Sample of ambiguous to inspect manually
-print("\n=== AMBIGUOUS sample for manual review (15 strong inversions) ===")
-amb_strong = [r for r in strong if classify(r["query"]) == "ambiguous"]
-amb_strong.sort(key=lambda x: -x["gap"])
-for r in amb_strong[:15]:
-    print(f"  qid={r['qid']:<10} gap={r['gap']:+.3f}  query={r['query']!r}")
+    print(f"loaded {len(data)} eligible queries")
+    print(f"  pn_max > pp_min (any inversion):     {len(all_inv)} ({len(all_inv) / len(data):.1%})")
+    print(f"  pn_max > pp_max (strong inversion):  {len(strong)} ({len(strong) / len(data):.1%})")
+
+    print("\n" + "=" * 72)
+    print("DISTRIBUTION OF FAILURE CAUSES")
+    print("=" * 72)
+    report("Strong inversions (pn_max > pp_max, encoder cannot fix)", strong)
+    report("Any inversions (pn_max > pp_min)", all_inv)
+
+    print("\n" + "=" * 72)
+    print("ROLLED UP: query-dependent (CE) vs query-independent (product rep)")
+    print("=" * 72)
+    qd_s, qi_s, amb_s, _ = categorize_query_dependent_vs_independent(strong)
+    qd_a, qi_a, amb_a, _ = categorize_query_dependent_vs_independent(all_inv)
+    n_s = len(strong)
+    n_a = len(all_inv)
+    print(f"\nstrong inversions (n={n_s}):")
+    print(f"  query-dependent (compound + abstract):     {qd_s:>5}  ({qd_s / n_s:.1%})")
+    print(f"  query-independent (negation + model_num):  {qi_s:>5}  ({qi_s / n_s:.1%})")
+    print(f"  ambiguous (short / generic):                {amb_s:>5}  ({amb_s / n_s:.1%})")
+    print(f"\nany inversions (n={n_a}):")
+    print(f"  query-dependent (compound + abstract):     {qd_a:>5}  ({qd_a / n_a:.1%})")
+    print(f"  query-independent (negation + model_num):  {qi_a:>5}  ({qi_a / n_a:.1%})")
+    print(f"  ambiguous (short / generic):                {amb_a:>5}  ({amb_a / n_a:.1%})")
+
+    # Sample of ambiguous to inspect manually
+    print("\n=== AMBIGUOUS sample for manual review (15 strong inversions) ===")
+    amb_strong = [r for r in strong if classify(r["query"]) == "ambiguous"]
+    amb_strong.sort(key=lambda x: -x["gap"])
+    for r in amb_strong[:15]:
+        print(f"  qid={r['qid']:<10} gap={r['gap']:+.3f}  query={r['query']!r}")
+
+
+if __name__ == "__main__":
+    main()

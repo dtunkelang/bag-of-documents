@@ -9,10 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 
-with open("/tmp/faisshn_skip30_probe_per_query.json") as _f:
-    DATA = json.load(_f)
-PER_Q = DATA["per_query"]
-
 
 def boot(arr_a, arr_k, n_iter=1000, seed=42):
     arr_a = np.array(arr_a, dtype=float)
@@ -35,38 +31,47 @@ def boot(arr_a, arr_k, n_iter=1000, seed=42):
     }
 
 
-pairs = [
-    (
-        "retriever R@10: faisshn vs rerank_A",
-        "K1_rerank_K_faisshn_retriever",
-        "A1_rerank_A_retriever",
-        "recall",
-    ),
-    (
-        "retriever E@1:  faisshn vs rerank_A",
-        "K1_rerank_K_faisshn_retriever",
-        "A1_rerank_A_retriever",
-        "e_at_1",
-    ),
-    (
-        "rerank R@10:    faisshn vs rerank_A",
-        "K2_bm25top50_rerank_K_faisshn",
-        "A2_bm25top50_rerank_A",
-        "recall",
-    ),
-    (
-        "rerank E@1:     faisshn vs rerank_A",
-        "K2_bm25top50_rerank_K_faisshn",
-        "A2_bm25top50_rerank_A",
-        "e_at_1",
-    ),
-]
+def main():
+    with open("/tmp/faisshn_skip30_probe_per_query.json") as _f:
+        data = json.load(_f)
+    per_q = data["per_query"]
 
-print("setup                                  delta(K-A) [95% CI]              n     p(K>A)")
-print("-" * 90)
-for label, k_setup, a_setup, metric in pairs:
-    res = boot(PER_Q[a_setup][metric], PER_Q[k_setup][metric])
-    print(
-        f"{label}  {res['delta_mean'] * 100:+6.2f}pp [{res['ci_low'] * 100:+6.2f}, "
-        f"{res['ci_high'] * 100:+6.2f}]  {res['n']:>5}  {res['p_k_better']:.3f}"
-    )
+    pairs = [
+        (
+            "retriever R@10: faisshn vs rerank_A",
+            "K1_rerank_K_faisshn_retriever",
+            "A1_rerank_A_retriever",
+            "recall",
+        ),
+        (
+            "retriever E@1:  faisshn vs rerank_A",
+            "K1_rerank_K_faisshn_retriever",
+            "A1_rerank_A_retriever",
+            "e_at_1",
+        ),
+        (
+            "rerank R@10:    faisshn vs rerank_A",
+            "K2_bm25top50_rerank_K_faisshn",
+            "A2_bm25top50_rerank_A",
+            "recall",
+        ),
+        (
+            "rerank E@1:     faisshn vs rerank_A",
+            "K2_bm25top50_rerank_K_faisshn",
+            "A2_bm25top50_rerank_A",
+            "e_at_1",
+        ),
+    ]
+
+    print("setup                                  delta(K-A) [95% CI]              n     p(K>A)")
+    print("-" * 90)
+    for label, k_setup, a_setup, metric in pairs:
+        res = boot(per_q[a_setup][metric], per_q[k_setup][metric])
+        print(
+            f"{label}  {res['delta_mean'] * 100:+6.2f}pp [{res['ci_low'] * 100:+6.2f}, "
+            f"{res['ci_high'] * 100:+6.2f}]  {res['n']:>5}  {res['p_k_better']:.3f}"
+        )
+
+
+if __name__ == "__main__":
+    main()
