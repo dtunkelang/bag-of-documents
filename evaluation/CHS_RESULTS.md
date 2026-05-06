@@ -95,41 +95,43 @@ scale, not by cluster geometry.
    alone won't separate the hard cases — a cross-encoder is needed.
 
 5. **SCHS is necessary but does not predict lift magnitude alone.**
-   BestBuy (SCHS 0.525, +17.5pp), ESCI-US (SCHS 0.54, +3.0pp on E-only
-   R@10), and NFCorpus (SCHS 0.38, +0.8pp) span the SCHS spectrum yet
-   the overall lifts don't track SCHS rank order — BestBuy and ESCI-US
-   have nearly identical SCHS but a 5–6× lift gap. Decomposing per-query
-   by base difficulty (`evaluation/diagnose_lift.py`,
+   Decomposing per-query by base difficulty (`evaluation/diagnose_lift.py`,
    `evaluation/diagnose_bestbuy_lift.py`, `evaluation/diagnose_esci_lift.py`)
-   reveals the missing factor:
+   across 4 corpora spanning the SCHS spectrum reveals a 3-factor model:
 
-   | Bucket (base R@10 hits / n_pos) | BestBuy | ESCI-US | NFCorpus |
-   |---|---|---|---|
-   | base misses entirely (0.0) | 44% / **+24.9pp** | 34% / **+6.1pp** | 31% / **+4.2pp** |
-   | partial (0.0–0.5) | 20% / +11.9pp | 50% / +3.1pp | 59% / +0.6pp |
-   | partial (0.5–1.0) | 23% / +7.0pp | 12% / −1.1pp | 7% / −1.4pp |
-   | base perfect (1.0) | 13% / **−6.4pp** | 4% / **−10.4pp** | 4% / **−17.9pp** |
-   | **overall Δ R@10** | **+17.5pp** | **+3.0pp** | **+0.8pp** |
+   | Corpus | base R@10 | base-blind | rescue | spec tax | **overall Δ** | SCHS |
+   |---|---:|---:|---:|---:|---:|---:|
+   | BestBuy ACM | 0.556 | 44% | **+24.9pp** | −6.4 | **+17.5pp** | 0.525 |
+   | ESCI-Spanish | 0.074 | 67% | **+15.1pp** | −12.9 | **+13.2pp** | 0.45 |
+   | ESCI-US (E-only) | 0.215 | 34% | **+6.1pp** | −10.4 | **+3.0pp** | 0.54 |
+   | NFCorpus | 0.159 | 31% | **+4.2pp** | −17.9 | **+0.8pp** | 0.38 |
 
-   Two-factor model:
-   - **Base-blind subset size** (rows where base finds 0 positives in
-     top-10): 44% / 34% / 31% — BestBuy's larger subset gives more
-     headroom but only ~10% explains the gap.
-   - **Rescue rate on the base-blind subset** (BoD's R@10 on those rows):
-     24.9% / 6.1% / 4.2% — this is the dominant driver. Rank-orders the
-     corpora cleanly, mirroring the overall lift order (17.5 → 3.0 → 0.8).
-   - **Specialization tax on the base-perfect subset** grows as rescue
-     rate shrinks: −6.4pp / −10.4pp / −17.9pp. When the bag signal isn't
-     sharp enough to discover new structure, all BoD does is forget what
-     base already had.
+   The 3 factors:
+   - **Bag signal sharpness → rescue rate on the base-blind subset.**
+     Clicks (BestBuy) > weak-base-on-foreign-language + ESCI qrels (Spanish) >
+     ESCI qrels (US) > medical-info qrels (NFCorpus): 24.9 / 15.1 / 6.1 / 4.2.
+   - **Base model competence on the corpus → base-blind subset size.**
+     The fraction of queries where base finds zero positives in top-10. The
+     biggest surprise is ESCI-Spanish at 67%: multilingual MiniLM is much
+     weaker on Spanish than English MiniLM is on English, giving huge
+     headroom (base R@10 = 0.074 vs ESCI-US's 0.215).
+   - **Corpus clustering geometry → SCHS (necessary floor).** SCHS measures
+     whether the relevance structure clusters under the encoder; a low SCHS
+     (NFCorpus 0.38) caps lift even when other factors are favorable.
 
-   Hypothesized drivers of the rescue-rate gap (untested, in priority
-   order): bag signal sharpness (clicks > CE-curated > graded qrels);
-   catalog vocabulary distance from base model's pretraining distribution
-   (BestBuy 2012 electronics SKUs are far from MiniLM's web-scraped
-   corpus); bag specificity (BestBuy mean 0.852). NFCorpus's rescue rate
-   may be a slight underestimate (3-epoch training on random hardnegs);
-   doubling it would not change the qualitative ordering.
+   Specialization tax on the base-perfect subset grows as rescue rate
+   shrinks: −6.4 / −12.9 / −10.4 / −17.9. When the bag signal isn't sharp
+   enough to discover new structure, BoD only erases what base already had.
+
+   Lift magnitude ≈ (base-blind size × rescue rate) − (base-perfect size ×
+   tax). The overall lift cleanly tracks this product across all four
+   corpora, while none of the three factors alone does.
+
+   NFCorpus's rescue rate may be a slight underestimate (3-epoch training
+   on random hardnegs, slow 1592-char passages); doubling it would not
+   change the qualitative ordering. Spanish R@10 metric here is E-only;
+   the prior published +4.7% used E+S pooled with a t=0.95 threshold,
+   which is not directly comparable to the other rows.
 
 ## How to add a new corpus to this table
 
