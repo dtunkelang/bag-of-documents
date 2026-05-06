@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""Build CHS-ready files for the BestBuy ACM SF Hackathon dataset (2012).
+"""Build CHS-ready files from the BestBuy ACM SF Hackathon dataset (2012).
 
-Source: https://www.kaggle.com/competitions/acm-sf-chapter-hackathon-big
+This is a PREPARATION script, not a downloader. The Kaggle dataset is gated
+behind a Kaggle login + competition agreement, so you have to download it
+yourself from:
 
-Treats clickthrough as implicit positive labels: for each query, the set of
-distinct SKUs that any user clicked (in train.csv) is the positive set.
-Queries with >=2 distinct clicked SKUs become eligible (multi-positive bags).
+    https://www.kaggle.com/competitions/acm-sf-chapter-hackathon-big
 
-Prerequisites: download and unpack the dataset from Kaggle into
-`acm-sf-chapter-hackathon-big/` so the following exist:
-    acm-sf-chapter-hackathon-big/train.csv
-    acm-sf-chapter-hackathon-big/product_data/products/products_*.xml
+Then unpack the archive into `acm-sf-chapter-hackathon-big/` so this script
+can find:
 
-Usage:
-    python download/download_bestbuy_acm.py
+    acm-sf-chapter-hackathon-big/train.csv                          (clickthrough log)
+    acm-sf-chapter-hackathon-big/product_data/products/products_*.xml  (256 XML files)
+
+Once that's in place, run:
+
+    python download/prepare_bestbuy_acm.py
+
+The script treats clickthrough as implicit positive labels: for each query,
+the set of distinct SKUs that any user clicked (in train.csv) is the
+positive set. Queries with >=2 distinct clicked SKUs become eligible
+multi-positive bags.
 
 Outputs (in bestbuy_acm_data/):
     product_ids.json      list of SKUs (as strings)
@@ -30,17 +37,52 @@ import csv
 import json
 import os
 import re
+import sys
 from collections import defaultdict
+
+KAGGLE_URL = "https://www.kaggle.com/competitions/acm-sf-chapter-hackathon-big"
+SOURCE_DIR = "acm-sf-chapter-hackathon-big"
+TRAIN_CSV = os.path.join(SOURCE_DIR, "train.csv")
+XML_DIR = os.path.join(SOURCE_DIR, "product_data", "products")
+
+
+def check_prerequisites():
+    """Verify the Kaggle data has been manually downloaded and unpacked."""
+    missing = []
+    if not os.path.exists(TRAIN_CSV):
+        missing.append(TRAIN_CSV)
+    if not os.path.isdir(XML_DIR):
+        missing.append(XML_DIR + "/")
+    elif not any(f.endswith(".xml") for f in os.listdir(XML_DIR)):
+        missing.append(XML_DIR + "/products_*.xml")
+
+    if missing:
+        print(
+            "ERROR: prerequisite files not found. This script does NOT download\n"
+            "automatically — Kaggle requires an account login and competition\n"
+            "agreement. Manual steps:\n"
+            f"  1. Go to {KAGGLE_URL}\n"
+            "  2. Accept the competition rules and download the data archive.\n"
+            f"  3. Unpack it into ./{SOURCE_DIR}/ so the following exist:\n"
+            f"       {TRAIN_CSV}\n"
+            f"       {XML_DIR}/products_*.xml\n"
+            "  4. Re-run this script.\n"
+            "\nMissing:\n  " + "\n  ".join(missing),
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def main():
+    check_prerequisites()
+
     out_dir = "bestbuy_acm_data"
     os.makedirs(out_dir, exist_ok=True)
 
     # 1. Click signal: query -> set of clicked SKUs.
     print("parsing train.csv for click signal...", flush=True)
     clicks = defaultdict(set)
-    with open("acm-sf-chapter-hackathon-big/train.csv") as f:
+    with open(TRAIN_CSV) as f:
         reader = csv.DictReader(f)
         for r in reader:
             clicks[r["query"].strip().lower()].add(r["sku"])
@@ -62,10 +104,9 @@ def main():
     sku_to_name = {}
     sku_re = re.compile(r"<sku>(\d+)</sku>")
     name_re = re.compile(r"<name>([^<]+)</name>")
-    xml_dir = "acm-sf-chapter-hackathon-big/product_data/products"
-    xml_files = sorted(f for f in os.listdir(xml_dir) if f.endswith(".xml"))
+    xml_files = sorted(f for f in os.listdir(XML_DIR) if f.endswith(".xml"))
     for fi, fname in enumerate(xml_files):
-        with open(os.path.join(xml_dir, fname), encoding="utf-8") as f:
+        with open(os.path.join(XML_DIR, fname), encoding="utf-8") as f:
             content = f.read()
         for block in content.split("</product>"):
             sku_m = sku_re.search(block)

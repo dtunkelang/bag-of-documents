@@ -23,7 +23,8 @@ Dataset id formats:
     esci_es_<strict|relaxed>     reads esci_es_data/test_qrels.jsonl, etc.
     nfcorpus_strict              reads nfcorpus_data/test_qrels.jsonl
     bestbuy_acm                  reads bestbuy_acm_data/test_qrels.jsonl
-                                 (build first with download/download_bestbuy_acm.py)
+                                 (build first with download/prepare_bestbuy_acm.py;
+                                 requires manual Kaggle download — see that file)
     beir:<name>                  downloads BeIR/<name> via HuggingFace
 """
 

@@ -205,7 +205,7 @@ Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). T
 | Directory | Contents |
 |---|---|
 | `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) and the cluster-hypothesis library (`bagofdocs.cluster_hypothesis`) imported across the codebase |
-| `download/` | Catalog and dataset acquisition (`download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`, `download_bestbuy_acm.py`) |
+| `download/` | Catalog and dataset acquisition: `download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py` (auto-download from HuggingFace); `prepare_bestbuy_acm.py` (preps already-downloaded Kaggle data) |
 | `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
 | `training/` | Bag construction, CE training, query-model fine-tuning |
 | `evaluation/` | Eval scripts and per-query / per-bin diagnostics |
