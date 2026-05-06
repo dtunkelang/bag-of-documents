@@ -74,6 +74,7 @@ scale, not by cluster geometry.
 ## Patterns worth noting
 
 1. **SCHS rank-orders BoD lift magnitudes**, not just success/failure:
+   - BestBuy ACM (+17.5pp): SCHS 0.525
    - ESCI-US (~+7pp): SCHS 0.54
    - ESCI-Spanish (+4.7pp): SCHS 0.45
    - NFCorpus (no lift): SCHS 0.38
@@ -92,6 +93,34 @@ scale, not by cluster geometry.
    negatives exist within the candidate set, but high strong_inv with
    high SCHS (e.g., trec-covid: 0.375 SCHS, 26% inv) means BoD bi-encoder
    alone won't separate the hard cases — a cross-encoder is needed.
+
+5. **SCHS is necessary but does not predict lift magnitude alone.**
+   BestBuy (SCHS 0.525, +17.5pp) and ESCI-US (SCHS 0.54, +3.0pp on E-only
+   R@10) have nearly identical SCHS but a 5–6× lift gap. Decomposing the
+   lift by per-query base difficulty (`evaluation/diagnose_bestbuy_lift.py`,
+   `evaluation/diagnose_esci_lift.py`) reveals the missing factor:
+
+   | Bucket (base R@10 hits / n_pos) | BestBuy n / Δ | ESCI-US n / Δ |
+   |---|---|---|
+   | base misses entirely (0.0) | 44% / **+24.9pp** | 34% / **+6.1pp** |
+   | partial (0.0–0.5) | 20% / +11.9pp | 50% / +3.1pp |
+   | partial (0.5–1.0) | 23% / +7.0pp | 12% / −1.1pp |
+   | base perfect (1.0) | 13% / **−6.4pp** | 4% / **−10.4pp** |
+
+   Two distinct factors: BestBuy's base-blind subset is bigger (44% vs
+   34%), but the dominant driver is the **rescue rate on the base-blind
+   subset** — BoD recovers 24.9% of clicked products on BestBuy queries
+   where base finds zero, vs only 6.1% on ESCI. That 4× recovery gap is
+   what turns a similar-SCHS corpus into a 5–6× larger lift. Both corpora
+   show a specialization tax on the base-perfect subset (BestBuy −6.4pp,
+   ESCI −10.4pp), but the tax is dwarfed by base-blind recovery in
+   absolute terms.
+
+   Hypothesized drivers of the rescue-rate gap (untested, in priority
+   order): bag signal sharpness (clicks > CE-curated > graded qrels);
+   catalog vocabulary distance from base model's pretraining distribution
+   (BestBuy 2012 electronics SKUs are far from MiniLM's web-scraped
+   corpus); bag specificity (BestBuy mean 0.852).
 
 ## How to add a new corpus to this table
 
