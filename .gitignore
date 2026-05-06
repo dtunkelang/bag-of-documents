@@ -18,6 +18,8 @@ queries_*.jsonl
 esci/
 esci_*_data/
 nfcorpus_data/
+bestbuy_acm_data/
+acm-sf-chapter-hackathon-big/
 full_catalog/
 models/
 query_model/

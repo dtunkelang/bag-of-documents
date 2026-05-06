@@ -172,6 +172,14 @@ Precomputed product embeddings (`indexing/precompute_rerank_vecs.py`) keep the
 bi-encoder rerankers at sub-100ms. The cross-encoder forward passes (LiYuan
 in medium, LiYuan + BGE in quality) dominate quality-tier latency.
 
+A second demo, [`demo_bestbuy.py`](demo_bestbuy.py), shows the BoD lift on the
+BestBuy ACM clickthrough dataset side-by-side with off-the-shelf MiniLM. Type
+e.g. `ati`, `dvd storage`, `turtlebeach`, or `i pad 2` and watch base return 0–1
+clicked products in the top-10 while the BoD-trained model returns 8–10. Build
+the artifacts with `download/build_bestbuy_bags.py` (after running
+`download/prepare_bestbuy_acm.py` on the manually-downloaded Kaggle archive),
+then `python demo_bestbuy.py` serves at `http://localhost:7860`.
+
 ## When does BoD generalize? — Cluster Hypothesis Score (CHS)
 
 The cluster-hypothesis frame ("documents relevant to the same query tend to be similar to each other") is the load-bearing assumption behind bag-of-documents. We operationalize it as a runnable metric for any (corpus, encoder) pair so you can predict BoD-readiness on a new dataset *before* investing in the full pipeline.
@@ -198,6 +206,16 @@ The metric splits into:
 
 Empirically (see [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for the full table): SCHS ≥ 0.50 corresponds to BoD-positive corpora (ESCI-US, BestBuy product search), 0.40-0.50 to weakly-positive (ESCI-Spanish), and < 0.40 to BoD-negative (NFCorpus). The metric also tracks BoD *lift magnitude*, not just success/failure.
 
+**Out-of-sample validation (BestBuy ACM, May 2026).** CHS predicted GREEN for the BestBuy 2012 ACM Hackathon clickthrough dataset (SCHS = 0.525) before any training. We then ran the full BoD pipeline end-to-end — split 60K multi-positive queries 80/20, built 48,516 click-derived bags, fine-tuned MiniLM with MNRL — and measured retrieval against the 12,128-query holdout:
+
+| Model | R@10 | E@1 |
+|---|---:|---:|
+| `all-MiniLM-L6-v2` (base) | 0.5559 | 0.2538 |
+| BoD-trained (this work) | **0.7308** | **0.3718** |
+| **Δ** | **+17.49pp** | **+11.80pp** |
+
+This is the largest BoD lift we have measured on any corpus and confirms that CHS rank-orders BoD-readiness across domains. Reproduce the run with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs_bestbuy.py`](download/add_random_hardnegs_bestbuy.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
+
 Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). Tests: [`tests/test_cluster_hypothesis.py`](tests/test_cluster_hypothesis.py) — synthetic-corpus tests that pin down the metric properties (perfect clustering → SCHS≈1; no structure → SCHS≈0; monotone in noise; etc.).
 
 ## Repository Layout
@@ -205,7 +223,7 @@ Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). T
 | Directory | Contents |
 |---|---|
 | `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) and the cluster-hypothesis library (`bagofdocs.cluster_hypothesis`) imported across the codebase |
-| `download/` | Catalog and dataset acquisition: `download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py` (auto-download from HuggingFace); `prepare_bestbuy_acm.py` (preps already-downloaded Kaggle data) |
+| `download/` | Catalog and dataset acquisition: `download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py` (auto-download from HuggingFace); `prepare_bestbuy_acm.py` (preps already-downloaded Kaggle data); `build_bestbuy_bags.py` + `add_random_hardnegs_bestbuy.py` (build BoD training artifacts from BestBuy click data) |
 | `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
 | `training/` | Bag construction, CE training, query-model fine-tuning |
 | `evaluation/` | Eval scripts and per-query / per-bin diagnostics |
@@ -214,7 +232,7 @@ Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). T
 | `tests/` | pytest suite |
 | `docs/`, `memory/` | Documentation and persistent project notes |
 
-Top-level: `demo.py` (local FastAPI demo, main entry point).
+Top-level: `demo.py` (ESCI side-by-side demo) and `demo_bestbuy.py` (BestBuy base vs BoD-trained side-by-side).
 
 ### Key Scripts
 

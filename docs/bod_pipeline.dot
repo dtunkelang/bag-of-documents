@@ -1,0 +1,61 @@
+// Bag-of-Documents (BoD) retrieval pipeline.
+// Slide-friendly 3-row grid (~16:9). Render with:
+//   dot -Tsvg docs/bod_pipeline.dot -o docs/bod_pipeline.svg
+//   dot -Tpng -Gdpi=200 docs/bod_pipeline.dot -o docs/bod_pipeline.png
+
+digraph BoD {
+    rankdir=LR;
+    bgcolor="white";
+    fontname="Helvetica";
+    ranksep=0.45;
+    nodesep=0.35;
+    size="10,5.6!";
+    ratio=fill;
+    node [fontname="Helvetica", fontsize=13, shape=box, style="rounded,filled",
+          color="#2c3e50", fillcolor="#ecf0f1", penwidth=1.4, margin="0.16,0.10"];
+    edge [fontname="Helvetica", fontsize=10, color="#2c3e50", penwidth=1.2,
+          arrowsize=0.8];
+
+    // ---- Row 1: signal -> bags ----------------------------------------
+    signal [label=<<b>1. Source signal</b><br/><font point-size="10">clicks · qrels · hybrid+CE</font>>,
+            fillcolor="#fef9e7"];
+    bags   [label=<<b>2. Bag construction</b><br/><font point-size="10">{ query, [doc1, doc2, ...] }</font>>,
+            fillcolor="#d6eaf8"];
+
+    // ---- Row 2: triplets -> finetune ----------------------------------
+    triplets [label=<<b>3. Training examples</b><br/><font point-size="10">(query, pos) or (q, pos, neg)</font>>,
+              fillcolor="#d6eaf8"];
+    finetune [label=<<b>4. Fine-tune query encoder</b><br/><font point-size="10">MultipleNegativesRankingLoss</font>>,
+              fillcolor="#fadbd8", color="#922b21"];
+
+    // ---- Row 3: index -> serve -> rerank ------------------------------
+    index    [label=<<b>5. Index catalog</b><br/><font point-size="10">encode all documents</font>>,
+              fillcolor="#d5f5e3", color="#1e8449"];
+    serve    [label=<<b>6. Retrieve</b><br/><font point-size="10">cosine top-K</font>>,
+              fillcolor="#d5f5e3", color="#1e8449"];
+    rerank   [label=<<b>7. (Optional) Rerank</b><br/><font point-size="10">cross-encoder</font>>,
+              fillcolor="#fdebd0", color="#b9770e", style="rounded,filled,dashed"];
+
+    // ---- CHS gate ------------------------------------------------------
+    chs [label=<<b>CHS readiness gate</b><br/><font point-size="10">SCHS ≥ 0.50 → GREEN</font>>,
+         fillcolor="#fcf3cf", color="#9a7d0a", shape=note];
+
+    // Force row alignment.
+    {rank=same; signal; bags;}
+    {rank=same; triplets; finetune; chs;}
+    {rank=same; index; serve; rerank;}
+
+    // Edges.
+    signal -> bags;
+    bags   -> triplets;
+    triplets -> finetune;
+    finetune -> index [label="trained\nencoder",
+                       color="#922b21", fontcolor="#922b21", penwidth=1.6];
+    index -> serve;
+    serve -> rerank [style=dashed];
+
+    // Snake turns: bags -> triplets (down + right), finetune -> index (down + back).
+    // CHS hangs off bags.
+    bags -> chs [style=dotted, arrowhead=none, label="measure", constraint=false];
+    chs  -> finetune [style=dotted, label="gate", constraint=false];
+}
