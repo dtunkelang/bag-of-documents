@@ -39,6 +39,18 @@ with open(f"{OUT}/queries.jsonl", "w") as f:
         f.write(json.dumps({"query_id": q.query_id, "query": q.text}) + "\n")
 print(f"  {len(train_queries):,} train queries written")
 
+with open(f"{OUT}/train_qrels.jsonl", "w") as f:
+    n = 0
+    for qr in train_ds.qrels_iter():
+        if qr.relevance < 1:
+            continue
+        f.write(
+            json.dumps({"query_id": qr.query_id, "doc_id": qr.doc_id, "relevance": qr.relevance})
+            + "\n"
+        )
+        n += 1
+print(f"  {n:,} train qrels written")
+
 test_ds = ir_datasets.load("beir/nfcorpus/test")
 test_queries = list(test_ds.queries_iter())
 with open(f"{OUT}/test_queries.jsonl", "w") as f:

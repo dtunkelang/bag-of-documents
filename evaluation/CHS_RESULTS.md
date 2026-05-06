@@ -95,32 +95,41 @@ scale, not by cluster geometry.
    alone won't separate the hard cases — a cross-encoder is needed.
 
 5. **SCHS is necessary but does not predict lift magnitude alone.**
-   BestBuy (SCHS 0.525, +17.5pp) and ESCI-US (SCHS 0.54, +3.0pp on E-only
-   R@10) have nearly identical SCHS but a 5–6× lift gap. Decomposing the
-   lift by per-query base difficulty (`evaluation/diagnose_bestbuy_lift.py`,
-   `evaluation/diagnose_esci_lift.py`) reveals the missing factor:
+   BestBuy (SCHS 0.525, +17.5pp), ESCI-US (SCHS 0.54, +3.0pp on E-only
+   R@10), and NFCorpus (SCHS 0.38, +0.8pp) span the SCHS spectrum yet
+   the overall lifts don't track SCHS rank order — BestBuy and ESCI-US
+   have nearly identical SCHS but a 5–6× lift gap. Decomposing per-query
+   by base difficulty (`evaluation/diagnose_lift.py`,
+   `evaluation/diagnose_bestbuy_lift.py`, `evaluation/diagnose_esci_lift.py`)
+   reveals the missing factor:
 
-   | Bucket (base R@10 hits / n_pos) | BestBuy n / Δ | ESCI-US n / Δ |
-   |---|---|---|
-   | base misses entirely (0.0) | 44% / **+24.9pp** | 34% / **+6.1pp** |
-   | partial (0.0–0.5) | 20% / +11.9pp | 50% / +3.1pp |
-   | partial (0.5–1.0) | 23% / +7.0pp | 12% / −1.1pp |
-   | base perfect (1.0) | 13% / **−6.4pp** | 4% / **−10.4pp** |
+   | Bucket (base R@10 hits / n_pos) | BestBuy | ESCI-US | NFCorpus |
+   |---|---|---|---|
+   | base misses entirely (0.0) | 44% / **+24.9pp** | 34% / **+6.1pp** | 31% / **+4.2pp** |
+   | partial (0.0–0.5) | 20% / +11.9pp | 50% / +3.1pp | 59% / +0.6pp |
+   | partial (0.5–1.0) | 23% / +7.0pp | 12% / −1.1pp | 7% / −1.4pp |
+   | base perfect (1.0) | 13% / **−6.4pp** | 4% / **−10.4pp** | 4% / **−17.9pp** |
+   | **overall Δ R@10** | **+17.5pp** | **+3.0pp** | **+0.8pp** |
 
-   Two distinct factors: BestBuy's base-blind subset is bigger (44% vs
-   34%), but the dominant driver is the **rescue rate on the base-blind
-   subset** — BoD recovers 24.9% of clicked products on BestBuy queries
-   where base finds zero, vs only 6.1% on ESCI. That 4× recovery gap is
-   what turns a similar-SCHS corpus into a 5–6× larger lift. Both corpora
-   show a specialization tax on the base-perfect subset (BestBuy −6.4pp,
-   ESCI −10.4pp), but the tax is dwarfed by base-blind recovery in
-   absolute terms.
+   Two-factor model:
+   - **Base-blind subset size** (rows where base finds 0 positives in
+     top-10): 44% / 34% / 31% — BestBuy's larger subset gives more
+     headroom but only ~10% explains the gap.
+   - **Rescue rate on the base-blind subset** (BoD's R@10 on those rows):
+     24.9% / 6.1% / 4.2% — this is the dominant driver. Rank-orders the
+     corpora cleanly, mirroring the overall lift order (17.5 → 3.0 → 0.8).
+   - **Specialization tax on the base-perfect subset** grows as rescue
+     rate shrinks: −6.4pp / −10.4pp / −17.9pp. When the bag signal isn't
+     sharp enough to discover new structure, all BoD does is forget what
+     base already had.
 
    Hypothesized drivers of the rescue-rate gap (untested, in priority
    order): bag signal sharpness (clicks > CE-curated > graded qrels);
    catalog vocabulary distance from base model's pretraining distribution
    (BestBuy 2012 electronics SKUs are far from MiniLM's web-scraped
-   corpus); bag specificity (BestBuy mean 0.852).
+   corpus); bag specificity (BestBuy mean 0.852). NFCorpus's rescue rate
+   may be a slight underestimate (3-epoch training on random hardnegs);
+   doubling it would not change the qualitative ordering.
 
 ## How to add a new corpus to this table
 
