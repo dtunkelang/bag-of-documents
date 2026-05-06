@@ -172,12 +172,40 @@ Precomputed product embeddings (`indexing/precompute_rerank_vecs.py`) keep the
 bi-encoder rerankers at sub-100ms. The cross-encoder forward passes (LiYuan
 in medium, LiYuan + BGE in quality) dominate quality-tier latency.
 
+## When does BoD generalize? — Cluster Hypothesis Score (CHS)
+
+The cluster-hypothesis frame ("documents relevant to the same query tend to be similar to each other") is the load-bearing assumption behind bag-of-documents. We operationalize it as a runnable metric for any (corpus, encoder) pair so you can predict BoD-readiness on a new dataset *before* investing in the full pipeline.
+
+```bash
+# CHS on ESCI-US (default)
+python evaluation/cluster_hypothesis_score.py
+
+# CHS on a new corpus (qrels + product titles)
+python evaluation/cluster_hypothesis_score.py \
+    --qrels NEW/test_qrels.jsonl \
+    --pids NEW/product_ids.json \
+    --titles NEW/titles.json \
+    --encoder all-MiniLM-L6-v2
+
+# Compare across many corpora at once (BEIR datasets supported via beir:NAME)
+python evaluation/chs_corpus_compare.py \
+    --datasets esci_us_strict bestbuy_acm beir:scidocs beir:trec-covid
+```
+
+The metric splits into:
+- **SCHS** (Simple Cluster Hypothesis Score): how much closer in-bag pairs are to each other than random pairs. Computable on any positives-bearing corpus.
+- **HCHS** (Hard Cluster Hypothesis Score): how much closer in-bag pairs are to each other than to within-query labeled negatives. Stronger test; needs explicit hard negatives.
+
+Empirically (see [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for the full table): SCHS ≥ 0.50 corresponds to BoD-positive corpora (ESCI-US, BestBuy product search), 0.40-0.50 to weakly-positive (ESCI-Spanish), and < 0.40 to BoD-negative (NFCorpus). The metric also tracks BoD *lift magnitude*, not just success/failure.
+
+Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). Tests: [`tests/test_cluster_hypothesis.py`](tests/test_cluster_hypothesis.py) — synthetic-corpus tests that pin down the metric properties (perfect clustering → SCHS≈1; no structure → SCHS≈0; monotone in noise; etc.).
+
 ## Repository Layout
 
 | Directory | Contents |
 |---|---|
-| `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) imported across the codebase |
-| `download/` | Catalog and dataset acquisition (`download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`) |
+| `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) and the cluster-hypothesis library (`bagofdocs.cluster_hypothesis`) imported across the codebase |
+| `download/` | Catalog and dataset acquisition (`download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`, `download_bestbuy_acm.py`) |
 | `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
 | `training/` | Bag construction, CE training, query-model fine-tuning |
 | `evaluation/` | Eval scripts and per-query / per-bin diagnostics |
