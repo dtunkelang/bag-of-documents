@@ -31,6 +31,7 @@ IMPORT_SKIP = {
     "download/download_nfcorpus.py",
     "download/download_fiqa.py",
     "download/download_scifact.py",
+    "download/download_beir.py",
     "download/download_catalog.py",
     # Loads eval data files at module top level — fails in clean CI without
     # esci_us_data/. Refactor to def main() if revisiting.
