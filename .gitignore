@@ -20,6 +20,8 @@ esci_*_data/
 nfcorpus_data/
 bestbuy_acm_data/
 acm-sf-chapter-hackathon-big/
+fiqa_data/
+logs/
 full_catalog/
 models/
 query_model/

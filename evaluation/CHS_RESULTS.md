@@ -110,6 +110,7 @@ scale, not by cluster geometry.
    | BestBuy ACM | 0.306 | 44% | **+24.9pp** | −6.4 | **+14.2pp** | 0.525 |
    | ESCI-Spanish | 0.074 | 67% | **+15.1pp** | −12.9 | **+13.2pp** | 0.45 |
    | ESCI-US (E-only) | 0.215 | 34% | **+6.1pp** | −10.4 | **+3.0pp** | 0.54 |
+   | FiQA-2018 | 0.441 | 34% | **+13.0pp** | −7.5 | **+2.6pp** | 0.44 |
    | NFCorpus | 0.159 | 31% | **+4.2pp** | −17.9 | **+0.8pp** | 0.38 |
 
    The 3 factors:
@@ -164,6 +165,30 @@ scale, not by cluster geometry.
    headroom and the same bag signal converts that smaller headroom into a
    smaller — sometimes negative — lift, even though SCHS would not
    change.
+
+8. **Predict-then-test on FiQA: framework formula validates, priors must
+   be measured.** A blind prediction made before training (logged in
+   `logs/fiqa_prediction.md`) hit SCHS (predicted 0.40–0.55, actual 0.442)
+   and rescue rate (predicted +5 to +15pp, actual +13.0pp) but missed
+   base R@10 (predicted 0.08–0.18, actual **0.441**) and therefore
+   base-blind subset (predicted 40–60%, actual 34.3%) and overall lift
+   (predicted +4 to +8pp, actual **+2.6pp**). The single mistake — assuming
+   financial English would be as foreign to MiniLM as Spanish is to
+   multilingual MiniLM — propagated through every dependent quantity.
+
+   Plugging the *actual* per-bucket factors into the compositional
+   formula `lift = Σ (n_bucket / n_total) × Δ_bucket` reproduces the
+   measured +2.6pp exactly: `0.343×0.130 + 0.159×0.030 +
+   0.233×(−0.014) + 0.265×(−0.075) = +0.026`. The framework's predictive
+   model is correct; what's hard is predicting the per-bucket factors
+   from priors alone.
+
+   Operational rule: **always measure base-difficulty distribution
+   first**. `evaluation/measure_base_difficulty.py` is cheap (no
+   training needed; ~10 min on a 50K corpus) and anchors all the
+   downstream factor predictions. Predicting SCHS and rescue rate from
+   priors works (both hit on FiQA); predicting base-blind size from
+   priors is unreliable.
 
 ## How to add a new corpus to this table
 
