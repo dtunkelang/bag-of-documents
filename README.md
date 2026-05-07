@@ -10,9 +10,9 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 
 | | R@10 | nDCG@10 | E@1 | E@3 | latency |
 |---|---|---|---|---|---|
-| Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% | — |
-| RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% | — |
-| BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | — |
+| Base MiniLM (dense retrieval only) | 15.60% | 0.2648 | 31.50% | 28.52% | ~10ms |
+| RRF(BM25, base) (non-BoD hybrid retrieval) | 18.62% | 0.3048 | 31.54% | 31.98% | ~15ms |
+| BM25 alone (bm25s, k1=0.3, b=0.6) | 20.33% | 0.3451 | 40.06% | 36.87% | ~5ms |
 | **BM25 + 3-way ensemble rerank + spell-correct (fast SOTA)** | **21.84%** | **0.3698** | **42.53%** | **39.60%** | **~50ms** |
 | BM25 top-100 + 3-way + LiYuan CE fusion (medium quality) | 22.33% | 0.3842 | 44.85% | 41.61% | ~400ms-1s MPS / 2-6s CPU |
 | BM25 top-50 + sumsim + BGE (bridge tier, no LiYuan) | 23.10% | 0.3979 | 46.89% | 43.10% | ~0.5s MPS / 2.5s CPU |
