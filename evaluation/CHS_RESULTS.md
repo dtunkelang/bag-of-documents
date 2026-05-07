@@ -190,6 +190,45 @@ scale, not by cluster geometry.
    priors works (both hit on FiQA); predicting base-blind size from
    priors is unreliable.
 
+9. **The specialization tax is intrinsic — query-side routing can't
+   avoid it.** Two router probes tested whether a cheap query-time
+   signal can route base-perfect queries to base (skipping the −6 to
+   −18pp tax) while routing base-blind queries to BoD (capturing the
+   rescue):
+
+   - `evaluation/probe_tax_router.py` — base-side signals (top1 cosine,
+     top1−top2 margin, mean top10, top1−topk spread). Single-feature
+     oracle threshold on BestBuy: every signal's best τ lands at
+     "always-BoD." No improvement over BoD-only.
+   - `evaluation/probe_tax_router_v2.py` — adds BoD-side signals
+     (mirrors), agreement features (top-1 match, top-10 overlap,
+     query-encoder cosine), and a learned logistic-regression
+     calibrator with 80/20 train/test split. On BestBuy: even the
+     in-sample (cheating) router can't beat BoD-only. Default-threshold
+     router actively hurts by -8.5pp. On FiQA: tiny gain (+0.26pp on
+     n=130 test, within noise); default-threshold router hurts by
+     -1.4pp.
+
+   The tax queries cannot be cheaply distinguished from rescue queries
+   by any first-stage cosine signal. High base confidence weakly
+   correlates with base success (r ≈ +0.37 with base R@10) but only
+   weakly anti-correlates with BoD's lift (r ≈ −0.21 with Δ on
+   BestBuy's strongest feature, `rank_overlap`). The signal isn't
+   sharp enough to separate the buckets.
+
+   Implications:
+   - Where overall lift is large (BestBuy +14.2pp), the tax is dwarfed
+     and BoD ships net-positive. No router needed.
+   - Where overall lift is small (NFCorpus +0.8pp, FiQA +2.6pp), the
+     tax can't be cheaply mitigated, so the corpus is stuck with the
+     small lift the rescue/tax ratio gives.
+   - Score-fusion alternatives (RRF, weighted blend) were already a
+     clean negative on ESCI (`project_score_fusion_negative.md`).
+   - Beating the tax would require either a serve-time cross-encoder
+     verifier (defeats the fast-tier architecture) or a model-side
+     fix (different bag construction, different loss). The cheap
+     query-side path is closed.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
