@@ -234,7 +234,36 @@ scale, not by cluster geometry.
      base-perfect fraction (77%) makes any plausible BoD lift too small
      to justify the pipeline cost.
 
-10. **The specialization tax is intrinsic — query-side routing can't
+10. **Rerank-vs-retrieve dominance is corpus-dependent, not architectural.**
+    On ESCI, BM25-top-50 → BoD-rerank beats BoD-as-retriever on ~24% of
+    queries, ties on 55%, loses on 16% — making rerank the deployment
+    choice. On BestBuy ACM, the same architecture (with clicks-trained
+    BoD) gives:
+
+    | Architecture | R@10 (fraction-recovered) |
+    |---|---:|
+    | base MiniLM retrieval                  | 0.306 |
+    | BM25 alone (bm25s)                     | 0.288 |
+    | BoD-as-retriever (full catalog)        | **0.448** |
+    | BoD-as-reranker (BM25 top-50 → BoD)    | 0.351 |
+
+    Per-query head-to-head: BoD-as-reranker wins 6.0%, loses 25.6%, ties
+    68.3% — exact inverse of the ESCI pattern.
+
+    Why: BM25 is *worse* than base MiniLM on BestBuy (0.288 < 0.306).
+    BestBuy queries are short and lexically-noisy ("ati", "i pad 2",
+    "wii"); BM25's top-50 misses too many gold products. The reranker
+    is bottlenecked by its candidate pool — it can only sort what
+    BM25 hands it.
+
+    The general principle: **rerank > retrieve depends on first-stage
+    recall**. Where the lexical first stage catches most gold (ESCI's
+    descriptive product titles), rerank wins. Where it misses (BestBuy's
+    short electronics SKUs), retrieve wins. Don't assume the rerank
+    architecture's ESCI lift transfers; test it. See
+    `evaluation/eval_bestbuy_bod_reranker.py`.
+
+11. **The specialization tax is intrinsic — query-side routing can't
    avoid it.** Two router probes tested whether a cheap query-time
    signal can route base-perfect queries to base (skipping the −6 to
    −18pp tax) while routing base-blind queries to BoD (capturing the
