@@ -180,11 +180,11 @@ the artifacts with `download/build_bestbuy_bags.py` (after running
 `download/prepare_bestbuy_acm.py` on the manually-downloaded Kaggle archive),
 then `python demo_bestbuy.py` serves at `http://localhost:7860`.
 
-## When does BoD generalize? — Cluster Hypothesis Score (CHS)
+## When does BoD generalize? — the readiness framework
 
-The cluster-hypothesis frame ("documents relevant to the same query tend to be similar to each other") is the load-bearing assumption behind bag-of-documents. We operationalize it as a runnable metric for any (corpus, encoder) pair so you can predict BoD-readiness on a new dataset *before* investing in the full pipeline.
+Bag-of-documents fine-tuning doesn't help every corpus. We've built a runnable framework — measurements + a calibration table + a verdict tool — that predicts BoD lift on a new corpus *before* you invest in training. **6-of-6 verdicts correct so far** across BestBuy ACM, ESCI-Spanish, ESCI-US, FiQA-2018, SciFact, and NFCorpus. The full table and methodology live in [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md).
 
-For a one-shot pre-training readiness report on a new corpus — SCHS, base-difficulty distribution, predicted lift band, and a GO / CONDITIONAL / SKIP verdict — use:
+### Quick start: BoD readiness report
 
 ```bash
 python evaluation/bod_readiness_report.py \
@@ -196,41 +196,61 @@ python evaluation/bod_readiness_report.py \
     --vecs-cache NEW/base_catalog.vecs.fp16.npy   # speeds up re-runs
 ```
 
-Or run the metrics individually:
+Outputs SCHS, base-difficulty distribution, predicted lift band, and a **GO / CONDITIONAL / SKIP** verdict in ~10 minutes (no training required).
 
-```bash
-# CHS on ESCI-US (default)
-python evaluation/cluster_hypothesis_score.py
+### The three factors that govern BoD lift
 
-# CHS on a new corpus (qrels + product titles)
-python evaluation/cluster_hypothesis_score.py \
-    --qrels NEW/test_qrels.jsonl \
-    --pids NEW/product_ids.json \
-    --titles NEW/titles.json \
-    --encoder all-MiniLM-L6-v2
-
-# Compare across many corpora at once (BEIR datasets supported via beir:NAME)
-python evaluation/chs_corpus_compare.py \
-    --datasets esci_us_strict bestbuy_acm beir:scidocs beir:trec-covid
+```
+lift ≈ (base-blind size × rescue rate) − (base-perfect size × specialization tax)
 ```
 
-The metric splits into:
-- **SCHS** (Simple Cluster Hypothesis Score): how much closer in-bag pairs are to each other than random pairs. Computable on any positives-bearing corpus.
-- **HCHS** (Hard Cluster Hypothesis Score): how much closer in-bag pairs are to each other than to within-query labeled negatives. Stronger test; needs explicit hard negatives.
+- **Bag signal sharpness → rescue rate** on the base-blind subset. Clicks beat graded qrels beat noisy qrels (BestBuy 24.9pp / ESCI 6.1pp / NFCorpus 4.2pp).
+- **Base model competence on the corpus → base-blind subset size**. The fraction of queries where the off-the-shelf encoder finds zero positives in top-10. Multilingual MiniLM on Spanish ESCI: 67% base-blind. English MiniLM on SciFact: 21% (already too good for BoD to help much).
+- **Corpus clustering geometry → SCHS** (necessary floor). If documents relevant to the same query don't cluster, no encoder fine-tune can rescue retrieval.
 
-Empirically (see [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for the full table): SCHS ≥ 0.50 corresponds to BoD-positive corpora (ESCI-US, BestBuy product search), 0.40-0.50 to weakly-positive (ESCI-Spanish), and < 0.40 to BoD-negative (NFCorpus). The metric also tracks BoD *lift magnitude*, not just success/failure.
+### Validation table
 
-**Out-of-sample validation (BestBuy ACM, May 2026).** CHS predicted GREEN for the BestBuy 2012 ACM Hackathon clickthrough dataset (SCHS = 0.525) before any training. We then ran the full BoD pipeline end-to-end — split 60K multi-positive queries 80/20, built 48,516 click-derived bags, fine-tuned MiniLM with MNRL — and measured retrieval against the 12,128-query holdout:
+| Corpus | SCHS | base-blind | rescue | tax | **actual Δ R@10** | verdict |
+|---|---:|---:|---:|---:|---:|:---:|
+| BestBuy ACM | 0.525 | 44% | +24.9pp | −6.4 | **+14.2pp** | GO ✓ |
+| ESCI-Spanish | 0.45 | 67% | +15.1pp | −12.9 | **+13.2pp** | GO ✓ |
+| ESCI-US (E-only) | 0.54 | 34% | +6.1pp | −10.4 | **+3.0pp** | GO ✓ |
+| FiQA-2018 | 0.44 | 34% | +13.0pp | −7.5 | **+2.6pp** | GO ✓ |
+| SciFact | nan | 21% | +12.1pp | −1.7 | **+1.0pp** | SKIP ✓ |
+| NFCorpus | 0.38 | 31% | +4.2pp | −17.9 | **+0.8pp** | SKIP ✓ |
 
-| Model | R@10 | E@1 |
+All values use the fraction-recovered R@10 metric (mean over queries of `positives_in_top_10 / total_positives`). See [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for the full per-bucket breakdown and predict-then-test cycles (BestBuy and FiQA were validated with predictions logged before training).
+
+### Out-of-sample validation (BestBuy ACM, May 2026)
+
+CHS predicted GREEN for BestBuy (SCHS = 0.525) before any training. The full pipeline — 60K multi-positive queries split 80/20, 48,516 click-derived bags, fine-tuned MiniLM with MNRL — measured against the 12,128-query holdout:
+
+| Model | R@10 (binary hit-rate) | E@1 |
 |---|---:|---:|
 | `all-MiniLM-L6-v2` (base) | 0.5559 | 0.2538 |
 | BoD-trained (this work) | **0.7308** | **0.3718** |
 | **Δ** | **+17.49pp** | **+11.80pp** |
 
-This is the largest BoD lift we have measured on any corpus and confirms that CHS rank-orders BoD-readiness across domains. Reproduce the run with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs.py`](download/add_random_hardnegs.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
+The largest BoD lift on any corpus we've tested. Reproduce with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs.py`](download/add_random_hardnegs.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
 
-Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). Tests: [`tests/test_cluster_hypothesis.py`](tests/test_cluster_hypothesis.py) — synthetic-corpus tests that pin down the metric properties (perfect clustering → SCHS≈1; no structure → SCHS≈0; monotone in noise; etc.).
+### Tooling
+
+- [`evaluation/bod_readiness_report.py`](evaluation/bod_readiness_report.py) — one-shot verdict (this is the recommended entry point).
+- [`evaluation/cluster_hypothesis_score.py`](evaluation/cluster_hypothesis_score.py) — SCHS / HCHS only.
+- [`evaluation/measure_base_difficulty.py`](evaluation/measure_base_difficulty.py) — base-difficulty distribution only.
+- [`evaluation/diagnose_lift.py`](evaluation/diagnose_lift.py) — full per-bucket post-training diagnostic (requires a trained BoD model).
+- [`evaluation/chs_corpus_compare.py`](evaluation/chs_corpus_compare.py) — multi-corpus SCHS comparison harness; supports BEIR datasets via `beir:NAME`.
+- Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). Tests: [`tests/test_cluster_hypothesis.py`](tests/test_cluster_hypothesis.py), [`tests/test_bod_readiness_report.py`](tests/test_bod_readiness_report.py).
+
+### Two findings worth flagging
+
+1. **The specialization tax is intrinsic** ([`evaluation/probe_tax_router.py`](evaluation/probe_tax_router.py), [`probe_tax_router_v2.py`](evaluation/probe_tax_router_v2.py)). BoD always loses some R@10 on queries the base already gets perfect (−1.7 to −17.9pp across corpora). Cheap query-side routing — even with a learned logistic-regression calibrator on 11 features — cannot avoid the tax. Net positive lift requires the rescue magnitude to dominate intrinsically.
+2. **Sharper hardnegs sharpen rescue *and* tax in tandem.** Two within-corpus probes (ESCI rerank_A→rerank_B, BestBuy random→FAISS hardnegs) both raised the rescue rate slightly while more than doubling the tax. Hardneg mining is not a free lunch.
+
+### CHS metric definitions
+
+- **SCHS** (Simple Cluster Hypothesis Score): how much closer in-bag pairs are to each other than random pairs. Computable on any positives-bearing corpus. Range [0, 1]; ≥ 0.50 is the calibrated GO band.
+- **HCHS** (Hard Cluster Hypothesis Score): how much closer in-bag pairs are to each other than to within-query labeled negatives. Stronger test; requires explicit hard negatives.
 
 ## Repository Layout
 
