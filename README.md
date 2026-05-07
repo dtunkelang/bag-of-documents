@@ -228,7 +228,7 @@ Empirically (see [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for th
 | BoD-trained (this work) | **0.7308** | **0.3718** |
 | **Δ** | **+17.49pp** | **+11.80pp** |
 
-This is the largest BoD lift we have measured on any corpus and confirms that CHS rank-orders BoD-readiness across domains. Reproduce the run with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs_bestbuy.py`](download/add_random_hardnegs_bestbuy.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
+This is the largest BoD lift we have measured on any corpus and confirms that CHS rank-orders BoD-readiness across domains. Reproduce the run with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs.py`](download/add_random_hardnegs.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
 
 Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). Tests: [`tests/test_cluster_hypothesis.py`](tests/test_cluster_hypothesis.py) — synthetic-corpus tests that pin down the metric properties (perfect clustering → SCHS≈1; no structure → SCHS≈0; monotone in noise; etc.).
 
@@ -237,7 +237,7 @@ Library: [`bagofdocs/cluster_hypothesis.py`](bagofdocs/cluster_hypothesis.py). T
 | Directory | Contents |
 |---|---|
 | `bagofdocs/` | Package with shared utilities (`bagofdocs.utils`) and the cluster-hypothesis library (`bagofdocs.cluster_hypothesis`) imported across the codebase |
-| `download/` | Catalog and dataset acquisition: `download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py` (auto-download from HuggingFace); `prepare_bestbuy_acm.py` (preps already-downloaded Kaggle data); `build_bestbuy_bags.py` + `add_random_hardnegs_bestbuy.py` (build BoD training artifacts from BestBuy click data) |
+| `download/` | Catalog and dataset acquisition: `download_catalog.py`, `download_esci_*.py`, `download_nfcorpus.py`, `download_fiqa.py` (auto-download from HuggingFace / ir_datasets); `prepare_bestbuy_acm.py` (preps already-downloaded Kaggle data); `build_bestbuy_bags.py` (build BoD training artifacts from BestBuy click data); `add_random_hardnegs.py` (generic random-hardneg augmentation for any bags.jsonl) |
 | `indexing/` | Build search indexes (FAISS, tantivy) and precompute reranker product vectors / BM25 top-K caches |
 | `training/` | Bag construction, CE training, query-model fine-tuning |
 | `evaluation/` | Eval scripts and per-query / per-bin diagnostics |

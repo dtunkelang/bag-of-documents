@@ -3,7 +3,7 @@
 We don't run the encoders end-to-end (they need real models + catalog data).
 Instead we verify the deterministic data-shape invariants:
   - The 80/20 query split in build_bestbuy_bags.py is reproducible and disjoint.
-  - add_random_hardnegs_bestbuy.py picks negatives that are not bag positives.
+  - add_random_hardnegs.py picks negatives that are not bag positives.
 """
 
 import json
@@ -43,7 +43,7 @@ def test_train_test_split_is_disjoint_and_deterministic():
 
 
 def _make_fake_data_dir(tmp_path):
-    """Build a minimal bestbuy_acm_data/ that satisfies add_random_hardnegs_bestbuy.py."""
+    """Build a minimal bestbuy_acm_data/ that satisfies add_random_hardnegs.py."""
     d = tmp_path / "bestbuy_acm_data"
     d.mkdir()
     titles = [f"product-{i}" for i in range(50)]
@@ -71,7 +71,7 @@ def test_add_random_hardnegs_excludes_positives(tmp_path):
     n_hardnegs = 5
     cmd = [
         sys.executable,
-        str(ROOT / "download/add_random_hardnegs_bestbuy.py"),
+        str(ROOT / "download/add_random_hardnegs.py"),
         "--data-dir",
         str(data_dir),
         "--n-hardnegs",

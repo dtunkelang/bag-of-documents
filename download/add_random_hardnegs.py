@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Augment bestbuy_acm_data/bags.jsonl with random non-clicked SKUs as hardnegs.
+"""Augment bags.jsonl with random non-positive titles as hardnegs.
 
-BestBuy clickthrough data is positives-only (no explicit negatives), and we
-don't have a precomputed BM25 cache for the BestBuy catalog. For an MNRL
-training run, even uniformly-sampled non-positive titles are useful: they
-act as extra in-batch negatives per triplet.
+Generic across corpora (BestBuy, NFCorpus, FiQA, ESCI-Spanish, ...). The
+script reads `<data-dir>/{titles.json, bags.jsonl}` and writes
+`<data-dir>/bags_with_hardnegs.jsonl` in the format
+`training/finetune_with_hardnegs.py` expects.
 
-Output: bestbuy_acm_data/bags_with_hardnegs.jsonl, in the format
-training/finetune_with_hardnegs.py expects.
+When the bag signal is positives-only (clicks, click-derived qrels), there's
+no explicit-negative source. Uniformly-sampled non-positive titles act as
+extra in-batch negatives per triplet — typically a wash to slightly worse
+than BM25/FAISS-mined hardnegs (see CHS_RESULTS.md Pattern 6 for the
+trade-off), but works on any corpus without precomputed retrieval indexes.
 """
 
 import argparse

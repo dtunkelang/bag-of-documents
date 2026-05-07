@@ -254,7 +254,7 @@ def main():
     print("  Next steps:")
     if v_label == "GO":
         print("    1. Build bags from your relevance signal (training/bags_from_qrels.py).")
-        print("    2. Add hardnegs (download/add_random_hardnegs_bestbuy.py is generic).")
+        print("    2. Add hardnegs (download/add_random_hardnegs.py).")
         print("    3. Train BoD via training/finetune_with_hardnegs.py.")
         print("    4. Run evaluation/diagnose_lift.py to confirm the predicted band.")
     elif v_label == "CONDITIONAL":
