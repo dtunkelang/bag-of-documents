@@ -99,9 +99,15 @@ scale, not by cluster geometry.
    `evaluation/diagnose_bestbuy_lift.py`, `evaluation/diagnose_esci_lift.py`)
    across 4 corpora spanning the SCHS spectrum reveals a 3-factor model:
 
+   All values use the **fraction-recovered** R@10 metric (mean over queries
+   of `positives_in_top_10 / total_positives`), not the binary hit-rate
+   sometimes used elsewhere. The earlier "BestBuy +17.5pp" headline used
+   binary hit-rate (`evaluation/eval_bestbuy_bod.py`); the row below
+   restates it under the consistent metric.
+
    | Corpus | base R@10 | base-blind | rescue | spec tax | **overall Δ** | SCHS |
    |---|---:|---:|---:|---:|---:|---:|
-   | BestBuy ACM | 0.556 | 44% | **+24.9pp** | −6.4 | **+17.5pp** | 0.525 |
+   | BestBuy ACM | 0.306 | 44% | **+24.9pp** | −6.4 | **+14.2pp** | 0.525 |
    | ESCI-Spanish | 0.074 | 67% | **+15.1pp** | −12.9 | **+13.2pp** | 0.45 |
    | ESCI-US (E-only) | 0.215 | 34% | **+6.1pp** | −10.4 | **+3.0pp** | 0.54 |
    | NFCorpus | 0.159 | 31% | **+4.2pp** | −17.9 | **+0.8pp** | 0.38 |
@@ -132,6 +138,32 @@ scale, not by cluster geometry.
    change the qualitative ordering. Spanish R@10 metric here is E-only;
    the prior published +4.7% used E+S pooled with a t=0.95 threshold,
    which is not directly comparable to the other rows.
+
+6. **Sharper hardnegs sharpen rescue *and* the specialization tax.** Two
+   independent within-corpus probes (same base, sharper signal) both show
+   the same trade-off:
+
+   | Probe | rescue Δ | spec tax | overall |
+   |---|---:|---:|---:|
+   | ESCI-US: rerank_A (MNRL) → rerank_B (qrels-MNRL-hardneg) | +6.1 → +7.8 | −10.4 → −21.2 | +3.0 → +0.1 |
+   | BestBuy: random hardnegs → FAISS-mined hardnegs | +24.9 → +26.6 | −6.4 → −15.0 | +14.2 → +12.6 |
+
+   In both cases sharper hardnegs improve rescue rate slightly but more
+   than double the specialization tax, leaving overall lift unchanged or
+   worse. The framework's prediction holds: when the bag signal can't
+   produce *new* useful structure beyond what the base already had, even
+   harder negatives just push BoD to forget more of the base-perfect
+   structure. Hardneg mining is not a free lunch on either corpus.
+
+7. **Stronger base shrinks the base-blind subset (causal test).** Encoding
+   the ESCI-US catalog with `BAAI/bge-base-en-v1.5` instead of
+   `all-MiniLM-L6-v2` drops the base-blind subset from 33.9% to **29.6%**
+   (overall base R@10 0.215 → 0.246, fraction-recovered). Combined with
+   the prior bge-base/ESCI BoD probe (clean negative, BoD harms R@10), this
+   completes the framework prediction: a stronger base means less
+   headroom and the same bag signal converts that smaller headroom into a
+   smaller — sometimes negative — lift, even though SCHS would not
+   change.
 
 ## How to add a new corpus to this table
 

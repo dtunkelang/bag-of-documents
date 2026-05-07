@@ -37,7 +37,7 @@ digraph BoD {
               fillcolor="#fdebd0", color="#b9770e", style="rounded,filled,dashed"];
 
     // ---- CHS gate ------------------------------------------------------
-    chs [label=<<b>CHS readiness gate</b><br/><font point-size="10">SCHS ≥ 0.50 → GREEN</font>>,
+    chs [label=<<b>BoD readiness check</b><br/><font point-size="10">SCHS (clustering)<br/>+ base R@10 (headroom)</font>>,
          fillcolor="#fcf3cf", color="#9a7d0a", shape=note];
 
     // Force row alignment.
