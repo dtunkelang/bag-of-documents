@@ -18,7 +18,7 @@ An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeli
 | BM25 top-50 + sumsim + BGE (bridge tier, no LiYuan) | 23.10% | 0.3979 | 46.89% | 43.10% | ~0.5s MPS / 2.5s CPU |
 | **BM25 top-100 + sumsim + LiYuan + BGE 3-way weighted fusion (quality SOTA)** | **23.57%** | **0.4055** | **47.95%** | **43.90%** | **~2.6s MPS / 5-15s CPU** |
 
-22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Three discrete SOTA tiers ship — each ~10× the latency of the previous, each adding ~+0.6pp R@10 / ~+2pp E@1.
+22,458-query ESCI test set, R@10 with E+S as relevant, nDCG@10 with E=1.0 / S=0.1 gain. Three discrete SOTA tiers ship — each ~10× the latency of the previous, each adding ~+0.6pp R@10 / ~+2pp E@1. *MPS = [Apple Metal Performance Shaders](https://developer.apple.com/metal/), the GPU backend on Apple Silicon.*
 
 **Fast SOTA** — pre-BM25 catalog-vocab spell correction → bm25s candidates → three BoD-trained MiniLM encoders → mean-cosine fusion. Sub-100ms wall-clock; +1.51pp R@10 over BM25 alone, +6.24pp over base MiniLM. Spell correction adds **+0.23pp R@10 / +0.42pp E@1** (significant via bootstrap); on the 5.4% of queries that actually get corrected, the lift is **+4.25pp R@10 / +7.82pp E@1**.
 
