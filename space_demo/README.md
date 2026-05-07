@@ -11,12 +11,13 @@ pinned: false
 
 # Bag-of-Documents Product Search Demo
 
-Side-by-side comparison of five retrieval architectures on 1.2M Amazon ESCI products. Pick a mode for each column, run a query, see how the rankings differ. ESCI 22,458-query R@10 in parens.
+Side-by-side comparison of seven retrieval architectures on 1.2M Amazon ESCI products. Pick a mode for each column, run a query, see how the rankings differ. ESCI 22,458-query R@10 in parens.
 
 - **Base MiniLM retrieval** (15.60) - dense baseline, no fine-tuning.
 - **BM25 retrieval** (20.33) - bm25s with k1=0.3, b=0.6 (tuned for short keyword-stuffed product titles).
 - **RRF(BM25, base)** - vanilla hybrid retrieval; on this corpus it actually loses to BM25 alone.
-- **BM25 + 3-way ensemble rerank + spell-correct** (fast SOTA, 21.84) - catalog-vocab spell correction (pyspellchecker over the ~172K-token title vocabulary) + BM25 top-50 reranked by three BoD-trained MiniLM encoders. Spell correction lifts R@10 +0.23pp / E@1 +0.42pp (sig.) at no latency cost. ~50ms/query.
+- **BoD-as-retriever** (18.10) - 6M-MNRL fine-tuned MiniLM used as a standalone retriever (the originally-shipped architecture). Beats base MiniLM by +2.5pp R@10 with no rerank step. Now an option for direct comparison against the rerank-based SOTAs.
+- **BM25 + 3-way ensemble rerank** (fast SOTA, 21.61) - BM25 top-50 reranked by three BoD-trained MiniLM encoders. ~50ms/query.
 - **BM25 + sumsim + BGE** (bridge tier, 23.10; E@1 46.89) - drops LiYuan from the quality fusion, halves the candidate pool to top-50. 0.5*sumsim + 0.5*BGE-reranker-v2-m3. Pareto point between fast and quality. ~2.5s/query on Space CPU.
 - **BM25 + sumsim + LiYuan + BGE** (quality SOTA, 23.57; E@1 47.95) - weighted 3-way fusion (sumsim 0.4, LiYuan 0.2, BGE 0.4) of sumsim (3 bi-encoders), the LiYuan ESCI cross-encoder, and BGE-reranker-v2-m3 (568M-param XLM-RoBERTa-large reranker). All three streams are per-query min-max normalized then averaged. +1.96pp R@10, +5.42pp E@1 over the fast SOTA. ~5-15s/query on Space CPU.
 

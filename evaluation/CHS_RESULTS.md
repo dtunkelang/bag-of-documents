@@ -203,16 +203,21 @@ scale, not by cluster geometry.
    | FiQA-2018        | 0.440 | 34.0% | 26.5% |  −2.3 |  +1.4 |  +6.9 |   +2.6 | GO ✓ |
    | SciFact          |  nan  | 20.7% | 77.3% | −10.6 |  −5.3 |  +0.5 |   +1.0 | SKIP ✓ |
    | NFCorpus         | 0.380 | 31.0% |  4.3% |  +0.9 |  +3.3 |  +7.5 |   +0.8 | SKIP ✓ |
+   | TREC-COVID       | 0.280 |  8.0% |  0.0% |  +0.4 |  +1.0 |  +2.0 |   +0.5 | SKIP ✓ |
+   | ArguAna          |  nan  | 23.2% | 76.8% | −10.4 |  −4.9 |  +1.2 |   n/a  | SKIP ✓ |
 
-   Four observations:
-   - **All 6 verdicts are correct.** GO predictions delivered positive
-     lifts; both SKIP verdicts identified corpora with negligible (<+1pp)
-     actual lift.
-   - **The bands bracket reality on 5-of-6 corpora.** Actual lift falls
-     inside `[pessimistic, optimistic]` for Spanish, ESCI-US, FiQA, and
-     SciFact. BestBuy actual *exceeds* even optimistic (clicks sharper
-     than the calibration's 25%-rescue band). NFCorpus is SKIP'd by the
-     SCHS gate before predicting a band.
+   Five observations:
+   - **All 8 verdicts are correct (4 GO, 4 SKIP).** GO predictions
+     delivered positive lifts (+2.6 to +14.2pp). SKIP verdicts identified
+     corpora with negligible (<+1.1pp) actual lift, including ArguAna
+     where bag training was empirically impossible (1 positive/query →
+     no multi-positive bags).
+   - **The bands bracket reality on 7-of-7 trainable corpora.** Actual
+     lift falls inside `[pessimistic, optimistic]` for Spanish, ESCI-US,
+     FiQA, SciFact, NFCorpus, and TREC-COVID. BestBuy actual *exceeds*
+     even optimistic (clicks sharper than the calibration's 25%-rescue
+     band). ArguAna is SKIP'd before training (1 positive/query → no
+     multi-positive bags possible).
    - **Tax magnitude tracks `(1 − base R@10)`.** SciFact has base R@10
      = 0.783 and a tax of only −1.7pp on the base-perfect bucket
      (vs the realistic band's −10pp). High-base corpora barely disturb
