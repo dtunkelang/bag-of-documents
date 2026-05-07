@@ -1345,10 +1345,10 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
         <div class="column-header">
             <select id="left-mode" style="padding:2px 4px; font-size:0.9em;">
                 <option value="base" selected>Base MiniLM retrieval (R@10 15.60)</option>
-                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
-                <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
-                <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD hybrid (R@10 18.62)</option>
                 <option value="bm25">bm25s (k1=0.3, b=0.6) retrieval (R@10 20.33)</option>
+                <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD hybrid (R@10 18.62)</option>
+                <option value="mnrl">MNRL retrieval, no rerank — BoD-as-retriever (R@10 18.10)</option>
+                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
                 <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
@@ -1372,11 +1372,11 @@ h1 { font-size: 1.4em; margin-bottom: 4px; }
                 <option value="hybrid_rerank">RRF(BM25, MNRL) + ensemble rerank (R@10 20.01)</option>
                 <option value="mnrl_rerank">MNRL + ensemble rerank (R@10 19.83)</option>
                 <option value="rerank">Base + ensemble rerank (R@10 19.00)</option>
+                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
+                <option value="mnrl">MNRL retrieval, no rerank — BoD-as-retriever (R@10 18.10)</option>
+                <option value="base">Base MiniLM retrieval (R@10 15.60)</option>
                 <option value="bm25">bm25s (k1=0.3, b=0.6) retrieval (R@10 20.33)</option>
                 <option value="bm25_base_rrf">RRF(BM25, base) retrieval, non-BoD baseline (R@10 18.62)</option>
-                <option value="mnrl">MNRL retrieval, no rerank (R@10 18.10)</option>
-                <option value="retrieval">Fine-tuned retrieval, cosine BoD (historical)</option>
-                <option value="base">Base MiniLM retrieval (R@10 15.60)</option>
                 <option value="bag">Build bag at query time</option>
             </select>
         </div>

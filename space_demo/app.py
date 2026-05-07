@@ -760,9 +760,10 @@ MODE_LABELS = [
     "BM25 + sumsim + LiYuan + BGE quality SOTA (R@10 23.57, E@1 47.95, ~5-15s CPU)",
     "BM25 + sumsim + BGE bridge tier (R@10 23.10, E@1 46.89, ~2.5s CPU)",
     "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)",
+    "BoD-as-retriever (6M-MNRL alone, R@10 18.10, originally shipped)",
+    "Base MiniLM retrieval (R@10 15.60)",
     "BM25 retrieval (R@10 20.33)",
     "RRF(BM25, base) retrieval - non-BoD hybrid baseline",
-    "Base MiniLM retrieval (R@10 15.60)",
 ]
 
 
@@ -773,6 +774,8 @@ def _results_for_mode(mode, query, R, k):
         return bm25_sumsim_bge_rerank_top_k(query, R, k_top=k)
     if mode == "BM25 + 3-way ensemble rerank (fast SOTA, R@10 21.61, ~50ms)":
         return bm25_3way_rerank_top_k(query, R, k_top=k)
+    if mode == "BoD-as-retriever (6M-MNRL alone, R@10 18.10, originally shipped)":
+        return mnrl_top_k(query, R, k)
     if mode == "BM25 retrieval (R@10 20.33)":
         return bm25_top_k(query, R, k)
     if mode == "RRF(BM25, base) retrieval - non-BoD hybrid baseline":
