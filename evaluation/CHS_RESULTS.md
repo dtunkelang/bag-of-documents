@@ -190,7 +190,34 @@ scale, not by cluster geometry.
    priors works (both hit on FiQA); predicting base-blind size from
    priors is unreliable.
 
-9. **The specialization tax is intrinsic — query-side routing can't
+9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
+   `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
+   distribution into a GO / CONDITIONAL / SKIP verdict before any BoD
+   training. Applied to each row of the calibration table:
+
+   | Corpus | SCHS | BB% | BP% | pred_pess | pred_real | pred_opt | actual | verdict |
+   |---|---:|---:|---:|---:|---:|---:|---:|---:|
+   | BestBuy ACM      | 0.525 | 44.0% | 13.0% |  +0.3 |  +4.0 | **+10.2** |  **+14.2** | GO ✓ |
+   | ESCI-Spanish     | 0.450 | 67.0% |  1.1% |  +3.2 |  +7.9 | **+16.7** |  **+13.2** | GO ✓ |
+   | ESCI-US (E-only) | 0.540 | 34.0% |  4.5% |  +1.0 |  +3.6 |  +8.2 |   +3.0 | GO ✓ |
+   | FiQA-2018        | 0.440 | 34.0% | 26.5% |  −2.3 |  +1.4 |  +6.9 |   +2.6 | GO ✓ |
+   | NFCorpus         | 0.380 | 31.0% |  4.3% |  +0.9 |  +3.3 |  +7.5 |   +0.8 | SKIP ✓ |
+
+   Three observations:
+   - **All 5 verdicts are correct.** GO predictions all delivered positive
+     lifts; SKIP correctly identified the only corpus whose actual lift
+     was below threshold.
+   - **The bands bracket reality reasonably**: actual lift falls inside
+     `[pessimistic, optimistic]` for ESCI-Spanish, ESCI-US, and FiQA; for
+     BestBuy actual *exceeds* even optimistic (clicks are sharper than the
+     calibration's 25%-rescue band). NFCorpus is SKIP'd before predicting
+     a band.
+   - **The SCHS < 0.40 floor does load-bearing work.** NFCorpus's
+     base-difficulty math alone would have predicted +0.9 to +7.5pp; only
+     the SCHS gate identifies the corpus as BoD-negative. Don't drop the
+     gate.
+
+10. **The specialization tax is intrinsic — query-side routing can't
    avoid it.** Two router probes tested whether a cheap query-time
    signal can route base-perfect queries to base (skipping the −6 to
    −18pp tax) while routing base-blind queries to BoD (capturing the
