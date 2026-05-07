@@ -184,6 +184,20 @@ then `python demo_bestbuy.py` serves at `http://localhost:7860`.
 
 The cluster-hypothesis frame ("documents relevant to the same query tend to be similar to each other") is the load-bearing assumption behind bag-of-documents. We operationalize it as a runnable metric for any (corpus, encoder) pair so you can predict BoD-readiness on a new dataset *before* investing in the full pipeline.
 
+For a one-shot pre-training readiness report on a new corpus — SCHS, base-difficulty distribution, predicted lift band, and a GO / CONDITIONAL / SKIP verdict — use:
+
+```bash
+python evaluation/bod_readiness_report.py \
+    --catalog NEW/titles.json \
+    --product-ids NEW/product_ids.json \
+    --qrels NEW/test_qrels.jsonl --min-relevance 1 \
+    --queries NEW/test_queries.jsonl \
+    --encoder all-MiniLM-L6-v2 \
+    --vecs-cache NEW/base_catalog.vecs.fp16.npy   # speeds up re-runs
+```
+
+Or run the metrics individually:
+
 ```bash
 # CHS on ESCI-US (default)
 python evaluation/cluster_hypothesis_score.py
