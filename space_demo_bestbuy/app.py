@@ -99,24 +99,43 @@ def topk(model, pv, query, k=10):
     return [(int(i), float(sims[i])) for i in idx]
 
 
-def _md_escape(s):
-    """BestBuy XML <name> values can contain literal newlines or pipes,
-    both of which break GitHub-flavored Markdown tables. Strip them."""
-    return s.replace("\n", " ").replace("\r", " ").replace("|", "\\|").strip()
+def _html_escape(s):
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", " ")
+        .replace("\r", " ")
+        .strip()
+    )
 
 
 def format_results(hits, titles, pids, gold_pids):
+    """HTML table — sidesteps Markdown's column-count fragility on titles
+    that contain '|' or newlines, and keeps short fields on a single line
+    so '10' doesn't wrap."""
+    nw = "white-space:nowrap;padding:2px 6px"
     rows = []
     for rank, (i, s) in enumerate(hits, 1):
-        title = _md_escape(titles[i])
+        title = _html_escape(titles[i])
         pid = pids[i]
         is_gold = pid in gold_pids
-        if is_gold:
-            rows.append(f"| {rank} | **✅** | **{title}** | `{s:.3f}` |")
-        else:
-            rows.append(f"| {rank} | &nbsp;&nbsp; | {title} | `{s:.3f}` |")
-    header = "| # | hit | title | sim |\n|---:|:---:|:---|---:|"
-    return header + "\n" + "\n".join(rows)
+        hit_cell = "✅" if is_gold else ""
+        title_cell = f"<b>{title}</b>" if is_gold else title
+        rows.append(
+            f"<tr><td style='{nw};text-align:right'>{rank}</td>"
+            f"<td style='{nw};text-align:center'>{hit_cell}</td>"
+            f"<td style='padding:2px 6px'>{title_cell}</td>"
+            f"<td style='{nw};text-align:right;font-family:monospace'>{s:.3f}</td></tr>"
+        )
+    return (
+        "<table style='width:100%;font-size:14px;border-collapse:collapse'>"
+        f"<tr style='border-bottom:2px solid #ccc'>"
+        f"<th style='{nw};text-align:right'>#</th>"
+        f"<th style='{nw};text-align:center'>hit</th>"
+        "<th style='padding:2px 6px;text-align:left'>title</th>"
+        f"<th style='{nw};text-align:right'>sim</th></tr>" + "".join(rows) + "</table>"
+    )
 
 
 def build_app(R):
