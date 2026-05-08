@@ -234,34 +234,45 @@ scale, not by cluster geometry.
      base-perfect fraction (77%) makes any plausible BoD lift too small
      to justify the pipeline cost.
 
-10. **Rerank-vs-retrieve dominance is corpus-dependent, not architectural.**
-    On ESCI, BM25-top-50 → BoD-rerank beats BoD-as-retriever on ~24% of
-    queries, ties on 55%, loses on 16% — making rerank the deployment
-    choice. On BestBuy ACM, the same architecture (with clicks-trained
-    BoD) gives:
+10. **Rerank-vs-retrieve dominance tracks BM25-vs-base R@10.** Across 7
+    corpora, the head-to-head between BoD-as-reranker (BM25 top-50 →
+    BoD cosine) and BoD-as-retriever (BoD cosine over the full
+    catalog) is well-predicted by whether BM25 alone beats base MiniLM:
 
-    | Architecture | R@10 (fraction-recovered) |
-    |---|---:|
-    | base MiniLM retrieval                  | 0.306 |
-    | BM25 alone (bm25s)                     | 0.288 |
-    | BoD-as-retriever (full catalog)        | **0.448** |
-    | BoD-as-reranker (BM25 top-50 → BoD)    | 0.351 |
+    | Corpus | BM25 − base | Rerank − Retrieve | (rerank wins / loses / ties) |
+    |---|---:|---:|---|
+    | ESCI-Spanish | **+17.6pp** | **+3.7pp** | 35.3 / 18.0 / 46.7 |
+    | ESCI-US (E-only) | +2.5pp | +0.8pp | 22.7 / 19.2 / 58.1 |
+    | TREC-COVID | +0.2pp | +0.06pp | 42.0 / 34.0 / 24.0 (n=50, noisy) |
+    | SciFact | −1.9pp | +1.5pp | 7.0 / 5.3 / 87.7 (88% no-op) |
+    | NFCorpus | −1.4pp | −1.0pp | 22.0 / 25.1 / 52.9 |
+    | BestBuy ACM | −1.8pp | **−9.7pp** | 6.0 / 25.6 / 68.3 |
+    | FiQA-2018 | −15.3pp | **−7.7pp** | 10.3 / 25.2 / 64.5 |
 
-    Per-query head-to-head: BoD-as-reranker wins 6.0%, loses 25.6%, ties
-    68.3% — exact inverse of the ESCI pattern.
+    All values are fraction-recovered R@10. The Pearson correlation
+    between (BM25 − base) and (rerank − retrieve) across these 7
+    corpora is ~0.85; the principle is directional, not exact.
 
-    Why: BM25 is *worse* than base MiniLM on BestBuy (0.288 < 0.306).
-    BestBuy queries are short and lexically-noisy ("ati", "i pad 2",
-    "wii"); BM25's top-50 misses too many gold products. The reranker
-    is bottlenecked by its candidate pool — it can only sort what
-    BM25 hands it.
+    The mechanism: **rerank is bottlenecked by its candidate pool.**
+    The BoD model can only sort what BM25 hands it. When BM25's top-50
+    catches most gold (ESCI's descriptive titles), the reranker has
+    enough material to win. When BM25 misses too much (BestBuy's short
+    lexically-noisy queries like "ati" or "i pad 2"), even a perfect
+    reranker is constrained — and BoD-as-retriever's full-catalog
+    dense search bypasses the bottleneck entirely.
 
-    The general principle: **rerank > retrieve depends on first-stage
-    recall**. Where the lexical first stage catches most gold (ESCI's
-    descriptive product titles), rerank wins. Where it misses (BestBuy's
-    short electronics SKUs), retrieve wins. Don't assume the rerank
-    architecture's ESCI lift transfers; test it. See
-    `evaluation/eval_bestbuy_bod_reranker.py`.
+    The exception: SciFact has BM25 weaker than base (−1.9pp) but the
+    reranker still wins (+1.5pp). The base is already R@10 = 0.78
+    (77% base-perfect queries) — both architectures are mostly no-ops
+    (88% ties). With this ceiling effect the BM25-vs-base signal is
+    noisy.
+
+    Practical rule: **on a new corpus, compare BM25 R@10 vs base R@10
+    *before* deciding between the rerank and retrieve architectures.**
+    BM25 ≥ base + ~2pp → rerank likely wins. BM25 < base − ~2pp →
+    retrieve likely wins. In the −2 to +2 band, expect mostly ties or
+    small wins in either direction. See
+    `evaluation/eval_rerank_vs_retrieve.py`.
 
 11. **The specialization tax is intrinsic — query-side routing can't
    avoid it.** Two router probes tested whether a cheap query-time
