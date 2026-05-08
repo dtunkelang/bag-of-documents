@@ -13,19 +13,21 @@ pinned: false
 
 Side-by-side comparison of off-the-shelf MiniLM vs a bag-of-documents-fine-tuned MiniLM on the BestBuy 2012 ACM Hackathon clickthrough dataset.
 
-- **Catalog**: 53,048 products — the subset of the full ~1.2M-SKU BestBuy 2012 catalog that appeared in queries with ≥2 distinct clicked SKUs (so each query has bag-trainable structure). Filtering done in [`download/prepare_bestbuy_acm.py`](https://github.com/dtunkelang/bag-of-documents/blob/main/download/prepare_bestbuy_acm.py).
+- **Catalog**: 1,274,801 products — the full BestBuy 2012 catalog from the Kaggle ACM Hackathon archive. Earlier versions of this Space showed only the 53,048-product multi-click subset; the full catalog is now indexed so retrieval is realistic-scale.
 - **Holdout test set**: 12,128 multi-positive queries with click-derived ground truth.
-- **Training**: 48,516 query → clicked-SKU bags, MNRL fine-tuning of `all-MiniLM-L6-v2`.
+- **Training**: 48,516 query → clicked-SKU bags, MNRL fine-tuning of `all-MiniLM-L6-v2`. Bag training data is unchanged from the 53K-subset version; the additional ~1.2M products simply enlarge the retrieval space at serve time.
 
 ## Headline result
 
+Evaluated against the full 1.27M-product catalog on the 12,128-query holdout:
+
 | Model | R@10 (binary hit-rate) | E@1 |
 |---|---:|---:|
-| `all-MiniLM-L6-v2` (base) | 0.5559 | 0.2538 |
-| BoD-trained (this work) | **0.7308** | **0.3718** |
-| **Δ** | **+17.49pp** | **+11.80pp** |
+| `all-MiniLM-L6-v2` (base) | 0.3238 | 0.0926 |
+| BoD-trained (this work) | **0.5013** | **0.1589** |
+| **Δ** | **+17.75pp** | **+6.63pp** |
 
-The largest single-corpus BoD lift in the project. CHS predicted GREEN (SCHS=0.525) before training; this is the empirical confirmation.
+The +17.75pp R@10 lift is preserved when scaled from the original 53K-subset evaluation (where it was +17.49pp) to the full 1.27M catalog. E@1 lift shrinks (was +11.80pp on subset) because the top-1 spot is much harder to win against ~24× more competing documents. CHS predicted GREEN (SCHS=0.525) before training; this is the empirical confirmation.
 
 ## How to read the demo
 

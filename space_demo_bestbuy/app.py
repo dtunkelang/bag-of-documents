@@ -21,40 +21,60 @@ from collections import defaultdict
 import gradio as gr
 import numpy as np
 import torch
+from huggingface_hub import snapshot_download
 from sentence_transformers import SentenceTransformer
 
-# Embedded artifacts in this Space repo.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(SCRIPT_DIR, "data")
-MODEL_DIR = os.path.join(SCRIPT_DIR, "query_model_bestbuy_bod")
+# Artifacts live in a sibling HF dataset (Space free-tier has a 1GB cap that
+# the 1.27M-doc catalog vecs blow past). The dataset holds the model + both
+# catalog encodings + the holdout JSONLs; the Space pulls them at startup.
+DATASET_REPO = "dtunkelang/bag-of-documents-bestbuy"
 BASE_MODEL = "all-MiniLM-L6-v2"
 
 
-def load_resources():
+def download_data():
+    print(f"snapshot_download from {DATASET_REPO}...", flush=True)
+    return snapshot_download(
+        repo_id=DATASET_REPO,
+        repo_type="dataset",
+        allow_patterns=[
+            "titles.json",
+            "product_ids.json",
+            "holdout_queries.jsonl",
+            "holdout_qrels.jsonl",
+            "base_catalog.vecs.fp16.npy",
+            "bod_catalog.vecs.fp16.npy",
+            "query_model_bestbuy_bod/*",
+        ],
+    )
+
+
+def load_resources(data_dir):
     print("loading data...", flush=True)
-    with open(os.path.join(DATA_DIR, "product_ids.json")) as f:
+    with open(os.path.join(data_dir, "product_ids.json")) as f:
         pids = json.load(f)
-    with open(os.path.join(DATA_DIR, "titles.json")) as f:
+    with open(os.path.join(data_dir, "titles.json")) as f:
         titles = json.load(f)
     qrels = defaultdict(set)
     queries_by_qid = {}
-    with open(os.path.join(DATA_DIR, "holdout_queries.jsonl")) as f:
+    with open(os.path.join(data_dir, "holdout_queries.jsonl")) as f:
         for line in f:
             d = json.loads(line)
             queries_by_qid[d["query"]] = d["query_id"]
-    with open(os.path.join(DATA_DIR, "holdout_qrels.jsonl")) as f:
+    with open(os.path.join(data_dir, "holdout_qrels.jsonl")) as f:
         for line in f:
             r = json.loads(line)
             qrels[r["query_id"]].add(r["product_id"])
     print(f"  catalog={len(pids):,}  holdout queries={len(queries_by_qid):,}", flush=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    base_pv = np.load(os.path.join(DATA_DIR, "base_catalog.vecs.fp16.npy")).astype(np.float32)
-    bod_pv = np.load(os.path.join(DATA_DIR, "bod_catalog.vecs.fp16.npy")).astype(np.float32)
+    base_pv = np.load(os.path.join(data_dir, "base_catalog.vecs.fp16.npy")).astype(np.float32)
+    bod_pv = np.load(os.path.join(data_dir, "bod_catalog.vecs.fp16.npy")).astype(np.float32)
     print("  catalog vectors loaded (base + BoD)", flush=True)
 
     base_model = SentenceTransformer(BASE_MODEL, device=device)
-    bod_model = SentenceTransformer(MODEL_DIR, device=device)
+    bod_model = SentenceTransformer(
+        os.path.join(data_dir, "query_model_bestbuy_bod"), device=device
+    )
     print("  models loaded", flush=True)
 
     return {
@@ -144,17 +164,17 @@ def build_app(R):
     with gr.Blocks(title="BoD demo: BestBuy click data") as demo:
         gr.Markdown(
             "# Bag-of-Documents on BestBuy click data\n"
-            "Same catalog (53,048 products — the subset of the full ~1.2M-SKU "
-            "BestBuy 2012 catalog that appeared in queries with ≥2 distinct "
-            "clicked SKUs), same query encoder architecture "
-            "(`all-MiniLM-L6-v2`). The only difference: the right-hand model was "
-            "fine-tuned on 48,516 query→clicked-SKU bags from BestBuy's 2012 "
-            "ACM hackathon clickthrough log via MultipleNegativesRankingLoss "
+            "Same catalog (1,274,801 products — the full BestBuy 2012 catalog "
+            "from the Kaggle ACM Hackathon archive), same query encoder "
+            "architecture (`all-MiniLM-L6-v2`). The only difference: the "
+            "right-hand model was fine-tuned on 48,516 query→clicked-SKU bags "
+            "from BestBuy's 2012 ACM hackathon clickthrough log via "
+            "MultipleNegativesRankingLoss "
             "([code](https://github.com/dtunkelang/bag-of-documents)).\n"
             "\n"
             "Holdout R@10 (binary hit-rate, n=12,128): "
-            "base **0.5559** → BoD **0.7308** (+17.49pp).  "
-            "E@1: **0.2538** → **0.3718** (+11.80pp). "
+            "base **0.3238** → BoD **0.5013** (+17.75pp).  "
+            "E@1: **0.0926** → **0.1589** (+6.63pp). "
             "The largest single-corpus BoD lift in the project.\n"
             "\n"
             "Holdout queries are highlighted with ✅ on rows where the product "
@@ -192,7 +212,8 @@ def build_app(R):
 
 
 def main():
-    R = load_resources()
+    data_dir = download_data()
+    R = load_resources(data_dir)
     app = build_app(R)
     app.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)))
 

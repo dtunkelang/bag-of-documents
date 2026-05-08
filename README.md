@@ -226,7 +226,9 @@ All values use the fraction-recovered R@10 metric (mean over queries of `positiv
 
 ### Out-of-sample validation (BestBuy ACM, May 2026)
 
-CHS predicted GREEN for BestBuy (SCHS = 0.525) before any training. The full pipeline — 60K multi-positive queries split 80/20, 48,516 click-derived bags, fine-tuned MiniLM with MNRL — measured against the 12,128-query holdout:
+CHS predicted GREEN for BestBuy (SCHS = 0.525) before any training. The full pipeline — 60K multi-positive queries split 80/20, 48,516 click-derived bags, fine-tuned MiniLM with MNRL — measured against the 12,128-query holdout. Two evaluations:
+
+**Original 53,048-product subset** (the multi-positive-bag-trainable filter from `download/prepare_bestbuy_acm.py`):
 
 | Model | R@10 (binary hit-rate) | E@1 |
 |---|---:|---:|
@@ -234,7 +236,17 @@ CHS predicted GREEN for BestBuy (SCHS = 0.525) before any training. The full pip
 | BoD-trained (this work) | **0.7308** | **0.3718** |
 | **Δ** | **+17.49pp** | **+11.80pp** |
 
-The largest BoD lift on any corpus we've tested. Reproduce with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs.py`](download/add_random_hardnegs.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py).
+**Full 1,274,801-product BestBuy 2012 catalog** (re-encoded post-hoc; bags unchanged):
+
+| Model | R@10 (binary hit-rate) | E@1 |
+|---|---:|---:|
+| `all-MiniLM-L6-v2` (base) | 0.3238 | 0.0926 |
+| BoD-trained (this work) | **0.5013** | **0.1589** |
+| **Δ** | **+17.75pp** | **+6.63pp** |
+
+R@10 lift is preserved at ~24× catalog scale (+17.75pp vs +17.49pp on the subset). E@1 lift shrinks because top-1 competition is much stiffer with ~1.2M more competing documents. Reproduce with [`download/build_bestbuy_bags.py`](download/build_bestbuy_bags.py) → [`download/add_random_hardnegs.py`](download/add_random_hardnegs.py) → [`training/finetune_with_hardnegs.py`](training/finetune_with_hardnegs.py) → [`evaluation/eval_bestbuy_bod.py`](evaluation/eval_bestbuy_bod.py); full-catalog re-encode via [`download/expand_bestbuy_catalog.py`](download/expand_bestbuy_catalog.py).
+
+The largest single-corpus BoD lift in the project. Live at [huggingface.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo](https://huggingface.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo).
 
 ### Tooling
 
