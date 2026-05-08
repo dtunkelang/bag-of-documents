@@ -20,6 +20,8 @@ esci_*_data/
 nfcorpus_data/
 bestbuy_acm_data/
 acm-sf-chapter-hackathon-big/
+acm-sf-chapter-hackathon-big.zip
+bestbuy_acm_full/
 fiqa_data/
 scifact_data/
 quora_data/
@@ -48,6 +50,8 @@ round1/
 
 # Misc
 memory/
+.claude/
+evaluation/diagnose_*.tsv
 
 # Logs and temp files
 *.log
