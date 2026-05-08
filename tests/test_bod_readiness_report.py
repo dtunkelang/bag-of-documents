@@ -127,3 +127,101 @@ def test_predict_lift_falls_back_when_base_r10_unset():
     # Equivalent to v1: rescue × BB - tax × BP (using TAX_K as the v1 constants).
     expected_real = 0.30 * mod.RESCUE_BANDS["realistic"] - 0.30 * mod.TAX_K["realistic"]
     assert abs(new["realistic"] - expected_real) < 1e-9
+
+
+def test_predict_rescue_rate_none_when_too_few_bags():
+    """Below n_bags=10, the regression isn't trustworthy → return None."""
+    mod = _load_module()
+    assert mod.predict_rescue_rate(None) is None
+    assert mod.predict_rescue_rate({"n_bags": 5, "median_size": 10, "median_spec": 0.5}) is None
+
+
+def test_predict_rescue_rate_matches_formula():
+    """Returned value should match the documented Pattern 8a formula."""
+    import numpy as np
+
+    mod = _load_module()
+    stats = {"n_bags": 1000, "median_size": 8, "median_spec": 0.55}
+    expected_pp = (
+        mod.RESCUE_W_LOG_N * np.log10(stats["n_bags"])
+        + mod.RESCUE_W_SIZE * stats["median_size"]
+        + mod.RESCUE_W_SPEC * stats["median_spec"]
+        + mod.RESCUE_INTERCEPT
+    )
+    expected_frac = max(0.0, min(0.40, expected_pp / 100.0))
+    assert abs(mod.predict_rescue_rate(stats) - expected_frac) < 1e-9
+
+
+def test_predict_rescue_rate_clamps_to_plausible_range():
+    """Output is clamped to [0, 0.40] regardless of pathological inputs."""
+    mod = _load_module()
+    # Pathologically high inputs would otherwise blow past 40pp.
+    huge = mod.predict_rescue_rate({"n_bags": 10**9, "median_size": 1, "median_spec": 0.99})
+    assert 0.0 <= huge <= 0.40
+    # Pathologically low (near-zero spec, single-doc bags).
+    tiny = mod.predict_rescue_rate({"n_bags": 10, "median_size": 100, "median_spec": 0.01})
+    assert tiny == 0.0
+
+
+def test_predict_lift_collapses_band_with_predicted_rescue():
+    """When `predicted_rescue` is set, the rescue band is point ± RMSE/100."""
+    mod = _load_module()
+    out = mod.predict_lift(
+        base_blind=0.40,
+        base_perfect=0.10,
+        base_overall_r10=0.30,
+        predicted_rescue=0.12,
+    )
+    rmse = mod.RESCUE_RMSE_PP / 100.0
+    headroom = 1.0 - 0.30
+    # realistic uses rescue=0.12 exactly.
+    expected_real = 0.40 * 0.12 - 0.10 * (mod.TAX_K["realistic"] * headroom)
+    assert abs(out["realistic"] - expected_real) < 1e-9
+    # optimistic uses rescue=0.12 + rmse.
+    expected_opt = 0.40 * (0.12 + rmse) - 0.10 * (mod.TAX_K["optimistic"] * headroom)
+    assert abs(out["optimistic"] - expected_opt) < 1e-9
+    # pessimistic uses max(0, 0.12 - rmse).
+    expected_pess = 0.40 * max(0.0, 0.12 - rmse) - 0.10 * (mod.TAX_K["pessimistic"] * headroom)
+    assert abs(out["pessimistic"] - expected_pess) < 1e-9
+
+
+def test_compute_bag_stats_on_toy_corpus():
+    """Tight bags (high cosine within bag) should produce high median_spec."""
+    import numpy as np
+
+    mod = _load_module()
+    # 12 docs, 6 bags of 2 docs each. Each pair shares an axis → cosine ~ 1.
+    rng = np.random.default_rng(0)
+    pids = [f"d{i}" for i in range(12)]
+    pid_to_idx = {p: i for i, p in enumerate(pids)}
+    base_pv = np.zeros((12, 8), dtype=np.float32)
+    for bag_idx in range(6):
+        v = rng.normal(size=8).astype(np.float32)
+        v /= np.linalg.norm(v)
+        base_pv[2 * bag_idx] = v
+        # Slightly perturb the partner so it isn't identical but still tight.
+        v2 = v + 0.01 * rng.normal(size=8).astype(np.float32)
+        v2 /= np.linalg.norm(v2)
+        base_pv[2 * bag_idx + 1] = v2
+    qrels_full = {f"q{b}": {pids[2 * b]: 1, pids[2 * b + 1]: 1} for b in range(6)}
+    stats = mod.compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance=1)
+    assert stats["n_bags"] == 6
+    assert stats["median_size"] == 2
+    # Tight bags → median spec should be very near 1.
+    assert stats["median_spec"] > 0.99
+
+
+def test_compute_bag_stats_skips_singleton_bags():
+    """Bags with <2 positive docs should be excluded (can't compute spec)."""
+    import numpy as np
+
+    mod = _load_module()
+    pids = ["a", "b", "c"]
+    pid_to_idx = {p: i for i, p in enumerate(pids)}
+    base_pv = np.eye(3, dtype=np.float32)
+    qrels_full = {
+        "q1": {"a": 1},  # singleton → skipped
+        "q2": {"b": 1, "c": 1},  # kept
+    }
+    stats = mod.compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance=1)
+    assert stats["n_bags"] == 1

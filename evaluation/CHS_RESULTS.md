@@ -197,9 +197,12 @@ scale, not by cluster geometry.
    RMSE=3.44pp — usable when the encoder isn't loaded but ~1.4pp
    noisier.
 
-   Practical: the readiness tool can replace the wide rescue band
+   Practical: the readiness tool replaces the wide rescue band
    (5/12/25pp) with a point estimate ± ~2.5pp uncertainty, sharpening
-   every lift prediction. See `probe_rescue_predictors.py`.
+   every lift prediction. Implemented in `evaluation/bod_readiness_report.py`
+   (`compute_bag_stats` + `predict_rescue_rate`); regression and ablations
+   live in `probe_rescue_predictors.py`. End-to-end on FiQA: predicted
+   rescue 10.6pp ±2.5pp, measured 13.0pp (within band).
 
 8b. **Predict-then-test on FiQA: framework formula validates, priors must
    be measured.** A blind prediction made before training (logged in

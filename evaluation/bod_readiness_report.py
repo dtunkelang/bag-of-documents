@@ -55,7 +55,7 @@ from sentence_transformers import SentenceTransformer  # noqa: E402
 
 from bagofdocs.cluster_hypothesis import compute_chs, schs_verdict  # noqa: E402
 
-# Calibration constants from CHS_RESULTS.md (13-corpus rescue/tax table).
+# Calibration constants from CHS_RESULTS.md (15-corpus rescue/tax table).
 #
 # Tax magnitude tracks (1 - base R@10) closely across the calibration set —
 # empirically `tax / (1 - base R@10)` clusters around 0.07-0.13. Scaling the
@@ -70,19 +70,99 @@ SCHS_FLOOR = 0.40
 # in between, expect ties or small wins in either direction.
 RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
+# Rescue-rate predictor (Pattern 8a in CHS_RESULTS.md). Linear regression over
+# 15 calibration corpora; R²=0.787, RMSE=2.53pp. Coefficients are for percentages.
+#
+# rescue_pp = log_n_bags*W_LOG_N + median_size*W_SIZE + median_spec*W_SPEC + INTERCEPT
+RESCUE_W_LOG_N = 4.549
+RESCUE_W_SIZE = -0.057
+RESCUE_W_SPEC = 37.879
+RESCUE_INTERCEPT = -32.668
+RESCUE_RMSE_PP = 2.53  # use as ±band around the point estimate
 
-def predict_lift(base_blind, base_perfect, base_overall_r10=None):
+
+def compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance, k_cap=50):
+    """Compute (n_bags, median_size, median_spec) using already-encoded catalog.
+
+    No extra encoding step — pulls per-bag positive vectors from `base_pv`
+    (the catalog encoded with the base model) and computes spherical-mean
+    centroid + intra-bag mean cosine. Mirrors `training/bags_from_qrels.py`
+    but without writing to disk.
+    """
+    sizes, specs = [], []
+    for _qid, doc_grades in qrels_full.items():
+        pos = sorted(
+            (
+                (pid_to_idx[pid], rel)
+                for pid, rel in doc_grades.items()
+                if pid in pid_to_idx and rel >= min_relevance
+            ),
+            key=lambda x: -x[1],
+        )
+        idxs = [d for d, _ in pos[:k_cap]]
+        if len(idxs) < 2:
+            continue
+        bag_vecs = base_pv[idxs]
+        centroid = bag_vecs.mean(axis=0)
+        norm = float(np.linalg.norm(centroid))
+        if norm < 1e-12:
+            continue
+        centroid /= norm
+        spec = float(np.mean(bag_vecs @ centroid))
+        sizes.append(len(idxs))
+        specs.append(spec)
+    if not sizes:
+        return None
+    return {
+        "n_bags": len(sizes),
+        "median_size": float(np.median(sizes)),
+        "median_spec": float(np.median(specs)),
+    }
+
+
+def predict_rescue_rate(bag_stats):
+    """Linear-regression rescue-rate point estimate (Pattern 8a in
+    CHS_RESULTS.md). Returns rescue rate as a fraction (e.g., 0.12 = 12pp),
+    or None if `bag_stats` is missing or `n_bags` is too small to be reliable.
+    """
+    if bag_stats is None or bag_stats.get("n_bags", 0) < 10:
+        return None
+    pp = (
+        RESCUE_W_LOG_N * np.log10(bag_stats["n_bags"])
+        + RESCUE_W_SIZE * bag_stats["median_size"]
+        + RESCUE_W_SPEC * bag_stats["median_spec"]
+        + RESCUE_INTERCEPT
+    )
+    # Clamp to plausible range (0 to 40pp); convert pp -> fraction.
+    return max(0.0, min(0.40, float(pp) / 100.0))
+
+
+def predict_lift(base_blind, base_perfect, base_overall_r10=None, predicted_rescue=None):
     """Return dict of {scenario: predicted_lift_pp} for the 3 signal bands.
 
     Tax magnitude scales with (1 - base R@10) when `base_overall_r10` is
-    provided — this matches the 13-corpus calibration data (CHS_RESULTS.md
-    Pattern 9). When base R@10 isn't available, falls back to the v1 fixed
-    tax constants (compatible with old call sites and unit tests).
+    provided — this matches the 15-corpus calibration data (CHS_RESULTS.md
+    Pattern 9).
+
+    When `predicted_rescue` is provided (from `predict_rescue_rate()`), the
+    rescue band collapses around that point estimate ± RESCUE_RMSE_PP/100,
+    sharpening every prediction. When omitted, falls back to the wide
+    fixed-band defaults from RESCUE_BANDS (v1-compatible).
     """
     out = {}
     headroom = (1.0 - base_overall_r10) if base_overall_r10 is not None else 1.0
-    for scenario in RESCUE_BANDS:
-        rescue = RESCUE_BANDS[scenario]
+    if predicted_rescue is not None:
+        # Point estimate ± RMSE — much tighter than the wide v1 bands.
+        rmse = RESCUE_RMSE_PP / 100.0
+        rescue_bands = {
+            "pessimistic": max(0.0, predicted_rescue - rmse),
+            "realistic": predicted_rescue,
+            "optimistic": predicted_rescue + rmse,
+        }
+    else:
+        rescue_bands = RESCUE_BANDS
+    for scenario in rescue_bands:
+        rescue = rescue_bands[scenario]
         tax = TAX_K[scenario] * headroom
         out[scenario] = base_blind * rescue - base_perfect * tax
     return out
@@ -202,7 +282,7 @@ def base_difficulty(args, titles, pids, queries_by_qid, pos):
         "base_blind": base_blind,
         "base_perfect": base_perfect,
         "overall_R10": overall_r,
-    }
+    }, pv
 
 
 def bm25_r10(titles, queries, qids, pos, k=10):
@@ -287,12 +367,20 @@ def main():
     chs = compute_chs(dict(qrels_full), pids, titles, args.encoder, partition="strict")
 
     print("\n--- 2/3: base-difficulty distribution ---", flush=True)
-    bd = base_difficulty(args, titles, pids, queries_by_qid, pos)
-    if bd is None:
+    bd_result = base_difficulty(args, titles, pids, queries_by_qid, pos)
+    if bd_result is None:
         print("ERROR: no positive-bearing queries — corpus has no usable signal.", flush=True)
         sys.exit(1)
+    bd, base_pv = bd_result
 
-    predicted = predict_lift(bd["base_blind"], bd["base_perfect"], bd["overall_R10"])
+    # Bag stats + rescue-rate point estimate (Pattern 8a).
+    pid_to_idx = {p: i for i, p in enumerate(pids)}
+    bag_stats = compute_bag_stats(qrels_full, pid_to_idx, base_pv, args.min_relevance)
+    predicted_rescue = predict_rescue_rate(bag_stats)
+
+    predicted = predict_lift(
+        bd["base_blind"], bd["base_perfect"], bd["overall_R10"], predicted_rescue
+    )
     v_label, v_msg = verdict(chs.schs, bd["base_blind"], bd["base_perfect"], predicted)
 
     print("\n--- 3/3: BM25 R@10 (architecture recommendation) ---", flush=True)
@@ -320,13 +408,30 @@ def main():
     print()
     print("  Predicted lift bands (per CHS_RESULTS.md calibration):")
     headroom = 1.0 - bd["overall_R10"]
-    for scenario, lift in predicted.items():
-        rescue = RESCUE_BANDS[scenario]
-        tax_eff = TAX_K[scenario] * headroom
-        print(
-            f"    {scenario:<13}  rescue~{rescue * 100:.0f}pp tax~{tax_eff * 100:.1f}pp  "
-            f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
+    if predicted_rescue is not None:
+        rmse_pp = RESCUE_RMSE_PP
+        rescue_label = (
+            f"rescue~{predicted_rescue * 100:.1f}pp ±{rmse_pp:.1f}pp "
+            f"(predicted from bag stats; n_bags={bag_stats['n_bags']:,}, "
+            f"median_size={bag_stats['median_size']:.0f}, "
+            f"median_spec={bag_stats['median_spec']:.3f})"
         )
+        print(f"    {rescue_label}")
+        for scenario, lift in predicted.items():
+            tax_eff = TAX_K[scenario] * headroom
+            print(
+                f"    {scenario:<13}  tax~{tax_eff * 100:.1f}pp  "
+                f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
+            )
+    else:
+        print("    (rescue rate point-estimate unavailable; using fixed v1 bands)")
+        for scenario, lift in predicted.items():
+            rescue = RESCUE_BANDS[scenario]
+            tax_eff = TAX_K[scenario] * headroom
+            print(
+                f"    {scenario:<13}  rescue~{rescue * 100:.0f}pp tax~{tax_eff * 100:.1f}pp  "
+                f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
+            )
     print()
     if bm25_r is not None:
         print("  Deployment architecture (when GO):")
