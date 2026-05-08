@@ -113,6 +113,12 @@ scale, not by cluster geometry.
    | FiQA-2018 | 0.441 | 34% | **+13.0pp** | −7.5 | **+2.6pp** | 0.44 |
    | NFCorpus | 0.159 | 31% | **+4.2pp** | −17.9 | **+0.8pp** | 0.38 |
 
+   *BestBuy values measured on the 53,048-product multi-positive subset (the
+   trainable bag corpus). When re-evaluated against the full 1,274,801-product
+   2012 catalog (all SKUs from the Kaggle XML, bags unchanged), the binary
+   R@10 lift is preserved at scale: base 0.3238 → BoD 0.5013 (+17.75pp) on
+   the same 12,128-query holdout. See the [demo Space](https://huggingface.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo).*
+
    The 3 factors:
    - **Bag signal sharpness → rescue rate on the base-blind subset.**
      Clicks (BestBuy) > weak-base-on-foreign-language + ESCI qrels (Spanish) >
