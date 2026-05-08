@@ -30,6 +30,11 @@ quora_data/
 climate_fever_data/
 cqadupstack_*_data/
 logs/
+
+# HF Space artifacts (large binaries; uploaded to HF, not stored in git)
+space_demo_bestbuy/query_model_bestbuy_bod/
+space_demo_bestbuy/data/base_catalog.vecs.fp16.npy
+space_demo_bestbuy/data/bod_catalog.vecs.fp16.npy
 full_catalog/
 models/
 query_model/
