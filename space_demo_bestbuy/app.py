@@ -163,8 +163,9 @@ def build_app(R):
                 label="Query",
                 placeholder="try one of the examples or type your own",
                 lines=1,
+                scale=4,
             )
-        gr.Examples(examples=examples, inputs=q)
+            search_btn = gr.Button("Search", variant="primary", scale=1)
         note = gr.Markdown()
         with gr.Row():
             with gr.Column():
@@ -173,6 +174,16 @@ def build_app(R):
             with gr.Column():
                 gr.Markdown("### BoD-trained (this work)")
                 bod_out = gr.Markdown()
+        # Examples populate the textbox AND trigger the search on click.
+        gr.Examples(
+            examples=examples,
+            inputs=q,
+            outputs=[base_out, bod_out, note],
+            fn=run,
+            run_on_click=True,
+            cache_examples=False,
+        )
+        search_btn.click(run, inputs=q, outputs=[base_out, bod_out, note])
         q.submit(run, inputs=q, outputs=[base_out, bod_out, note])
 
     return demo
