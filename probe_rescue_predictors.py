@@ -61,6 +61,8 @@ CALIBRATION = [
     ),
     ("CQADup/physics", "cqadupstack_physics_data/bags.jsonl", 9.4, 0.597, 32.0, 52.6, float("nan")),
     ("CQADup/stats", "cqadupstack_stats_data/bags.jsonl", 6.4, 0.463, 49.4, 42.9, float("nan")),
+    # Added 2026-05-08 from blind predict-then-test (Pattern 8d in CHS_RESULTS.md).
+    ("CQADup/unix", "cqadupstack_unix_data/bags.jsonl", 13.1, 0.550, 38.7, 49.5, 0.537),
 ]
 
 

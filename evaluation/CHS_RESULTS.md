@@ -173,16 +173,16 @@ scale, not by cluster geometry.
    change.
 
 8a. **Rescue rate is predictable from bag stats below base R@10 = 0.85
-   (LOO RMSE 2.64pp / LOO R²=0.78; in-sample R²=0.869 / RMSE=2.04pp).**
+   (LOO RMSE 2.57pp / LOO R²=0.78; in-sample R²=0.868 / RMSE=1.99pp).**
    Pattern 9 left rescue rate as the unmodeled factor in the readiness
    tool — the realistic band assumes 12pp universally even though the
-   measured range is 4–25pp. A linear regression over 14 calibration
+   measured range is 4–25pp. A linear regression over 15 calibration
    corpora (Quora excluded; see regime gate below) finds three
    pre-training proxies that explain 87% of the in-sample variance:
 
    ```
-   rescue_pp ≈ 5.27 × log10(n_bags) − 0.01 × median_bag_size
-              + 54.35 × median_bag_specificity − 48.23
+   rescue_pp ≈ 5.24 × log10(n_bags) − 0.01 × median_bag_size
+              + 54.85 × median_bag_specificity − 48.48
    ```
 
    - `n_bags`: count of multi-positive queries (qrels-only, free).
