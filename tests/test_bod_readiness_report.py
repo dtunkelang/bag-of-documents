@@ -73,8 +73,8 @@ def test_verdict_thresholds_match_calibration():
     assert set(mod.RESCUE_BANDS) == {"pessimistic", "realistic", "optimistic"}
     assert mod.RESCUE_BANDS["pessimistic"] < mod.RESCUE_BANDS["realistic"]
     assert mod.RESCUE_BANDS["realistic"] < mod.RESCUE_BANDS["optimistic"]
-    assert mod.TAX_BANDS["pessimistic"] > mod.TAX_BANDS["realistic"]
-    assert mod.TAX_BANDS["realistic"] > mod.TAX_BANDS["optimistic"]
+    assert mod.TAX_K["pessimistic"] > mod.TAX_K["realistic"]
+    assert mod.TAX_K["realistic"] > mod.TAX_K["optimistic"]
 
 
 def test_architecture_recommendation_rerank_when_bm25_stronger():
@@ -106,3 +106,24 @@ def test_architecture_recommendation_handles_none():
     arch, msg = mod.architecture_recommendation(bm25_r=None, base_r=0.30)
     assert arch is None
     assert "BM25" in msg or "bm25" in msg.lower()
+
+
+def test_predict_lift_scales_tax_with_base_r10():
+    """Tax shrinks as base R@10 grows toward 1.0 (Pattern 9 calibration)."""
+    mod = _load_module()
+    # Same buckets, low base R@10 (lots of headroom).
+    low_base = mod.predict_lift(base_blind=0.30, base_perfect=0.30, base_overall_r10=0.20)
+    # Same buckets, high base R@10 (almost no headroom).
+    high_base = mod.predict_lift(base_blind=0.30, base_perfect=0.30, base_overall_r10=0.95)
+    # Predicted lift should be HIGHER (less negative tax) at high base R@10.
+    assert high_base["realistic"] > low_base["realistic"]
+    assert high_base["optimistic"] > low_base["optimistic"]
+
+
+def test_predict_lift_falls_back_when_base_r10_unset():
+    """Backward-compat: when base_overall_r10 is None, behave like v1 fixed-tax."""
+    mod = _load_module()
+    new = mod.predict_lift(base_blind=0.30, base_perfect=0.30)
+    # Equivalent to v1: rescue × BB - tax × BP (using TAX_K as the v1 constants).
+    expected_real = 0.30 * mod.RESCUE_BANDS["realistic"] - 0.30 * mod.TAX_K["realistic"]
+    assert abs(new["realistic"] - expected_real) < 1e-9

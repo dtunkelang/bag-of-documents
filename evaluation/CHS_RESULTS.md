@@ -225,11 +225,14 @@ scale, not by cluster geometry.
      incorrect SKIP verdicts (actual +4.1pp each).
    - **Tax magnitude tracks (1 − base R@10) closely.** Empirically the
      ratio `tax / (1 − base R@10)` clusters around 0.07–0.13 across all
-     measured corpora; substituting `tax ≈ 0.10 × (1 − base R@10)` for
-     the fixed −10pp realistic band would correctly classify the 3
-     false-SKIPs without breaking the 4 true SKIPs. The current bands
-     are kept for traceability; a future calibration revision is the
-     natural next step.
+     measured corpora. As of `bod_readiness_report.py` v2 (this commit
+     series), the tax bands now scale by (1 − base R@10):
+     `tax = TAX_K × (1 − base_R10)`, with `TAX_K = (0.15, 0.10, 0.06)`
+     for (pessimistic, realistic, optimistic). This refined formula
+     correctly classifies CQADupStack/programmers and gaming as GO (was
+     false-SKIPs); SCIDOCS remains a false-SKIP because its SCHS gate
+     fires before the realistic band reaches threshold. After the
+     refinement the framework is **11/13 verdicts correct** (was 9/13).
    - **The SCHS-floor false-SKIP (SCIDOCS) is a separate failure mode.**
      SCIDOCS has SCHS 0.367 + 36% base-blind + only 0.8% base-perfect —
      the SCHS gate fires before the (correctly-positive) realistic

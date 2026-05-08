@@ -55,9 +55,15 @@ from sentence_transformers import SentenceTransformer  # noqa: E402
 
 from bagofdocs.cluster_hypothesis import compute_chs, schs_verdict  # noqa: E402
 
-# Calibration constants from CHS_RESULTS.md (9-corpus rescue/tax table).
+# Calibration constants from CHS_RESULTS.md (13-corpus rescue/tax table).
+#
+# Tax magnitude tracks (1 - base R@10) closely across the calibration set —
+# empirically `tax / (1 - base R@10)` clusters around 0.07-0.13. Scaling the
+# per-bucket tax by (1 - base R@10) correctly classifies CQADupStack/programmers
+# and CQADupStack/gaming (which the fixed-tax v1 formula misclassified as
+# false-SKIPs).
 RESCUE_BANDS = {"pessimistic": 0.05, "realistic": 0.12, "optimistic": 0.25}
-TAX_BANDS = {"pessimistic": 0.15, "realistic": 0.10, "optimistic": 0.06}
+TAX_K = {"pessimistic": 0.15, "realistic": 0.10, "optimistic": 0.06}
 SCHS_FLOOR = 0.40
 # Deployment-architecture rule of thumb (Pattern 10 in CHS_RESULTS.md):
 # rerank wins when BM25 ≥ base by ~2pp; retrieve wins when BM25 ≤ base by ~2pp;
@@ -65,11 +71,20 @@ SCHS_FLOOR = 0.40
 RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
 
-def predict_lift(base_blind, base_perfect):
-    """Return dict of {scenario: predicted_lift_pp} for the 3 signal bands."""
+def predict_lift(base_blind, base_perfect, base_overall_r10=None):
+    """Return dict of {scenario: predicted_lift_pp} for the 3 signal bands.
+
+    Tax magnitude scales with (1 - base R@10) when `base_overall_r10` is
+    provided — this matches the 13-corpus calibration data (CHS_RESULTS.md
+    Pattern 9). When base R@10 isn't available, falls back to the v1 fixed
+    tax constants (compatible with old call sites and unit tests).
+    """
     out = {}
+    headroom = (1.0 - base_overall_r10) if base_overall_r10 is not None else 1.0
     for scenario in RESCUE_BANDS:
-        out[scenario] = base_blind * RESCUE_BANDS[scenario] - base_perfect * TAX_BANDS[scenario]
+        rescue = RESCUE_BANDS[scenario]
+        tax = TAX_K[scenario] * headroom
+        out[scenario] = base_blind * rescue - base_perfect * tax
     return out
 
 
@@ -277,7 +292,7 @@ def main():
         print("ERROR: no positive-bearing queries — corpus has no usable signal.", flush=True)
         sys.exit(1)
 
-    predicted = predict_lift(bd["base_blind"], bd["base_perfect"])
+    predicted = predict_lift(bd["base_blind"], bd["base_perfect"], bd["overall_R10"])
     v_label, v_msg = verdict(chs.schs, bd["base_blind"], bd["base_perfect"], predicted)
 
     print("\n--- 3/3: BM25 R@10 (architecture recommendation) ---", flush=True)
@@ -304,11 +319,12 @@ def main():
     print(f"    base-perfect:    {bd['base_perfect']:.1%}  (queries where base gets all positives)")
     print()
     print("  Predicted lift bands (per CHS_RESULTS.md calibration):")
+    headroom = 1.0 - bd["overall_R10"]
     for scenario, lift in predicted.items():
         rescue = RESCUE_BANDS[scenario]
-        tax = TAX_BANDS[scenario]
+        tax_eff = TAX_K[scenario] * headroom
         print(
-            f"    {scenario:<13}  rescue~{rescue * 100:.0f}pp tax~{tax * 100:.0f}pp  "
+            f"    {scenario:<13}  rescue~{rescue * 100:.0f}pp tax~{tax_eff * 100:.1f}pp  "
             f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
         )
     print()
