@@ -54,6 +54,7 @@ def run_one(label, data_dir, pid_file):
     catalog = os.path.join(data_dir, "titles.json")
     pids = os.path.join(data_dir, pid_file)
     qrels = os.path.join(data_dir, "test_qrels.jsonl")
+    train_qrels_path = os.path.join(data_dir, "train_qrels.jsonl")
     queries = os.path.join(data_dir, "test_queries.jsonl")
     vecs = os.path.join(data_dir, "base_catalog.vecs.fp16.npy")
     if not all(os.path.exists(p) for p in [catalog, pids, qrels, queries]):
@@ -63,6 +64,7 @@ def run_one(label, data_dir, pid_file):
         catalog=catalog,
         product_ids=pids,
         qrels=qrels,
+        train_qrels=train_qrels_path if os.path.exists(train_qrels_path) else None,
         queries=queries,
         min_relevance=1,
         encoder=ENCODER,
@@ -78,7 +80,21 @@ def run_one(label, data_dir, pid_file):
         return None
     bd, base_pv = bd_result
     pid_to_idx = {p: i for i, p in enumerate(pid_list)}
-    bag_stats = rr.compute_bag_stats(qrels_full, pid_to_idx, base_pv, args.min_relevance)
+    # Use train qrels for bag stats when available (matches calibration).
+    bag_qrels = qrels_full
+    if args.train_qrels:
+        import json as _json
+        from collections import defaultdict as _dd
+
+        bag_qrels = _dd(dict)
+        with open(args.train_qrels) as f:
+            for line in f:
+                r = _json.loads(line)
+                field = "product_id" if "product_id" in r else "doc_id"
+                if r[field] not in pid_to_idx:
+                    continue
+                bag_qrels[r["query_id"]][r[field]] = r["relevance"]
+    bag_stats = rr.compute_bag_stats(bag_qrels, pid_to_idx, base_pv, args.min_relevance)
     predicted_rescue = rr.predict_rescue_rate(bag_stats, base_r10=bd["overall_R10"])
     predicted = rr.predict_lift(
         bd["base_blind"], bd["base_perfect"], bd["overall_R10"], predicted_rescue

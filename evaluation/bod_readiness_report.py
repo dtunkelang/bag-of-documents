@@ -367,6 +367,16 @@ def main():
     ap.add_argument(
         "--qrels", required=True, help="qrels.jsonl with query_id, product_id, relevance"
     )
+    ap.add_argument(
+        "--train-qrels",
+        default=None,
+        help=(
+            "optional train_qrels.jsonl — bag stats are computed from this when "
+            "provided, since the rescue-rate predictor was calibrated on TRAIN "
+            "bags (BoD trains on train qrels, not test). Defaults to --qrels "
+            "when omitted, which is fine for corpora with no train/test split."
+        ),
+    )
     ap.add_argument("--queries", required=True, help="queries.jsonl with query_id, query")
     ap.add_argument("--min-relevance", type=int, default=1)
     ap.add_argument("--encoder", default="all-MiniLM-L6-v2")
@@ -395,9 +405,28 @@ def main():
         sys.exit(1)
     bd, base_pv = bd_result
 
-    # Bag stats + rescue-rate point estimate (Pattern 8a).
+    # Bag stats + rescue-rate point estimate (Pattern 8a). Use TRAIN qrels
+    # when available — the predictor was calibrated on bags built from train
+    # qrels (training/bags_from_qrels.py). Test qrels only is a degraded
+    # fallback for corpora without a train split (or when corpus convention
+    # is to use test for both, e.g., NFCorpus-style benchmarks).
     pid_to_idx = {p: i for i, p in enumerate(pids)}
-    bag_stats = compute_bag_stats(qrels_full, pid_to_idx, base_pv, args.min_relevance)
+    bag_qrels = qrels_full
+    if args.train_qrels:
+        bag_qrels = defaultdict(dict)
+        with open(args.train_qrels) as f:
+            for line in f:
+                r = json.loads(line)
+                field = "product_id" if "product_id" in r else "doc_id"
+                if r[field] not in pid_to_idx:
+                    continue
+                bag_qrels[r["query_id"]][r[field]] = r["relevance"]
+        print(
+            f"  using {sum(len(v) for v in bag_qrels.values()):,} train qrels "
+            f"({len(bag_qrels):,} queries) for bag stats",
+            flush=True,
+        )
+    bag_stats = compute_bag_stats(bag_qrels, pid_to_idx, base_pv, args.min_relevance)
     predicted_rescue = predict_rescue_rate(bag_stats, base_r10=bd["overall_R10"])
 
     predicted = predict_lift(
