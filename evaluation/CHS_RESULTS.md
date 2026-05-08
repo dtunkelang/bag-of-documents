@@ -201,6 +201,7 @@ scale, not by cluster geometry.
    | ESCI-Spanish     | 0.450 | 67.0% |  1.1% |  +3.2 |  +7.9 | **+16.7** |  **+13.2** | GO ✓ |
    | ESCI-US (E-only) | 0.540 | 34.0% |  4.5% |  +1.0 |  +3.6 |  +8.2 |   +3.0 | GO ✓ |
    | FiQA-2018        | 0.440 | 34.0% | 26.5% |  −2.3 |  +1.4 |  +6.9 |   +2.6 | GO ✓ |
+   | SCIDOCS          | 0.367 | 36.1% |  0.8% |  +1.7 |  +4.3 |  +9.0 |   +4.1 | SKIP ✗ (SCHS-floor false negative) |
    | Quora            | 0.850 |  2.4% | 92.0% | −13.7 |  −9.0 |  −4.9 |   +0.2 | SKIP ✓ |
    | SciFact          |  nan  | 20.7% | 77.3% | −10.6 |  −5.3 |  +0.5 |   +1.0 | SKIP ✓ |
    | NFCorpus         | 0.380 | 31.0% |  4.3% |  +0.9 |  +3.3 |  +7.5 |   +0.8 | SKIP ✓ |
@@ -208,14 +209,23 @@ scale, not by cluster geometry.
    | ArguAna          |  nan  | 23.2% | 76.8% | −10.4 |  −4.9 |  +1.2 |   n/a  | SKIP ✓ |
 
    Five observations:
-   - **All 9 verdicts are correct (4 GO, 5 SKIP).** GO predictions
-     delivered positive lifts (+2.6 to +14.2pp). SKIP verdicts identified
-     corpora with negligible (≤+1.1pp) actual lift, including ArguAna
-     where bag training was empirically impossible (1 positive/query →
-     no multi-positive bags) and Quora where the framework's most
-     stress-testing case landed (highest SCHS we've measured, 0.850, but
-     base R@10 already 0.950 with 92% base-perfect — predicted SKIP
-     correctly despite the near-ideal clustering geometry).
+   - **9 of 10 verdicts are correct (4 GO, 5 SKIP, 1 false-SKIP).** GO
+     predictions delivered positive lifts (+2.6 to +14.2pp). SKIP
+     verdicts identified corpora with negligible (≤+1.1pp) actual lift,
+     including ArguAna where bag training was empirically impossible
+     (1 positive/query) and Quora — the framework's strongest stress test
+     (highest SCHS, 0.850, but base R@10 already 0.950).
+   - **The one false-SKIP is SCIDOCS** (SCHS 0.367, just below the 0.40
+     floor; actual lift +4.1pp, matching the realistic prediction of
+     +4.3pp closely). The SCHS gate produced a false negative because
+     SCIDOCS has 36% base-blind + only 0.8% base-perfect — almost no tax
+     exposure, so the rescue translates to a real net lift even with
+     mediocre clustering. The gate is conservative: keeping it correctly
+     SKIPs NFCorpus (similar SCHS, similar base-blind, but much weaker
+     bag signal — without the gate NFCorpus would become a false-GO), at
+     the cost of missing a +4pp lift on SCIDOCS-like cases. A safer rule
+     would relax the floor when base-perfect < 5%, but that risks
+     misclassifying NFCorpus, so we leave the gate intact as documented.
    - **The bands bracket reality on 7-of-7 trainable corpora.** Actual
      lift falls inside `[pessimistic, optimistic]` for Spanish, ESCI-US,
      FiQA, SciFact, NFCorpus, and TREC-COVID. BestBuy actual *exceeds*
