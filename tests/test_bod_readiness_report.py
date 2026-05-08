@@ -75,3 +75,34 @@ def test_verdict_thresholds_match_calibration():
     assert mod.RESCUE_BANDS["realistic"] < mod.RESCUE_BANDS["optimistic"]
     assert mod.TAX_BANDS["pessimistic"] > mod.TAX_BANDS["realistic"]
     assert mod.TAX_BANDS["realistic"] > mod.TAX_BANDS["optimistic"]
+
+
+def test_architecture_recommendation_rerank_when_bm25_stronger():
+    """BM25 ≥ base + threshold → recommend rerank (Pattern 10)."""
+    mod = _load_module()
+    arch, msg = mod.architecture_recommendation(bm25_r=0.40, base_r=0.20)
+    assert arch == "rerank"
+    assert "rerank" in msg.lower()
+
+
+def test_architecture_recommendation_retrieve_when_bm25_weaker():
+    """BM25 ≤ base − threshold → recommend retrieve."""
+    mod = _load_module()
+    arch, msg = mod.architecture_recommendation(bm25_r=0.20, base_r=0.40)
+    assert arch == "retrieve"
+    assert "retriever" in msg.lower() or "retrieve" in msg.lower()
+
+
+def test_architecture_recommendation_either_when_close():
+    """BM25 ≈ base within ±2pp → either architecture works."""
+    mod = _load_module()
+    arch, msg = mod.architecture_recommendation(bm25_r=0.31, base_r=0.30)
+    assert arch == "either"
+
+
+def test_architecture_recommendation_handles_none():
+    """When bm25s isn't available, return None gracefully."""
+    mod = _load_module()
+    arch, msg = mod.architecture_recommendation(bm25_r=None, base_r=0.30)
+    assert arch is None
+    assert "BM25" in msg or "bm25" in msg.lower()

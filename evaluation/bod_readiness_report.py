@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -54,10 +55,14 @@ from sentence_transformers import SentenceTransformer  # noqa: E402
 
 from bagofdocs.cluster_hypothesis import compute_chs, schs_verdict  # noqa: E402
 
-# Calibration constants from CHS_RESULTS.md (5-corpus rescue/tax table).
+# Calibration constants from CHS_RESULTS.md (9-corpus rescue/tax table).
 RESCUE_BANDS = {"pessimistic": 0.05, "realistic": 0.12, "optimistic": 0.25}
 TAX_BANDS = {"pessimistic": 0.15, "realistic": 0.10, "optimistic": 0.06}
 SCHS_FLOOR = 0.40
+# Deployment-architecture rule of thumb (Pattern 10 in CHS_RESULTS.md):
+# rerank wins when BM25 ≥ base by ~2pp; retrieve wins when BM25 ≤ base by ~2pp;
+# in between, expect ties or small wins in either direction.
+RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
 
 def predict_lift(base_blind, base_perfect):
@@ -185,6 +190,59 @@ def base_difficulty(args, titles, pids, queries_by_qid, pos):
     }
 
 
+def bm25_r10(titles, queries, qids, pos, k=10):
+    """Compute fraction-recovered R@k for BM25 alone (no rerank).
+
+    Returns None if bm25s isn't installed; the readiness verdict still works,
+    just without the architecture recommendation.
+    """
+    try:
+        import bm25s
+    except ImportError:
+        return None
+    print("computing BM25 R@10 for the architecture recommendation...", flush=True)
+    t0 = time.time()
+    retriever = bm25s.BM25()
+    tokenized_corpus = bm25s.tokenize(titles, stopwords="en", show_progress=False)
+    retriever.index(tokenized_corpus, show_progress=False)
+    tokenized_queries = bm25s.tokenize(queries, stopwords="en", show_progress=False)
+    bm25_top, _ = retriever.retrieve(tokenized_queries, k=k, show_progress=False)
+    n = 0
+    total = 0.0
+    for i, qid in enumerate(qids):
+        g = pos.get(qid, set())
+        if not g:
+            continue
+        cand = bm25_top[i]
+        cand = cand[cand >= 0]
+        hits = len({int(x) for x in cand} & g)
+        total += hits / len(g)
+        n += 1
+    print(f"  BM25 indexed + scored in {time.time() - t0:.0f}s", flush=True)
+    return total / n if n else None
+
+
+def architecture_recommendation(bm25_r, base_r):
+    if bm25_r is None or base_r is None:
+        return None, "BM25 not measured (install `bm25s` to enable)."
+    delta = bm25_r - base_r
+    if delta >= RERANK_VS_RETRIEVE_THRESHOLD:
+        return "rerank", (
+            f"BM25 R@10 {bm25_r:.3f} > base {base_r:.3f} by {delta * 100:+.1f}pp; "
+            "use BoD as a reranker over BM25 top-50 (per Pattern 10)."
+        )
+    if delta <= -RERANK_VS_RETRIEVE_THRESHOLD:
+        return "retrieve", (
+            f"BM25 R@10 {bm25_r:.3f} < base {base_r:.3f} by {delta * 100:+.1f}pp; "
+            "use BoD as a retriever over the full catalog (BM25 misses too much)."
+        )
+    return "either", (
+        f"BM25 ({bm25_r:.3f}) ≈ base ({base_r:.3f}) within ±2pp; "
+        "rerank and retrieve are roughly tied — pick whichever is cheaper to "
+        "operate, expect 5-25% per-query difference but small overall lift gap."
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--catalog", required=True, help="titles.json")
@@ -213,7 +271,7 @@ def main():
     print("\n--- 1/2: SCHS (cluster hypothesis score) ---", flush=True)
     chs = compute_chs(dict(qrels_full), pids, titles, args.encoder, partition="strict")
 
-    print("\n--- 2/2: base-difficulty distribution ---", flush=True)
+    print("\n--- 2/3: base-difficulty distribution ---", flush=True)
     bd = base_difficulty(args, titles, pids, queries_by_qid, pos)
     if bd is None:
         print("ERROR: no positive-bearing queries — corpus has no usable signal.", flush=True)
@@ -221,6 +279,12 @@ def main():
 
     predicted = predict_lift(bd["base_blind"], bd["base_perfect"])
     v_label, v_msg = verdict(chs.schs, bd["base_blind"], bd["base_perfect"], predicted)
+
+    print("\n--- 3/3: BM25 R@10 (architecture recommendation) ---", flush=True)
+    qids_eval = sorted(queries_by_qid)
+    queries_eval = [queries_by_qid[q] for q in qids_eval]
+    bm25_r = bm25_r10(titles, queries_eval, qids_eval, pos, k=args.k)
+    arch, arch_msg = architecture_recommendation(bm25_r, bd["overall_R10"])
 
     print("\n" + "=" * 78)
     print(f"BoD READINESS REPORT — {label}")
@@ -248,6 +312,15 @@ def main():
             f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
         )
     print()
+    if bm25_r is not None:
+        print("  Deployment architecture (when GO):")
+        print(f"    BM25 R@10:        {bm25_r:.3f}  (vs base {bd['overall_R10']:.3f})")
+        print(f"    recommendation:   {arch or 'n/a'}")
+        print(f"    reason:           {arch_msg}")
+        print()
+    else:
+        print("  Deployment architecture: BM25 not measured (install `bm25s`).")
+        print()
     print(f"  VERDICT: {v_label}")
     print(f"  reason:  {v_msg}")
     print()
