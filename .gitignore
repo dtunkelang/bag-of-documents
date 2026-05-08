@@ -21,6 +21,10 @@ nfcorpus_data/
 bestbuy_acm_data/
 acm-sf-chapter-hackathon-big/
 fiqa_data/
+scifact_data/
+quora_data/
+arguana_data/
+trec_covid_data/
 logs/
 full_catalog/
 models/
