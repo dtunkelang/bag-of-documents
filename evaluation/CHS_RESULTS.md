@@ -199,33 +199,48 @@ scale, not by cluster geometry.
    |---|---:|---:|---:|---:|---:|---:|---:|---:|
    | BestBuy ACM      | 0.525 | 44.0% | 13.0% |  +0.3 |  +4.0 | **+10.2** |  **+14.2** | GO ✓ |
    | ESCI-Spanish     | 0.450 | 67.0% |  1.1% |  +3.2 |  +7.9 | **+16.7** |  **+13.2** | GO ✓ |
+   | CQADupStack/tex  | (GREEN) | 52.3% | 36.8% |  −2.9 |  +2.6 | +10.9 |   +4.4 | GO ✓ |
+   | SCIDOCS          | 0.367 | 36.1% |  0.8% |  +1.7 |  +4.3 |  +9.0 |   +4.1 | SKIP ✗ (false-SKIP, SCHS gate) |
+   | CQADupStack/programmers | (YELLOW) | 39.7% | 47.1% | −5.1 |  +0.0 |  +7.1 |   +4.1 | SKIP ✗ (false-SKIP, tax-band over-pessimistic) |
+   | CQADupStack/gaming | (GREEN) | 24.5% | 66.9% | −8.8 |  −3.7 |  +2.1 |   +4.1 | SKIP ✗ (false-SKIP, tax-band over-pessimistic) |
    | ESCI-US (E-only) | 0.540 | 34.0% |  4.5% |  +1.0 |  +3.6 |  +8.2 |   +3.0 | GO ✓ |
    | FiQA-2018        | 0.440 | 34.0% | 26.5% |  −2.3 |  +1.4 |  +6.9 |   +2.6 | GO ✓ |
-   | SCIDOCS          | 0.367 | 36.1% |  0.8% |  +1.7 |  +4.3 |  +9.0 |   +4.1 | SKIP ✗ (SCHS-floor false negative) |
-   | Quora            | 0.850 |  2.4% | 92.0% | −13.7 |  −9.0 |  −4.9 |   +0.2 | SKIP ✓ |
    | SciFact          |  nan  | 20.7% | 77.3% | −10.6 |  −5.3 |  +0.5 |   +1.0 | SKIP ✓ |
    | NFCorpus         | 0.380 | 31.0% |  4.3% |  +0.9 |  +3.3 |  +7.5 |   +0.8 | SKIP ✓ |
    | TREC-COVID       | 0.280 |  8.0% |  0.0% |  +0.4 |  +1.0 |  +2.0 |   +0.5 | SKIP ✓ |
+   | Quora            | 0.850 |  2.4% | 92.0% | −13.7 |  −9.0 |  −4.9 |   +0.2 | SKIP ✓ |
    | ArguAna          |  nan  | 23.2% | 76.8% | −10.4 |  −4.9 |  +1.2 |   n/a  | SKIP ✓ |
 
    Five observations:
-   - **9 of 10 verdicts are correct (4 GO, 5 SKIP, 1 false-SKIP).** GO
-     predictions delivered positive lifts (+2.6 to +14.2pp). SKIP
-     verdicts identified corpora with negligible (≤+1.1pp) actual lift,
-     including ArguAna where bag training was empirically impossible
-     (1 positive/query) and Quora — the framework's strongest stress test
-     (highest SCHS, 0.850, but base R@10 already 0.950).
-   - **The one false-SKIP is SCIDOCS** (SCHS 0.367, just below the 0.40
-     floor; actual lift +4.1pp, matching the realistic prediction of
-     +4.3pp closely). The SCHS gate produced a false negative because
-     SCIDOCS has 36% base-blind + only 0.8% base-perfect — almost no tax
-     exposure, so the rescue translates to a real net lift even with
-     mediocre clustering. The gate is conservative: keeping it correctly
-     SKIPs NFCorpus (similar SCHS, similar base-blind, but much weaker
-     bag signal — without the gate NFCorpus would become a false-GO), at
-     the cost of missing a +4pp lift on SCIDOCS-like cases. A safer rule
-     would relax the floor when base-perfect < 5%, but that risks
-     misclassifying NFCorpus, so we leave the gate intact as documented.
+   - **9 of 13 verdicts are correct (5 GO, 4 SKIP, 3 false-SKIPs, 1 untrainable).**
+     GO predictions delivered positive lifts (+2.6 to +14.2pp); average
+     +7.5pp. True SKIPs all delivered <+1.1pp lift. The 3 false-SKIPs all
+     delivered ~+4pp lift — small but not negligible. ArguAna is
+     correctly SKIPed for being untrainable (1 positive/query).
+   - **The framework is over-pessimistic on moderate-base corpora.**
+     The realistic-band tax of −10pp overstates the cost on every corpus
+     with base R@10 > 0.30: actual taxes are −2.3 to −6.9pp on
+     CQADupStack subsets, −1.7pp on SciFact, −0.5pp on Quora — all well
+     below −10pp. This pushes CQADupStack/programmers and gaming into
+     incorrect SKIP verdicts (actual +4.1pp each).
+   - **Tax magnitude tracks (1 − base R@10) closely.** Empirically the
+     ratio `tax / (1 − base R@10)` clusters around 0.07–0.13 across all
+     measured corpora; substituting `tax ≈ 0.10 × (1 − base R@10)` for
+     the fixed −10pp realistic band would correctly classify the 3
+     false-SKIPs without breaking the 4 true SKIPs. The current bands
+     are kept for traceability; a future calibration revision is the
+     natural next step.
+   - **The SCHS-floor false-SKIP (SCIDOCS) is a separate failure mode.**
+     SCIDOCS has SCHS 0.367 + 36% base-blind + only 0.8% base-perfect —
+     the SCHS gate fires before the (correctly-positive) realistic
+     prediction can reach the GO threshold. Relaxing the floor when
+     base-perfect < 5% would fix SCIDOCS but risks NFCorpus (similar
+     SCHS but weaker bag signal). Documented as a known limitation.
+   - **Practical reading of the verdict.** A GO verdict predicts
+     "expect at least +2pp lift, often much more"; a SKIP can mean
+     either "no lift" (≤+1pp) or "modest lift not worth the pipeline
+     cost" (~+4pp). Treat SKIP as "don't expect a *big* lift," not as
+     "BoD will fail outright."
    - **The bands bracket reality on 7-of-7 trainable corpora.** Actual
      lift falls inside `[pessimistic, optimistic]` for Spanish, ESCI-US,
      FiQA, SciFact, NFCorpus, and TREC-COVID. BestBuy actual *exceeds*
