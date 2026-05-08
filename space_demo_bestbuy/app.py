@@ -99,10 +99,16 @@ def topk(model, pv, query, k=10):
     return [(int(i), float(sims[i])) for i in idx]
 
 
+def _md_escape(s):
+    """BestBuy XML <name> values can contain literal newlines or pipes,
+    both of which break GitHub-flavored Markdown tables. Strip them."""
+    return s.replace("\n", " ").replace("\r", " ").replace("|", "\\|").strip()
+
+
 def format_results(hits, titles, pids, gold_pids):
     rows = []
     for rank, (i, s) in enumerate(hits, 1):
-        title = titles[i]
+        title = _md_escape(titles[i])
         pid = pids[i]
         is_gold = pid in gold_pids
         if is_gold:
