@@ -195,28 +195,34 @@ scale, not by cluster geometry.
    distribution into a GO / CONDITIONAL / SKIP verdict before any BoD
    training. Applied to each row of the calibration table:
 
-   | Corpus | SCHS | BB% | BP% | pred_pess | pred_real | pred_opt | actual | verdict |
-   |---|---:|---:|---:|---:|---:|---:|---:|---:|
-   | BestBuy ACM      | 0.525 | 44.0% | 13.0% |  +0.3 |  +4.0 | **+10.2** |  **+14.2** | GO ✓ |
-   | ESCI-Spanish     | 0.450 | 67.0% |  1.1% |  +3.2 |  +7.9 | **+16.7** |  **+13.2** | GO ✓ |
-   | CQADupStack/tex  | (GREEN) | 52.3% | 36.8% |  −2.9 |  +2.6 | +10.9 |   +4.4 | GO ✓ |
-   | SCIDOCS          | 0.367 | 36.1% |  0.8% |  +1.7 |  +4.3 |  +9.0 |   +4.1 | SKIP ✗ (false-SKIP, SCHS gate) |
-   | CQADupStack/programmers | (YELLOW) | 39.7% | 47.1% | −5.1 |  +0.0 |  +7.1 |   +4.1 | SKIP ✗ (false-SKIP, tax-band over-pessimistic) |
-   | CQADupStack/gaming | (GREEN) | 24.5% | 66.9% | −8.8 |  −3.7 |  +2.1 |   +4.1 | SKIP ✗ (false-SKIP, tax-band over-pessimistic) |
-   | ESCI-US (E-only) | 0.540 | 34.0% |  4.5% |  +1.0 |  +3.6 |  +8.2 |   +3.0 | GO ✓ |
-   | FiQA-2018        | 0.440 | 34.0% | 26.5% |  −2.3 |  +1.4 |  +6.9 |   +2.6 | GO ✓ |
-   | SciFact          |  nan  | 20.7% | 77.3% | −10.6 |  −5.3 |  +0.5 |   +1.0 | SKIP ✓ |
-   | NFCorpus         | 0.380 | 31.0% |  4.3% |  +0.9 |  +3.3 |  +7.5 |   +0.8 | SKIP ✓ |
-   | TREC-COVID       | 0.280 |  8.0% |  0.0% |  +0.4 |  +1.0 |  +2.0 |   +0.5 | SKIP ✓ |
-   | Quora            | 0.850 |  2.4% | 92.0% | −13.7 |  −9.0 |  −4.9 |   +0.2 | SKIP ✓ |
-   | ArguAna          |  nan  | 23.2% | 76.8% | −10.4 |  −4.9 |  +1.2 |   n/a  | SKIP ✓ |
+   v2 calibration (tax = TAX_K × base_perfect × (1 − base R@10)):
 
-   Five observations:
-   - **9 of 13 verdicts are correct (5 GO, 4 SKIP, 3 false-SKIPs, 1 untrainable).**
-     GO predictions delivered positive lifts (+2.6 to +14.2pp); average
-     +7.5pp. True SKIPs all delivered <+1.1pp lift. The 3 false-SKIPs all
-     delivered ~+4pp lift — small but not negligible. ArguAna is
-     correctly SKIPed for being untrainable (1 positive/query).
+   | Corpus | SCHS | BB% | BP% | base R@10 | pred_real | pred_opt | actual | verdict |
+   |---|---:|---:|---:|---:|---:|---:|---:|---:|
+   | BestBuy ACM      | 0.525 | 44.0% | 13.0% | 0.31 |  +4.4 | **+10.6** |  **+14.2** | GO ✓ |
+   | ESCI-Spanish     | 0.450 | 67.0% |  1.1% | 0.07 |  +8.0 | **+16.7** |  **+13.2** | GO ✓ |
+   | CQADup/mathematica | (RED) | 50.7% | 37.3% | 0.43 |  +3.9 | +11.4 |   +5.9 | SKIP ✗ (SCHS-gate false-SKIP) |
+   | CQADup/tex       | (GREEN) | 52.3% | 36.8% | 0.42 |  +4.1 | +11.7 |   +4.4 | GO ✓ |
+   | CQADup/programmers | (YELLOW) | 39.7% | 47.1% | 0.53 |  +2.6 |  +8.7 |   +4.1 | GO ✓ (was false-SKIP under v1) |
+   | CQADup/gaming    | (GREEN) | 24.5% | 66.9% | 0.71 |  +1.0 |  +5.0 |   +4.1 | CONDITIONAL/GO (was false-SKIP under v1) |
+   | SCIDOCS          | 0.367 | 36.1% |  0.8% | 0.23 |  +4.3 |  +9.0 |   +4.1 | SKIP ✗ (SCHS-gate false-SKIP) |
+   | CQADup/physics   | (GREEN) | 32.0% | 52.6% | 0.60 |  +1.7 |  +6.7 |   +3.6 | GO ✓ |
+   | CQADup/stats     | (YELLOW) | 49.4% | 42.9% | 0.46 |  +3.6 | +11.0 |   +3.1 | GO ✓ |
+   | ESCI-US (E-only) | 0.540 | 34.0% |  4.5% | 0.22 |  +3.7 |  +8.2 |   +3.0 | GO ✓ |
+   | CQADup/gis       | (GREEN) | 40.9% | 52.4% | 0.56 |  +2.6 |  +8.5 |   +2.9 | GO ✓ |
+   | FiQA-2018        | 0.440 | 34.0% | 26.5% | 0.44 |  +2.6 |  +6.5 |   +2.6 | GO ✓ |
+   | SciFact          |  nan  | 20.7% | 77.3% | 0.78 |  +0.8 |  +4.1 |   +1.0 | SKIP ✓ |
+   | NFCorpus         | 0.380 | 31.0% |  4.3% | 0.16 |  +3.4 |  +7.5 |   +0.8 | SKIP ✓ (gate) |
+   | TREC-COVID       | 0.280 |  8.0% |  0.0% | 0.013 |  +1.0 |  +2.0 |   +0.5 | SKIP ✓ (gate) |
+   | Quora            | 0.850 |  2.4% | 92.0% | 0.95 |  −0.2 |  +0.3 |   +0.2 | SKIP ✓ |
+   | ArguAna          |  nan  | 23.2% | 76.8% | 0.77 |  +1.0 |  +4.7 |   n/a  | SKIP ✓ |
+
+   Five observations (under v2 calibration; 17-corpus run):
+   - **14 of 17 verdicts are correct (10 GO, 4 SKIP, 2 SCHS-gate
+     false-SKIPs, 1 untrainable).** GO predictions delivered positive
+     lifts (+2.6 to +14.2pp); average ~+5pp. True SKIPs delivered
+     ≤+1.1pp lift. The 2 false-SKIPs (SCIDOCS, mathematica) both fired
+     via the SCHS<0.40 gate; both actually lifted +4–6pp.
    - **The framework is over-pessimistic on moderate-base corpora.**
      The realistic-band tax of −10pp overstates the cost on every corpus
      with base R@10 > 0.30: actual taxes are −2.3 to −6.9pp on
@@ -233,12 +239,16 @@ scale, not by cluster geometry.
      false-SKIPs); SCIDOCS remains a false-SKIP because its SCHS gate
      fires before the realistic band reaches threshold. After the
      refinement the framework is **11/13 verdicts correct** (was 9/13).
-   - **The SCHS-floor false-SKIP (SCIDOCS) is a separate failure mode.**
-     SCIDOCS has SCHS 0.367 + 36% base-blind + only 0.8% base-perfect —
-     the SCHS gate fires before the (correctly-positive) realistic
-     prediction can reach the GO threshold. Relaxing the floor when
-     base-perfect < 5% would fix SCIDOCS but risks NFCorpus (similar
-     SCHS but weaker bag signal). Documented as a known limitation.
+   - **The SCHS<0.40 gate produces ~50% false-SKIP among corpora it
+     fires on.** Of the 4 RED-SCHS corpora, NFCorpus (0.380) and
+     TREC-COVID (0.280) actual lift was correctly tiny (<+1pp), but
+     SCIDOCS (0.367) and mathematica (RED) actually delivered +4–6pp
+     lift. The gate is too strict on this subgroup. Differentiator: the
+     true-SKIPs have higher base-perfect (NFCorpus 4.3%, TREC-COVID 0%
+     but 92% of qrels are positives so different metric regime), while
+     SCIDOCS has 0.8% base-perfect and mathematica has 37%. No clean
+     SCHS threshold separates the false-SKIPs from the true-SKIPs.
+     A 2D rule (SCHS, base R@10) might work; out of scope for v2.
    - **Practical reading of the verdict.** A GO verdict predicts
      "expect at least +2pp lift, often much more"; a SKIP can mean
      either "no lift" (≤+1pp) or "modest lift not worth the pipeline
