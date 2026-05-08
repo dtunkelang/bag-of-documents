@@ -172,16 +172,17 @@ scale, not by cluster geometry.
    smaller — sometimes negative — lift, even though SCHS would not
    change.
 
-8a. **Rescue rate is predictable from bag stats (LOO RMSE 3.74pp;
-   in-sample R²=0.787 / RMSE=2.53pp).** Pattern 9 left rescue rate as
-   the unmodeled factor in the readiness tool — the realistic band
-   assumes 12pp universally even though the measured range is 4–25pp.
-   A linear regression over 15 calibration corpora finds three
-   pre-training proxies that explain 79% of the in-sample variance:
+8a. **Rescue rate is predictable from bag stats below base R@10 = 0.85
+   (LOO RMSE 2.64pp / LOO R²=0.78; in-sample R²=0.869 / RMSE=2.04pp).**
+   Pattern 9 left rescue rate as the unmodeled factor in the readiness
+   tool — the realistic band assumes 12pp universally even though the
+   measured range is 4–25pp. A linear regression over 14 calibration
+   corpora (Quora excluded; see regime gate below) finds three
+   pre-training proxies that explain 87% of the in-sample variance:
 
    ```
-   rescue_pp ≈ 4.55 × log10(n_bags) − 0.06 × median_bag_size
-              + 37.88 × median_bag_specificity − 32.67
+   rescue_pp ≈ 5.27 × log10(n_bags) − 0.01 × median_bag_size
+              + 54.35 × median_bag_specificity − 48.23
    ```
 
    - `n_bags`: count of multi-positive queries (qrels-only, free).
@@ -191,14 +192,18 @@ scale, not by cluster geometry.
      under the base encoder (requires encoding bag members, but the
      base encoder is already loaded for the base-difficulty step).
 
-   Worst in-sample residuals: Quora (−4.9pp), mathematica (+4.8pp),
-   gaming (+3.7pp), BestBuy (+3.4pp). Most predictions land within ±3pp.
+   **Regime gate (`base R@10 < 0.85`):** the all-15 fit had LOO
+   RMSE 3.74pp / LOO R² 0.537, dragged down entirely by Quora (base
+   R@10 = 0.95, LOO residual −7.7pp — the linear model has no support
+   at the extreme high-base tail). Refitting on the 14 corpora below
+   0.85 lifts LOO R² to 0.78 and tightens RMSE to 2.64pp. Above 0.85,
+   `predict_rescue_rate()` returns None and the readiness tool falls
+   back to the wide v1 5/12/25pp bands. Threshold sweep (in
+   `probe_rescue_predictors.py`) confirms 0.85 is the right cutoff:
+   LOO R² is flat at 0.78 across 0.70 ≤ thr ≤ 0.90.
 
-   Leave-one-out cross-validation on the 15 corpora gives the honest
-   out-of-sample band: **LOO RMSE 3.74pp, LOO R²=0.537** (worst miss
-   Quora −7.7pp, where extreme base R@10 = 0.95 leaves no in-set
-   neighbours). The 1.2pp gap between in-sample and LOO RMSE is real
-   overfit but not catastrophic — the predictor still generalizes.
+   Worst in-sample residual within regime: mathematica (+6.2pp). All
+   other predictions land within ±3pp.
 
    The qrels-only ablation (drop `median_bag_specificity`) looks
    reasonable in-sample (R²=0.608 / RMSE=3.44pp) but **fails LOOCV**
@@ -207,14 +212,16 @@ scale, not by cluster geometry.
    model is just memorising. Implication: do not advertise a "qrels-only
    fallback" — always run the bag-encoding step (the base encoder is
    already loaded for base-difficulty anyway). A `+ base_r10` variant
-   also fails LOOCV (LOO R² = −0.561), confirming it adds nothing.
+   also fails LOOCV (LOO R² = −0.561), confirming it adds nothing as
+   a feature. (`base_r10` *is* used as the regime gate, not as input.)
 
    Practical: the readiness tool replaces the wide rescue band
-   (5/12/25pp) with a point estimate ± LOO RMSE (3.74pp), sharpening
-   every lift prediction. Implemented in `evaluation/bod_readiness_report.py`
-   (`compute_bag_stats` + `predict_rescue_rate`); regression, ablations,
-   and LOOCV live in `probe_rescue_predictors.py`. End-to-end on FiQA:
-   predicted rescue 10.6pp ±3.7pp, measured 13.0pp (within band).
+   (5/12/25pp) with a point estimate ± LOO RMSE (2.64pp) when in regime,
+   falling back to the wide bands above the threshold. Implemented in
+   `evaluation/bod_readiness_report.py` (`compute_bag_stats` +
+   `predict_rescue_rate`); regression, ablations, LOOCV, and the
+   threshold sweep live in `probe_rescue_predictors.py`. End-to-end on
+   FiQA: predicted rescue 10.8pp ±2.6pp, measured 13.0pp (within band).
 
 8b. **Predict-then-test on FiQA: framework formula validates, priors must
    be measured.** A blind prediction made before training (logged in

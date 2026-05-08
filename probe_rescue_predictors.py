@@ -271,6 +271,71 @@ def main():
     print(f"  LOO RMSE = {loo_rmse_3:.2f}pp")
     print(f"  LOO R²   = {loo_r2_3:.3f}")
 
+    # base_r10 threshold sweep — does gating out high-base-R@10 corpora
+    # tighten the LOO band? The 15-corpus LOO is dragged down by Quora
+    # (base R@10 = 0.95, LOO residual −7.7pp). Refit on subsets below
+    # each threshold to find the regime where the predictor is reliable.
+    print("\n" + "=" * 72)
+    print("base_r10 threshold sweep (3-feature model, in-sample + LOOCV):")
+    print("=" * 72)
+    print(
+        f"  {'threshold':>10} {'n':>3} {'in_RMSE':>8} {'in_R²':>7} "
+        f"{'LOO_RMSE':>9} {'LOO_R²':>8}  {'worst miss':<22} {'resid':>6}"
+    )
+
+    def _refit_loo(subset_rows):
+        Xs = np.array([[r[k] for k in feature_keys] for r in subset_rows], dtype=np.float64)
+        ys = np.array([r["rescue"] for r in subset_rows], dtype=np.float64)
+        Xsb = np.hstack([Xs, np.ones((len(Xs), 1))])
+        coef_full, *_ = np.linalg.lstsq(Xsb, ys, rcond=None)
+        in_pred = Xsb @ coef_full
+        ss_tot_s = float(np.sum((ys - ys.mean()) ** 2))
+        in_rmse_s = float(np.sqrt(np.mean((ys - in_pred) ** 2)))
+        in_r2_s = 1 - float(np.sum((ys - in_pred) ** 2)) / ss_tot_s
+        loo = []
+        for j in range(len(subset_rows)):
+            mask = np.ones(len(subset_rows), dtype=bool)
+            mask[j] = False
+            c, *_ = np.linalg.lstsq(Xsb[mask], ys[mask], rcond=None)
+            loo.append(float(ys[j] - Xsb[j] @ c))
+        loo = np.array(loo)
+        loo_rmse_s = float(np.sqrt(np.mean(loo**2)))
+        loo_r2_s = 1 - float(np.sum(loo**2)) / ss_tot_s
+        worst_j = int(np.argmax(np.abs(loo)))
+        return {
+            "n": len(subset_rows),
+            "in_rmse": in_rmse_s,
+            "in_r2": in_r2_s,
+            "loo_rmse": loo_rmse_s,
+            "loo_r2": loo_r2_s,
+            "worst": subset_rows[worst_j]["label"],
+            "worst_resid": loo[worst_j],
+            "coef": coef_full,
+        }
+
+    for thr in [1.01, 0.90, 0.85, 0.80, 0.75, 0.70]:
+        sub = [r for r in rows if r["base_r10"] < thr]
+        if len(sub) < 5:
+            continue
+        f = _refit_loo(sub)
+        label = f"base<{thr:.2f}" if thr < 1.0 else "all-15"
+        print(
+            f"  {label:>10} {f['n']:>3} {f['in_rmse']:>8.2f} {f['in_r2']:>7.3f} "
+            f"{f['loo_rmse']:>9.2f} {f['loo_r2']:>8.3f}  "
+            f"{f['worst']:<22} {f['worst_resid']:>+6.1f}"
+        )
+
+    # Production gate: base_r10 < 0.85 drops Quora only, doubles LOO R².
+    print("\n  Production gate (base_r10 < 0.85), fitted weights:")
+    sub = [r for r in rows if r["base_r10"] < 0.85]
+    f_prod = _refit_loo(sub)
+    for k, w in zip(feature_keys + ["(intercept)"], f_prod["coef"]):
+        print(f"    {k:<25} {w:>+10.3f}")
+    print(
+        f"  Use these in bod_readiness_report.py with RESCUE_RMSE_PP="
+        f"{f_prod['loo_rmse']:.2f} and RESCUE_BASE_R10_MAX=0.85."
+    )
+
 
 if __name__ == "__main__":
     main()

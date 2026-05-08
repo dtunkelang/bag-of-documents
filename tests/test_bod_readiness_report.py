@@ -136,6 +136,19 @@ def test_predict_rescue_rate_none_when_too_few_bags():
     assert mod.predict_rescue_rate({"n_bags": 5, "median_size": 10, "median_spec": 0.5}) is None
 
 
+def test_predict_rescue_rate_gated_above_base_r10_threshold():
+    """Above RESCUE_BASE_R10_MAX, the predictor is out of regime → None."""
+    mod = _load_module()
+    stats = {"n_bags": 1000, "median_size": 8, "median_spec": 0.55}
+    # Below threshold: returns a value.
+    assert mod.predict_rescue_rate(stats, base_r10=0.30) is not None
+    # At/above threshold: returns None.
+    assert mod.predict_rescue_rate(stats, base_r10=mod.RESCUE_BASE_R10_MAX) is None
+    assert mod.predict_rescue_rate(stats, base_r10=0.95) is None
+    # base_r10=None falls back to ungated behavior (backward-compatible).
+    assert mod.predict_rescue_rate(stats, base_r10=None) is not None
+
+
 def test_predict_rescue_rate_matches_formula():
     """Returned value should match the documented Pattern 8a formula."""
     import numpy as np

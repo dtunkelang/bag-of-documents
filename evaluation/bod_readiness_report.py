@@ -70,16 +70,22 @@ SCHS_FLOOR = 0.40
 # in between, expect ties or small wins in either direction.
 RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
-# Rescue-rate predictor (Pattern 8a in CHS_RESULTS.md). Linear regression over
-# 15 calibration corpora; in-sample R²=0.787, RMSE=2.53pp; leave-one-out
-# RMSE 3.74pp (the honest out-of-sample band). Coefficients are for percentages.
+# Rescue-rate predictor (Pattern 8a in CHS_RESULTS.md). Linear regression
+# fit on the 14 calibration corpora with base R@10 < 0.85. Quora (base R@10
+# = 0.95) is excluded — its extreme leverage drops LOO R² from 0.78 to 0.54
+# and inflates LOO RMSE from 2.64pp to 3.74pp. Within the validated regime:
+# in-sample R²=0.869 / RMSE=2.04pp; LOO R²=0.780 / RMSE=2.64pp.
+#
+# Above the threshold the linear model has no support, so we return None
+# and the readiness tool falls back to the wide v1 5/12/25pp bands.
 #
 # rescue_pp = log_n_bags*W_LOG_N + median_size*W_SIZE + median_spec*W_SPEC + INTERCEPT
-RESCUE_W_LOG_N = 4.549
-RESCUE_W_SIZE = -0.057
-RESCUE_W_SPEC = 37.879
-RESCUE_INTERCEPT = -32.668
-RESCUE_RMSE_PP = 3.74  # LOO RMSE (vs in-sample 2.53pp); use as ±band
+RESCUE_W_LOG_N = 5.270
+RESCUE_W_SIZE = -0.008
+RESCUE_W_SPEC = 54.345
+RESCUE_INTERCEPT = -48.228
+RESCUE_RMSE_PP = 2.64  # LOO RMSE (in-sample 2.04pp); use as ±band
+RESCUE_BASE_R10_MAX = 0.85  # gate: above this, the predictor is unreliable
 
 
 def compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance, k_cap=50):
@@ -121,12 +127,19 @@ def compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance, k_cap=50):
     }
 
 
-def predict_rescue_rate(bag_stats):
+def predict_rescue_rate(bag_stats, base_r10=None):
     """Linear-regression rescue-rate point estimate (Pattern 8a in
     CHS_RESULTS.md). Returns rescue rate as a fraction (e.g., 0.12 = 12pp),
-    or None if `bag_stats` is missing or `n_bags` is too small to be reliable.
+    or None when the predictor is out of its validated regime:
+
+      - `bag_stats` missing or `n_bags` < 10 (too small a sample to trust).
+      - `base_r10` >= RESCUE_BASE_R10_MAX (no calibration support; Quora
+        was the only training point above this threshold and its LOO
+        residual was −7.7pp).
     """
     if bag_stats is None or bag_stats.get("n_bags", 0) < 10:
+        return None
+    if base_r10 is not None and base_r10 >= RESCUE_BASE_R10_MAX:
         return None
     pp = (
         RESCUE_W_LOG_N * np.log10(bag_stats["n_bags"])
@@ -377,7 +390,7 @@ def main():
     # Bag stats + rescue-rate point estimate (Pattern 8a).
     pid_to_idx = {p: i for i, p in enumerate(pids)}
     bag_stats = compute_bag_stats(qrels_full, pid_to_idx, base_pv, args.min_relevance)
-    predicted_rescue = predict_rescue_rate(bag_stats)
+    predicted_rescue = predict_rescue_rate(bag_stats, base_r10=bd["overall_R10"])
 
     predicted = predict_lift(
         bd["base_blind"], bd["base_perfect"], bd["overall_R10"], predicted_rescue
@@ -425,7 +438,13 @@ def main():
                 f"=>  predicted Δ R@10 = {lift * 100:+.1f}pp"
             )
     else:
-        print("    (rescue rate point-estimate unavailable; using fixed v1 bands)")
+        if bd["overall_R10"] >= RESCUE_BASE_R10_MAX:
+            print(
+                f"    (base R@10 {bd['overall_R10']:.3f} >= {RESCUE_BASE_R10_MAX} — "
+                f"predictor out of validated regime; using fixed v1 bands)"
+            )
+        else:
+            print("    (rescue rate point-estimate unavailable; using fixed v1 bands)")
         for scenario, lift in predicted.items():
             rescue = RESCUE_BANDS[scenario]
             tax_eff = TAX_K[scenario] * headroom
