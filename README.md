@@ -181,7 +181,7 @@ then `python demo_bestbuy.py` serves at `http://localhost:7860`.
 
 ## When does BoD generalize? — the readiness framework
 
-Bag-of-documents fine-tuning doesn't help every corpus. We've built a runnable framework — measurements + a calibration table + a verdict tool — that predicts BoD lift on a new corpus *before* you invest in training. **6-of-6 verdicts correct so far** across BestBuy ACM, ESCI-Spanish, ESCI-US, FiQA-2018, SciFact, and NFCorpus. The full table and methodology live in [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md).
+Bag-of-documents fine-tuning doesn't help every corpus. We've built a runnable framework — measurements + a calibration table + a verdict tool — that predicts BoD lift on a new corpus *before* you invest in training. **9-of-10 verdicts correct** across BestBuy ACM, ESCI-Spanish, ESCI-US, FiQA-2018, Quora, SciFact, NFCorpus, TREC-COVID, ArguAna, and SCIDOCS — the one false negative (SCIDOCS, SCHS just below the floor with low tax exposure) is documented in the framework's known-limitations section. Full table and methodology in [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md).
 
 ### Quick start: BoD readiness report
 
@@ -213,10 +213,14 @@ lift ≈ (base-blind size × rescue rate) − (base-perfect size × specializati
 |---|---:|---:|---:|---:|---:|:---:|
 | BestBuy ACM | 0.525 | 44% | +24.9pp | −6.4 | **+14.2pp** | GO ✓ |
 | ESCI-Spanish | 0.45 | 67% | +15.1pp | −12.9 | **+13.2pp** | GO ✓ |
+| SCIDOCS | 0.367 | 36% | +6.5pp | −5.0 | **+4.1pp** | SKIP ✗ (SCHS-floor false-negative) |
 | ESCI-US (E-only) | 0.54 | 34% | +6.1pp | −10.4 | **+3.0pp** | GO ✓ |
 | FiQA-2018 | 0.44 | 34% | +13.0pp | −7.5 | **+2.6pp** | GO ✓ |
 | SciFact | nan | 21% | +12.1pp | −1.7 | **+1.0pp** | SKIP ✓ |
 | NFCorpus | 0.38 | 31% | +4.2pp | −17.9 | **+0.8pp** | SKIP ✓ |
+| TREC-COVID | 0.28 | 8% | +2.0pp | −0.0 | **+0.5pp** | SKIP ✓ |
+| Quora | 0.85 | 2.4% | +14.0pp | −0.5 | **+0.2pp** | SKIP ✓ |
+| ArguAna | nan | 23% | n/a | n/a | **n/a** | SKIP ✓ (1-pos/query, untrainable) |
 
 All values use the fraction-recovered R@10 metric (mean over queries of `positives_in_top_10 / total_positives`). See [`evaluation/CHS_RESULTS.md`](evaluation/CHS_RESULTS.md) for the full per-bucket breakdown and predict-then-test cycles (BestBuy and FiQA were validated with predictions logged before training).
 
