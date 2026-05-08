@@ -63,7 +63,10 @@ def main():
     )
     args = ap.parse_args()
 
-    out_dir = args.out_dir or f"{args.dataset.replace('-', '_')}_data"
+    # Subset IDs like "cqadupstack/programmers" need both '/' and '-' folded
+    # for the local data dir name.
+    safe_label = args.dataset.replace("/", "_").replace("-", "_")
+    out_dir = args.out_dir or f"{safe_label}_data"
     os.makedirs(out_dir, exist_ok=True)
     full_id = f"beir/{args.dataset}"
 
