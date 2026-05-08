@@ -247,6 +247,31 @@ scale, not by cluster geometry.
    priors works (both hit on FiQA); predicting base-blind size from
    priors is unreliable.
 
+8d. **Pure predict-then-test on CQADup/unix (never in calibration):
+   rescue prediction hits within LOO band.** Generated all priors
+   BEFORE training, then ran the full bag/hardneg/MNRL/diagnose
+   pipeline:
+
+   | Prior | Predicted | Measured | Δ |
+   |---|---:|---:|---:|
+   | Base R@10 | 0.550 | 0.550 | 0.000 |
+   | Base-blind subset | 38.8% | 38.7% | −0.1pp |
+   | Base-perfect subset | 49.4% | 49.5% | +0.1pp |
+   | **Rescue rate** | **12.0 ±2.6pp** | **13.1pp** | **+1.1pp ✓ in LOO band** |
+   | Realistic Δ R@10 | +2.4pp | — | — |
+   | Optimistic Δ R@10 | +4.4pp | — | — |
+   | Overall Δ R@10 | — | **+4.7pp** | slightly above optimistic |
+
+   The prediction was made with the gated 14-corpus regression and
+   uses train_qrels for bag stats (the methodology fix this session
+   shipped in `evaluation/bod_readiness_report.py` — without it,
+   bag stats would have come from the smaller test_qrels and the
+   prediction would have been ~2pp lower).
+
+   Verdict was CONDITIONAL when actual was +4.7pp — the tool errs
+   conservative by design (the optimistic-band threshold for GO is
+   +5pp, just above what unix delivered). No change recommended.
+
 8c. **End-to-end sweep validation: predictor RMSE 2.82pp on the 14
    in-regime calibration corpora (vs LOO RMSE 2.64pp).** Running
    `evaluation/sweep_readiness.py` over every locally-available corpus
