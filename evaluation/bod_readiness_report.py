@@ -342,6 +342,23 @@ def main():
         print("    - Use a weaker base encoder (more headroom; see Pattern 7 in CHS_RESULTS.md).")
         print("    - Augment qrels with click data or CE-filtered hybrid retrieval.")
         print("    - For SCHS<0.40: consider whether the corpus has any cluster structure at all.")
+        # Known false-SKIP zone: SCHS just below the floor + low base-perfect (low tax
+        # exposure) can still produce a real lift even with mediocre clustering. SCIDOCS
+        # is the canonical example (SCHS 0.367, BP 0.8% -> actual +4.1pp despite SKIP).
+        # NaN check via x == x.
+        if (
+            chs.schs is not None
+            and chs.schs == chs.schs  # noqa: PLR0124  not nan
+            and 0.30 <= chs.schs < SCHS_FLOOR
+            and bd["base_perfect"] < 0.05
+        ):
+            print()
+            print("    Note: this corpus sits in the 'false-SKIP zone' (Pattern 9 in")
+            print("    CHS_RESULTS.md): SCHS just below the 0.40 floor AND base-perfect")
+            print("    fraction below 5% (low tax exposure). The realistic-band lift")
+            print(f"    prediction was {predicted['realistic'] * 100:+.1f}pp; SCIDOCS in this")
+            print("    zone delivered +4.1pp actual. Consider piloting BoD anyway with a")
+            print("    small-scale ablation before fully committing.")
 
 
 if __name__ == "__main__":

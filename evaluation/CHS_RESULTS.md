@@ -262,12 +262,14 @@ scale, not by cluster geometry.
     | SciFact | −1.9pp | +1.5pp | 7.0 / 5.3 / 87.7 (88% no-op) |
     | NFCorpus | −1.4pp | −1.0pp | 22.0 / 25.1 / 52.9 |
     | BestBuy ACM | −1.8pp | **−9.7pp** | 6.0 / 25.6 / 68.3 |
+    | SCIDOCS | −7.3pp | **−4.8pp** | 10.8 / 28.0 / 61.2 |
     | Quora | −10.1pp | **−3.6pp** | 2.0 / 7.5 / 90.5 |
     | FiQA-2018 | −15.3pp | **−7.7pp** | 10.3 / 25.2 / 64.5 |
 
-    All values are fraction-recovered R@10. The Pearson correlation
-    between (BM25 − base) and (rerank − retrieve) across these 8
-    corpora is ~0.86; the principle is directional, not exact.
+    All values are fraction-recovered R@10. Across these 9 corpora the
+    sign of (BM25 − base) predicts the sign of (rerank − retrieve)
+    correctly in 8 of 9 cases (SciFact is the exception due to its 88%
+    ceiling effect); the magnitude correlation is approximate.
 
     The mechanism: **rerank is bottlenecked by its candidate pool.**
     The BoD model can only sort what BM25 hands it. When BM25's top-50
