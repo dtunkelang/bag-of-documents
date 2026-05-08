@@ -172,7 +172,36 @@ scale, not by cluster geometry.
    smaller — sometimes negative — lift, even though SCHS would not
    change.
 
-8. **Predict-then-test on FiQA: framework formula validates, priors must
+8a. **Rescue rate is predictable from bag stats (R²=0.787, RMSE=2.53pp).**
+   Pattern 9 left rescue rate as the unmodeled factor in the readiness
+   tool — the realistic band assumes 12pp universally even though the
+   measured range is 4–25pp. A linear regression over 15 calibration
+   corpora finds three pre-training proxies that explain 79% of the
+   variance:
+
+   ```
+   rescue_pp ≈ 4.55 × log10(n_bags) − 0.06 × median_bag_size
+              + 37.88 × median_bag_specificity − 32.67
+   ```
+
+   - `n_bags`: count of multi-positive queries (qrels-only, free).
+   - `median_bag_size`: median # positives per multi-positive query
+     (qrels-only, free).
+   - `median_bag_specificity`: median intra-bag cosine to centroid
+     under the base encoder (requires encoding bag members, but the
+     base encoder is already loaded for the base-difficulty step).
+
+   Worst residuals: Quora (−4.9pp), mathematica (+4.8pp), gaming
+   (+3.7pp), BestBuy (+3.4pp). Most predictions land within ±3pp.
+   A qrels-only variant (drop bag specificity) drops to R²=0.608 /
+   RMSE=3.44pp — usable when the encoder isn't loaded but ~1.4pp
+   noisier.
+
+   Practical: the readiness tool can replace the wide rescue band
+   (5/12/25pp) with a point estimate ± ~2.5pp uncertainty, sharpening
+   every lift prediction. See `probe_rescue_predictors.py`.
+
+8b. **Predict-then-test on FiQA: framework formula validates, priors must
    be measured.** A blind prediction made before training (logged in
    `logs/fiqa_prediction.md`) hit SCHS (predicted 0.40–0.55, actual 0.442)
    and rescue rate (predicted +5 to +15pp, actual +13.0pp) but missed
