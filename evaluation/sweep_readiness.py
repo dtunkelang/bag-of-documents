@@ -83,7 +83,13 @@ def run_one(label, data_dir, pid_file):
     predicted = rr.predict_lift(
         bd["base_blind"], bd["base_perfect"], bd["overall_R10"], predicted_rescue
     )
-    v_label, _ = rr.verdict(chs.schs, bd["base_blind"], bd["base_perfect"], predicted)
+    v_label, _ = rr.verdict(
+        chs.schs,
+        bd["base_blind"],
+        bd["base_perfect"],
+        predicted,
+        n_bags=bag_stats["n_bags"] if bag_stats else 0,
+    )
     return {
         "n_queries": bd["n_queries"],
         "base_R10": bd["overall_R10"],

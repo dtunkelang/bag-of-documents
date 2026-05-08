@@ -182,7 +182,15 @@ def predict_lift(base_blind, base_perfect, base_overall_r10=None, predicted_resc
     return out
 
 
-def verdict(schs, base_blind, base_perfect, predicted):
+def verdict(schs, base_blind, base_perfect, predicted, n_bags=None):
+    # No multi-positive queries → no bags → BoD has nothing to train on.
+    # This trumps every other signal; the chain is a non-starter.
+    if n_bags is not None and n_bags == 0:
+        return (
+            "SKIP",
+            "no multi-positive queries (n_bags=0); BoD requires ≥2 positives per "
+            "query to form a bag — this corpus has none.",
+        )
     if schs < SCHS_FLOOR:
         return (
             "SKIP",
@@ -395,7 +403,13 @@ def main():
     predicted = predict_lift(
         bd["base_blind"], bd["base_perfect"], bd["overall_R10"], predicted_rescue
     )
-    v_label, v_msg = verdict(chs.schs, bd["base_blind"], bd["base_perfect"], predicted)
+    v_label, v_msg = verdict(
+        chs.schs,
+        bd["base_blind"],
+        bd["base_perfect"],
+        predicted,
+        n_bags=bag_stats["n_bags"] if bag_stats else 0,
+    )
 
     print("\n--- 3/3: BM25 R@10 (architecture recommendation) ---", flush=True)
     qids_eval = sorted(queries_by_qid)

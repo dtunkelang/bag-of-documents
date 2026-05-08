@@ -41,6 +41,21 @@ def test_predict_lift_decreases_with_base_perfect_size():
         assert low_tax[k] > high_tax[k]
 
 
+def test_verdict_skip_when_no_bags():
+    """n_bags=0 → SKIP regardless of SCHS or headroom (no training possible)."""
+    mod = _load_module()
+    predicted = mod.predict_lift(base_blind=0.50, base_perfect=0.05)
+    label, reason = mod.verdict(
+        schs=0.55,
+        base_blind=0.50,
+        base_perfect=0.05,
+        predicted=predicted,
+        n_bags=0,
+    )
+    assert label == "SKIP"
+    assert "n_bags=0" in reason or "multi-positive" in reason
+
+
 def test_verdict_skip_on_low_schs():
     """SCHS below the floor overrides everything to SKIP, even with great headroom."""
     mod = _load_module()
