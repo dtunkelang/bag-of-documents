@@ -13,7 +13,7 @@ pinned: false
 
 Side-by-side comparison of off-the-shelf MiniLM vs a bag-of-documents-fine-tuned MiniLM on the BestBuy 2012 ACM Hackathon clickthrough dataset.
 
-- **Catalog**: 53,048 BestBuy products from the 2012 ACM SF Hackathon dataset.
+- **Catalog**: 53,048 products — the subset of the full ~1.2M-SKU BestBuy 2012 catalog that appeared in queries with ≥2 distinct clicked SKUs (so each query has bag-trainable structure). Filtering done in [`download/prepare_bestbuy_acm.py`](https://github.com/dtunkelang/bag-of-documents/blob/main/download/prepare_bestbuy_acm.py).
 - **Holdout test set**: 12,128 multi-positive queries with click-derived ground truth.
 - **Training**: 48,516 query → clicked-SKU bags, MNRL fine-tuning of `all-MiniLM-L6-v2`.
 

@@ -144,7 +144,9 @@ def build_app(R):
     with gr.Blocks(title="BoD demo: BestBuy click data") as demo:
         gr.Markdown(
             "# Bag-of-Documents on BestBuy click data\n"
-            "Same catalog (53,048 products), same query encoder architecture "
+            "Same catalog (53,048 products — the subset of the full ~1.2M-SKU "
+            "BestBuy 2012 catalog that appeared in queries with ≥2 distinct "
+            "clicked SKUs), same query encoder architecture "
             "(`all-MiniLM-L6-v2`). The only difference: the right-hand model was "
             "fine-tuned on 48,516 query→clicked-SKU bags from BestBuy's 2012 "
             "ACM hackathon clickthrough log via MultipleNegativesRankingLoss "
