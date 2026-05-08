@@ -178,6 +178,38 @@ def main():
     for r, p in zip(rows, y_pred):
         print(f"    {r['label']:<22} {r['rescue']:>8.1f} {p:>8.1f} {r['rescue'] - p:>+8.1f}")
 
+    # Leave-one-out cross-validation: fit on 14, predict the held-out one.
+    # Tells us whether the in-sample RMSE is honest or overfit (4 params,
+    # 15 points → real risk of overfit).
+    print("\n" + "=" * 72)
+    print("Leave-one-out cross-validation (3-feature model):")
+    print("=" * 72)
+    print(f"    {'held-out corpus':<22} {'actual':>8} {'LOO_pred':>9} {'LOO_resid':>10}")
+    loo_residuals = []
+    for i in range(len(rows)):
+        mask = np.ones(len(rows), dtype=bool)
+        mask[i] = False
+        Xb_train = Xb[mask]
+        y_train = y[mask]
+        coef_loo, *_ = np.linalg.lstsq(Xb_train, y_train, rcond=None)
+        pred_i = float(Xb[i] @ coef_loo)
+        resid_i = float(y[i] - pred_i)
+        loo_residuals.append(resid_i)
+        print(f"    {rows[i]['label']:<22} {y[i]:>8.1f} {pred_i:>9.1f} {resid_i:>+10.1f}")
+    loo_residuals = np.array(loo_residuals)
+    loo_rmse = float(np.sqrt(np.mean(loo_residuals**2)))
+    loo_mae = float(np.mean(np.abs(loo_residuals)))
+    loo_ss_res = float(np.sum(loo_residuals**2))
+    loo_r2 = 1 - loo_ss_res / ss_tot
+    print()
+    print(f"  LOO RMSE        = {loo_rmse:.2f}pp  (in-sample {np.sqrt(ss_res / len(y)):.2f}pp)")
+    print(f"  LOO MAE         = {loo_mae:.2f}pp")
+    print(f"  LOO R²          = {loo_r2:.3f}    (in-sample {r2:.3f})")
+    print(
+        f"  worst LOO miss  = {float(np.max(np.abs(loo_residuals))):.1f}pp "
+        f"({rows[int(np.argmax(np.abs(loo_residuals)))]['label']})"
+    )
+
     # Does a qrels-only model (no encoding needed) also work?
     print("\n" + "=" * 72)
     print("Qrels-only fit (rescue ~ log_n_bags + median_size; no bag encoding):")
@@ -195,6 +227,18 @@ def main():
     )
     print(f"  R²    = {r2_q:.3f}  (vs {r2:.3f} with bag-encoding)")
     print(f"  RMSE  = {np.sqrt(ss_res_q / len(y)):.2f}pp")
+    # LOO for qrels-only.
+    loo_q = []
+    for i in range(len(rows)):
+        mask = np.ones(len(rows), dtype=bool)
+        mask[i] = False
+        c, *_ = np.linalg.lstsq(Xqb[mask], y[mask], rcond=None)
+        loo_q.append(float(y[i] - Xqb[i] @ c))
+    loo_q = np.array(loo_q)
+    loo_rmse_q = float(np.sqrt(np.mean(loo_q**2)))
+    loo_r2_q = 1 - float(np.sum(loo_q**2)) / ss_tot
+    print(f"  LOO RMSE = {loo_rmse_q:.2f}pp")
+    print(f"  LOO R²   = {loo_r2_q:.3f}")
 
     # Add base R@10 (free — already measured in the readiness tool).
     print("\n" + "=" * 72)
@@ -214,6 +258,18 @@ def main():
     )
     print(f"  R²    = {r2_3:.3f}")
     print(f"  RMSE  = {np.sqrt(ss_res3 / len(y)):.2f}pp")
+    # LOO for the +base_r10 variant.
+    loo_3 = []
+    for i in range(len(rows)):
+        mask = np.ones(len(rows), dtype=bool)
+        mask[i] = False
+        c, *_ = np.linalg.lstsq(X3b[mask], y[mask], rcond=None)
+        loo_3.append(float(y[i] - X3b[i] @ c))
+    loo_3 = np.array(loo_3)
+    loo_rmse_3 = float(np.sqrt(np.mean(loo_3**2)))
+    loo_r2_3 = 1 - float(np.sum(loo_3**2)) / ss_tot
+    print(f"  LOO RMSE = {loo_rmse_3:.2f}pp")
+    print(f"  LOO R²   = {loo_r2_3:.3f}")
 
 
 if __name__ == "__main__":

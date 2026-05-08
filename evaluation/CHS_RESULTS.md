@@ -172,12 +172,12 @@ scale, not by cluster geometry.
    smaller — sometimes negative — lift, even though SCHS would not
    change.
 
-8a. **Rescue rate is predictable from bag stats (R²=0.787, RMSE=2.53pp).**
-   Pattern 9 left rescue rate as the unmodeled factor in the readiness
-   tool — the realistic band assumes 12pp universally even though the
-   measured range is 4–25pp. A linear regression over 15 calibration
-   corpora finds three pre-training proxies that explain 79% of the
-   variance:
+8a. **Rescue rate is predictable from bag stats (LOO RMSE 3.74pp;
+   in-sample R²=0.787 / RMSE=2.53pp).** Pattern 9 left rescue rate as
+   the unmodeled factor in the readiness tool — the realistic band
+   assumes 12pp universally even though the measured range is 4–25pp.
+   A linear regression over 15 calibration corpora finds three
+   pre-training proxies that explain 79% of the in-sample variance:
 
    ```
    rescue_pp ≈ 4.55 × log10(n_bags) − 0.06 × median_bag_size
@@ -191,18 +191,30 @@ scale, not by cluster geometry.
      under the base encoder (requires encoding bag members, but the
      base encoder is already loaded for the base-difficulty step).
 
-   Worst residuals: Quora (−4.9pp), mathematica (+4.8pp), gaming
-   (+3.7pp), BestBuy (+3.4pp). Most predictions land within ±3pp.
-   A qrels-only variant (drop bag specificity) drops to R²=0.608 /
-   RMSE=3.44pp — usable when the encoder isn't loaded but ~1.4pp
-   noisier.
+   Worst in-sample residuals: Quora (−4.9pp), mathematica (+4.8pp),
+   gaming (+3.7pp), BestBuy (+3.4pp). Most predictions land within ±3pp.
+
+   Leave-one-out cross-validation on the 15 corpora gives the honest
+   out-of-sample band: **LOO RMSE 3.74pp, LOO R²=0.537** (worst miss
+   Quora −7.7pp, where extreme base R@10 = 0.95 leaves no in-set
+   neighbours). The 1.2pp gap between in-sample and LOO RMSE is real
+   overfit but not catastrophic — the predictor still generalizes.
+
+   The qrels-only ablation (drop `median_bag_specificity`) looks
+   reasonable in-sample (R²=0.608 / RMSE=3.44pp) but **fails LOOCV**
+   (LOO R² = −0.534 — worse than predicting the corpus mean). Bag
+   specificity is the only feature that survives LOOCV; without it, the
+   model is just memorising. Implication: do not advertise a "qrels-only
+   fallback" — always run the bag-encoding step (the base encoder is
+   already loaded for base-difficulty anyway). A `+ base_r10` variant
+   also fails LOOCV (LOO R² = −0.561), confirming it adds nothing.
 
    Practical: the readiness tool replaces the wide rescue band
-   (5/12/25pp) with a point estimate ± ~2.5pp uncertainty, sharpening
+   (5/12/25pp) with a point estimate ± LOO RMSE (3.74pp), sharpening
    every lift prediction. Implemented in `evaluation/bod_readiness_report.py`
-   (`compute_bag_stats` + `predict_rescue_rate`); regression and ablations
-   live in `probe_rescue_predictors.py`. End-to-end on FiQA: predicted
-   rescue 10.6pp ±2.5pp, measured 13.0pp (within band).
+   (`compute_bag_stats` + `predict_rescue_rate`); regression, ablations,
+   and LOOCV live in `probe_rescue_predictors.py`. End-to-end on FiQA:
+   predicted rescue 10.6pp ±3.7pp, measured 13.0pp (within band).
 
 8b. **Predict-then-test on FiQA: framework formula validates, priors must
    be measured.** A blind prediction made before training (logged in

@@ -71,14 +71,15 @@ SCHS_FLOOR = 0.40
 RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
 # Rescue-rate predictor (Pattern 8a in CHS_RESULTS.md). Linear regression over
-# 15 calibration corpora; R²=0.787, RMSE=2.53pp. Coefficients are for percentages.
+# 15 calibration corpora; in-sample R²=0.787, RMSE=2.53pp; leave-one-out
+# RMSE 3.74pp (the honest out-of-sample band). Coefficients are for percentages.
 #
 # rescue_pp = log_n_bags*W_LOG_N + median_size*W_SIZE + median_spec*W_SPEC + INTERCEPT
 RESCUE_W_LOG_N = 4.549
 RESCUE_W_SIZE = -0.057
 RESCUE_W_SPEC = 37.879
 RESCUE_INTERCEPT = -32.668
-RESCUE_RMSE_PP = 2.53  # use as ±band around the point estimate
+RESCUE_RMSE_PP = 3.74  # LOO RMSE (vs in-sample 2.53pp); use as ±band
 
 
 def compute_bag_stats(qrels_full, pid_to_idx, base_pv, min_relevance, k_cap=50):
