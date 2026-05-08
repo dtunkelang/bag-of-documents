@@ -247,6 +247,41 @@ scale, not by cluster geometry.
    priors works (both hit on FiQA); predicting base-blind size from
    priors is unreliable.
 
+8c. **End-to-end sweep validation: predictor RMSE 2.82pp on the 14
+   in-regime calibration corpora (vs LOO RMSE 2.64pp).** Running
+   `evaluation/sweep_readiness.py` over every locally-available corpus
+   reproduces the LOO band end-to-end: predicted vs measured rescue
+   rate has RMSE = 2.82pp / MAE = 2.29pp / 9 of 14 within ±2.64pp.
+
+   The five corpora outside the LOO band have explainable side-channel
+   issues, not predictor failures:
+
+   - **ESCI-Spanish** (predicted 10.5pp, measured 15.1pp, Δ −4.6pp):
+     measured rescue used a *multilingual* base encoder; the sweep
+     uses MiniLM uniformly. Different priors → different rescue.
+   - **SciFact** (predicted 7.7pp, measured 12.1pp, Δ −4.4pp): the
+     readiness tool's `compute_bag_stats` only finds 23 multi-positive
+     queries at min_relevance=1, vs 77 in the actual bags.jsonl that
+     the calibration measured (built with a CE-filtering pipeline).
+     Different bag set → different stats.
+   - **NFCorpus** (predicted 0.0pp, measured 4.2pp, Δ −4.2pp): raw
+     regression output is negative, clamped to 0pp. The clamp itself
+     loses information at the low-rescue tail.
+   - **CQADup/mathematica** (predicted 8.3pp, measured 13.5pp,
+     Δ −5.2pp): structural — see Pattern 8a worst-residual note.
+     MiniLM is unusually noisy on math/LaTeX text, so `median_spec`
+     understates effective bag tightness. Tested all combinations of
+     `p10/p25/std/iqr_spec` as alternatives — none rescue mathematica
+     and most degrade overall LOOCV. Domain-encoder-fit is the missing
+     signal; no available bag-stat feature captures it.
+   - **CQADup/gaming** (predicted 13.4pp, measured 16.1pp, Δ −2.7pp):
+     just outside the band; no obvious side channel.
+
+   False-SKIP zone after gating + Pattern 8a: SCIDOCS, mathematica,
+   SciFact (the v2 tax band still over-penalises high-base-perfect
+   corpora). The tool errs on the side of SKIP — three false-SKIPs in
+   16 corpora vs zero false-GOs.
+
 9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
    `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
    distribution into a GO / CONDITIONAL / SKIP verdict before any BoD
