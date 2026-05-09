@@ -289,13 +289,31 @@ scale, not by cluster geometry.
    higher than the actual tax (2.3pp), so the overall Δ overshot the
    optimistic band. Same pattern as unix.
 
-   **Tax over-estimation on CQADupStack subsets is now a systematic
-   pattern.** Two consecutive predict-then-tests (unix +4.7pp,
-   webmasters +4.9pp) both delivered overall lifts well above the
-   optimistic-band prediction, driven by lower-than-expected tax. The
-   rescue side is well-calibrated; the tax side is conservative for
-   this corpus family. Worth a tax-band refinement pass on
-   `CQADupStack`-class corpora once we have more datapoints.
+   **Three more predict-then-tests on CQADupStack (android, english,
+   wordpress)** widen the validation set:
+
+   | Corpus | Predicted rescue | Measured | Δ | Band | Overall Δ |
+   |---|---:|---:|---:|---|---:|
+   | unix | 12.0 ±2.6 | 13.1 | +1.1 | ✓ | +4.7pp |
+   | webmasters | 9.3 ±2.6 | 10.2 | +0.9 | ✓ | +4.9pp |
+   | android | 11.6 ±2.6 | 7.1 | −4.5 | ✗ | +2.2pp |
+   | english | 11.8 ±2.6 | 16.1 | +4.3 | ✗ | +5.7pp |
+   | wordpress | 9.3 ±2.6 | 6.8 | −2.5 | edge | +2.8pp |
+
+   **Out-of-sample stats**: 3 of 5 within the ±2.57pp LOO band; rescue
+   RMSE 3.03pp (vs LOO 2.57pp — degraded ~0.5pp on truly held-out
+   corpora). The two misses run opposite directions (android
+   overshoots, english undershoots), so the residual is noise around
+   the mean rather than systematic bias. Both misses have small
+   n_bags (191 and 485) where the regression's variance is highest.
+
+   **Tax over-estimation is less consistent than the first two
+   datapoints suggested.** unix and webmasters delivered overall lifts
+   above their optimistic bands; english did too. android landed
+   exactly at its optimistic-band threshold (+2.2 vs +2.3). wordpress
+   landed between realistic and optimistic. Pattern is "mostly
+   slightly under-estimated" rather than the strong "always above
+   optimistic" claim from N=2 — not worth a tax-band refit yet.
 
 8c. **End-to-end sweep validation: predictor RMSE 2.09pp on the 14
    in-regime calibration corpora — tighter than the LOO band (2.57pp),
