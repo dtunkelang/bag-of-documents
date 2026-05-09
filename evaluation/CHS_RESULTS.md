@@ -353,6 +353,40 @@ scale, not by cluster geometry.
    errs conservative — four false-SKIPs in 16 corpora vs zero
    false-GOs. ArguAna correctly hard-SKIPs on the n_bags=0 path.
 
+8e. **Stronger base encoder (bge-base) does NOT close the mathematica
+   residual — clean negative result on the domain-encoder-fit
+   hypothesis.** Re-encoded all 19 calibration catalogs under
+   `BAAI/bge-base-en-v1.5`, recomputed bag stats from train_qrels,
+   refit the regression. (Script: `evaluation/bge_base_bag_stats.py`;
+   data: `logs/bge_base_bag_stats.tsv`.)
+
+   | metric | MiniLM | bge-base |
+   |---|---:|---:|
+   | in-sample R² | 0.798 | 0.788 |
+   | in-sample RMSE | 2.33pp | 2.38pp |
+   | LOO R² | **0.745** | 0.619 |
+   | LOO RMSE | **2.61pp** | 3.19pp |
+
+   bge-base produces uniformly higher `median_spec` (0.85–0.97 vs
+   MiniLM 0.64–0.96), but the *range* compresses — every corpus's
+   bags look "tight enough" under bge-base. The regression compensates
+   by inflating `W_SPEC` to +159.8 (vs MiniLM's +54.8), which makes
+   the predictor hyper-sensitive to small spec differences and kills
+   out-of-sample generalization. The mathematica residual stays
+   essentially unchanged (+5.9pp → +6.1pp).
+
+   bge-base helps a few corpora (SciFact +1.5→−0.3, SCIDOCS −1.6→−0.8,
+   gaming +3.2→+2.0, android −4.6→−2.2) but hurts more (TREC-COVID
+   +1.0→+6.7, NFCorpus −0.6→−3.1, FiQA −3.1→−4.4, BestBuy/ESCI/unix
+   each −1.2 to −1.3). Net LOO RMSE worsens by 0.6pp.
+
+   **Conclusion: keep MiniLM as the predictor's bag-stat encoder.**
+   Domain-encoder-fit (the proposed mathematica fix) is not captured
+   by simply swapping to a stronger English encoder. The signal we
+   need would have to be cross-encoder-relative (e.g., median_spec
+   under a model that's *deliberately weak* on the corpus's domain),
+   not just "use a better encoder." Out of scope for now.
+
 9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
    `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
    distribution into a GO / CONDITIONAL / SKIP verdict before any BoD
