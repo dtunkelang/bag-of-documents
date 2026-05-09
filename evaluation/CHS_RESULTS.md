@@ -439,6 +439,57 @@ scale, not by cluster geometry.
    train + measure pipeline under that encoder. Script + data:
    `evaluation/bge_base_bag_stats.py`, `logs/bge_base_bag_stats.tsv`.
 
+8f. **bge-base BoD is signal-bound, not inherently bad.** The prior
+   bge-base BoD probe on ESCI-US (May 2026, recorded as a "clean
+   negative") used ~370K qrels-derived triplets and lost −11pp R@10
+   to MiniLM-BoD. The diagnosis at the time was "pre-trained prior
+   dominates the fine-tune; training scale is binding." Today's
+   experiment falsifies the broader generalization: under the
+   click-derived BestBuy signal at comparable scale, bge-base BoD
+   *beats* MiniLM-BoD on every dimension.
+
+   | metric | MiniLM-BoD | bge-base-BoD | Δ |
+   |---|---:|---:|---:|
+   | base R@10 (out of box) | 0.306 | 0.345 | +3.9pp |
+   | base-blind subset | 44.0% | 40.3% | −3.7pp |
+   | **rescue rate** | **+24.9pp** | **+28.2pp** | **+3.3pp better** |
+   | spec tax (base-perfect) | −6.4pp | −3.8pp | 2.6pp less tax |
+   | **overall Δ R@10** | **+14.2pp** | **+14.9pp** | **+0.7pp better** |
+
+   bge-base-BoD pays less spec tax on the base-perfect subset, rescues
+   harder on base-blind queries, and starts from a higher base — a
+   compound win, not a marginal one. Even though bge-base has less
+   relative headroom (higher base), its sharper representations let
+   it convert click signal into bigger per-query gains.
+
+   **Reframing the failure mode.** The variable that flipped between
+   ESCI (loss) and BestBuy (win) was bag *signal sharpness*, not
+   training set size:
+
+   - ESCI-US: ~370K triplets, qrels-graded supervision (E vs S/I/C)
+   - BestBuy: ~240K triplets, click-derived supervision (60K queries
+     × ~50 clicked SKUs per query)
+
+   The triplet counts are similar; the *information content per
+   triplet* is what differs. Click signal is sharper because each
+   positive is a verified user choice; qrels signal is noisier because
+   "exact match" labels include category-level matches that hurt
+   training. Stronger pretraining + sharper signal = compound
+   advantage; stronger pretraining + noisier signal = the prior
+   dominates the fine-tune.
+
+   **Open questions** (queued, not run):
+   - bge-base-BoD on CQADup/gaming, where MiniLM rescue was +16.1pp
+     on a CE-filtered qrels signal at much smaller training scale.
+     Would test whether scale alone matters when signal is mid-quality.
+   - bge-base-BoD on ESCI-Spanish, where base R@10 is extremely low
+     (0.07), so headroom is huge. Counter-pressure: bge-base is
+     English-only.
+
+   Artifacts: `query_model_bestbuy_bge_bod/` (the trained model),
+   `logs/bestbuy_bge_bod_*.log` (encode / train / diagnose), local
+   only. Disk: ~470 MB for the model.
+
 9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
    `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
    distribution into a GO / CONDITIONAL / SKIP verdict before any BoD
