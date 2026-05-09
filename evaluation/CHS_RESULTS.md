@@ -353,39 +353,91 @@ scale, not by cluster geometry.
    errs conservative — four false-SKIPs in 16 corpora vs zero
    false-GOs. ArguAna correctly hard-SKIPs on the n_bags=0 path.
 
-8e. **Stronger base encoder (bge-base) does NOT close the mathematica
-   residual — clean negative result on the domain-encoder-fit
-   hypothesis.** Re-encoded all 19 calibration catalogs under
-   `BAAI/bge-base-en-v1.5`, recomputed bag stats from train_qrels,
-   refit the regression. (Script: `evaluation/bge_base_bag_stats.py`;
-   data: `logs/bge_base_bag_stats.tsv`.)
+8e. **The predictor's calibration is encoder-specific, not
+   encoder-agnostic — by construction.** This was the lesson from
+   trying to "upgrade" the predictor's bag-stat encoder from MiniLM
+   to `BAAI/bge-base-en-v1.5`. Worth stating up-front because the
+   architectural confusion bit me before the data confirmed it.
 
-   | metric | MiniLM | bge-base |
+   **The setup, in plain terms.** The predictor learns a regression:
+
+       bag-stats → measured rescue rate
+
+   The TARGET (rescue rate) was measured by:
+   1. Building bags from train_qrels.
+   2. Fine-tuning **MiniLM-L6** with MNRL on those bags.
+   3. Comparing the fine-tuned model's R@10 against MiniLM-base R@10
+      on the test set's base-blind queries.
+
+   So every rescue number in the calibration table is implicitly
+   "MiniLM-rescue" — *how much MiniLM specifically can be improved
+   by fine-tuning on this corpus's bags*. It is **not** "rescue under
+   any encoder you might pick."
+
+   The FEATURE (`median_spec`) is the intra-bag mean cosine, computed
+   by encoding the catalog with some chosen base encoder.
+
+   When the feature encoder and the rescue encoder match (both MiniLM),
+   the regression learns a coherent thing: "given how MiniLM sees the
+   bags, predict how much MiniLM-BoD lifts the corpus." When you swap
+   the feature encoder to bge-base but leave the target as MiniLM-rescue,
+   you're asking the regression to learn "given how bge-base sees the
+   bags, predict how much MiniLM-BoD lifts the corpus" — a much weaker
+   connection because bge-base's view of bag tightness has no
+   architectural reason to track MiniLM's headroom for fine-tuning.
+
+   **What the data showed.** Re-encoded all 19 calibration catalogs
+   under bge-base and refit the regression. Results (gated, base R@10
+   < 0.85, Quora excluded):
+
+   | metric | MiniLM features | bge-base features |
    |---|---:|---:|
    | in-sample R² | 0.798 | 0.788 |
    | in-sample RMSE | 2.33pp | 2.38pp |
    | LOO R² | **0.745** | 0.619 |
    | LOO RMSE | **2.61pp** | 3.19pp |
 
-   bge-base produces uniformly higher `median_spec` (0.85–0.97 vs
-   MiniLM 0.64–0.96), but the *range* compresses — every corpus's
-   bags look "tight enough" under bge-base. The regression compensates
-   by inflating `W_SPEC` to +159.8 (vs MiniLM's +54.8), which makes
-   the predictor hyper-sensitive to small spec differences and kills
-   out-of-sample generalization. The mathematica residual stays
-   essentially unchanged (+5.9pp → +6.1pp).
+   - bge-base produces uniformly higher `median_spec` (0.85–0.97 vs
+     MiniLM 0.64–0.96) — every corpus's bags look "tight enough"
+     to a stronger encoder, so the *range* compresses. The regression
+     compensates by inflating `W_SPEC` to +159.8 (vs MiniLM's +54.8)
+     and the intercept to −152.1 (vs −46.9), which makes the predictor
+     hyper-sensitive to small spec differences and torches out-of-sample
+     variance.
+   - Mathematica's residual stays at +6.1pp (was +5.9pp under MiniLM)
+     — a stronger encoder is not the missing ingredient for
+     domain-encoder-fit.
+   - Per-corpus deltas are direction-mixed (SciFact, gaming, android
+     improve; TREC-COVID +5.7pp worse, NFCorpus −3.1pp, FiQA −1.3pp)
+     — consistent with "the new feature is uncorrelated with the old
+     target" rather than "the new feature is better/worse globally."
 
-   bge-base helps a few corpora (SciFact +1.5→−0.3, SCIDOCS −1.6→−0.8,
-   gaming +3.2→+2.0, android −4.6→−2.2) but hurts more (TREC-COVID
-   +1.0→+6.7, NFCorpus −0.6→−3.1, FiQA −3.1→−4.4, BestBuy/ESCI/unix
-   each −1.2 to −1.3). Net LOO RMSE worsens by 0.6pp.
+   **What would make this apples-to-apples?** Either:
 
-   **Conclusion: keep MiniLM as the predictor's bag-stat encoder.**
-   Domain-encoder-fit (the proposed mathematica fix) is not captured
-   by simply swapping to a stronger English encoder. The signal we
-   need would have to be cross-encoder-relative (e.g., median_spec
-   under a model that's *deliberately weak* on the corpus's domain),
-   not just "use a better encoder." Out of scope for now.
+   - **Re-measure the target.** Fine-tune *bge-base* with MNRL on each
+     calibration corpus's bags, evaluate against bge-base R@10, refit
+     bge-base features against bge-base rescue. Then the regression
+     would learn "given how bge-base sees the bags, predict how much
+     bge-base-BoD lifts." Apples-to-apples. But: prior memory
+     (`project_bge_base_bod_probe.md`) shows bge-base + MNRL HURTS
+     ESCI by 11pp R@10 — the pre-trained prior dominates the
+     370K-triplet fine-tune. So we may not have a calibration set
+     where bge-base BoD even works.
+
+   - **Encoder-invariant features.** Replace `median_spec` with a
+     signal that doesn't depend on a specific embedding space —
+     lexical overlap, IDF-weighted bag tightness, average title
+     length. Then bag-stats predict rescue regardless of which
+     encoder is in play. Untested.
+
+   **Practical takeaway: keep MiniLM as the predictor's bag-stat
+   encoder.** This is consistent with the framework (encoder-specific
+   prediction is fine — most users will fine-tune the same base they
+   plan to deploy). It just means we should not interpret a future
+   "what if I use a stronger encoder" question as something the
+   current predictor can answer; that requires re-running the full
+   train + measure pipeline under that encoder. Script + data:
+   `evaluation/bge_base_bag_stats.py`, `logs/bge_base_bag_stats.tsv`.
 
 9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
    `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
