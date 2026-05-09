@@ -71,22 +71,22 @@ SCHS_FLOOR = 0.40
 RERANK_VS_RETRIEVE_THRESHOLD = 0.02
 
 # Rescue-rate predictor (Pattern 8a in CHS_RESULTS.md). Linear regression
-# fit on the 15 calibration corpora with base R@10 < 0.85 (CQADup/unix
-# added 2026-05-08 from a blind predict-then-test, Pattern 8d). Quora
-# (base R@10 = 0.95) is excluded — its extreme leverage drops LOO R²
-# from 0.78 to 0.54 and inflates LOO RMSE from 2.57pp to 3.62pp.
-# Within the validated regime: in-sample R²=0.868 / RMSE=1.99pp;
-# LOO R²=0.780 / RMSE=2.57pp.
+# fit on 19 calibration corpora with base R@10 < 0.85 (5 added 2026-05-08
+# from blind predict-then-tests, Pattern 8d: CQADup/{unix, webmasters,
+# android, english, wordpress}). Quora (base R@10 = 0.95) is excluded —
+# its extreme leverage drops LOO R² from 0.74 to 0.44 and inflates LOO
+# RMSE from 2.66pp to 3.82pp. Within the validated regime:
+# in-sample R²=0.796 / RMSE=2.34pp; LOO R²=0.736 / RMSE=2.66pp.
 #
 # Above the threshold the linear model has no support, so we return None
 # and the readiness tool falls back to the wide v1 5/12/25pp bands.
 #
 # rescue_pp = log_n_bags*W_LOG_N + median_size*W_SIZE + median_spec*W_SPEC + INTERCEPT
-RESCUE_W_LOG_N = 5.242
-RESCUE_W_SIZE = -0.009
-RESCUE_W_SPEC = 54.847
-RESCUE_INTERCEPT = -48.482
-RESCUE_RMSE_PP = 2.57  # LOO RMSE (in-sample 1.99pp); use as ±band
+RESCUE_W_LOG_N = 5.459
+RESCUE_W_SIZE = -0.014
+RESCUE_W_SPEC = 52.137
+RESCUE_INTERCEPT = -46.872
+RESCUE_RMSE_PP = 2.66  # LOO RMSE (in-sample 2.34pp); use as ±band
 RESCUE_BASE_R10_MAX = 0.85  # gate: above this, the predictor is unreliable
 
 

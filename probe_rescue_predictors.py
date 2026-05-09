@@ -63,6 +63,11 @@ CALIBRATION = [
     ("CQADup/stats", "cqadupstack_stats_data/bags.jsonl", 6.4, 0.463, 49.4, 42.9, float("nan")),
     # Added 2026-05-08 from blind predict-then-test (Pattern 8d in CHS_RESULTS.md).
     ("CQADup/unix", "cqadupstack_unix_data/bags.jsonl", 13.1, 0.550, 38.7, 49.5, 0.537),
+    # Added 2026-05-08 from a second batch of predict-then-tests (Pattern 8d).
+    ("CQADup/webmasters", "cqadupstack_webmasters_data/bags.jsonl", 10.2, 0.524, 38.9, 46.8, 0.497),
+    ("CQADup/android", "cqadupstack_android_data/bags.jsonl", 7.1, 0.665, 24.9, 58.8, 0.564),
+    ("CQADup/english", "cqadupstack_english_data/bags.jsonl", 16.1, 0.577, 33.2, 51.1, 0.492),
+    ("CQADup/wordpress", "cqadupstack_wordpress_data/bags.jsonl", 6.8, 0.461, 50.6, 43.3, 0.500),
 ]
 
 
@@ -320,7 +325,7 @@ def main():
         if len(sub) < 5:
             continue
         f = _refit_loo(sub)
-        label = f"base<{thr:.2f}" if thr < 1.0 else "all-15"
+        label = f"base<{thr:.2f}" if thr < 1.0 else f"all-{len(rows)}"
         print(
             f"  {label:>10} {f['n']:>3} {f['in_rmse']:>8.2f} {f['in_r2']:>7.3f} "
             f"{f['loo_rmse']:>9.2f} {f['loo_r2']:>8.3f}  "
