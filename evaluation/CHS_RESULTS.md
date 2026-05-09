@@ -272,40 +272,43 @@ scale, not by cluster geometry.
    conservative by design (the optimistic-band threshold for GO is
    +5pp, just above what unix delivered). No change recommended.
 
-8c. **End-to-end sweep validation: predictor RMSE 2.82pp on the 14
-   in-regime calibration corpora (vs LOO RMSE 2.64pp).** Running
-   `evaluation/sweep_readiness.py` over every locally-available corpus
-   reproduces the LOO band end-to-end: predicted vs measured rescue
-   rate has RMSE = 2.82pp / MAE = 2.29pp / 9 of 14 within ±2.64pp.
+8c. **End-to-end sweep validation: predictor RMSE 2.09pp on the 14
+   in-regime calibration corpora — tighter than the LOO band (2.57pp),
+   as expected for in-sample fit.** Running `evaluation/sweep_readiness.py`
+   with the gated 15-corpus regression and the train-qrels methodology
+   gives RMSE = 2.09pp / MAE = 1.64pp / 11 of 14 within ±2.57pp.
 
-   The five corpora outside the LOO band have explainable side-channel
-   issues, not predictor failures:
+   This is a meaningful improvement from the v2 sweep (RMSE 2.82pp,
+   9/14 in band) which used test-qrels for bag stats. The fix: the
+   predictor was calibrated against bags built from train_qrels (since
+   `training/bags_from_qrels.py` reads train), so the readiness tool
+   should compute bag stats from train_qrels too when available. The
+   `--train-qrels` flag in `bod_readiness_report.py` (and threaded
+   through `sweep_readiness.py` and `run_beir_chain.sh`) handles this.
 
-   - **ESCI-Spanish** (predicted 10.5pp, measured 15.1pp, Δ −4.6pp):
-     measured rescue used a *multilingual* base encoder; the sweep
-     uses MiniLM uniformly. Different priors → different rescue.
-   - **SciFact** (predicted 7.7pp, measured 12.1pp, Δ −4.4pp): the
-     readiness tool's `compute_bag_stats` only finds 23 multi-positive
-     queries at min_relevance=1, vs 77 in the actual bags.jsonl that
-     the calibration measured (built with a CE-filtering pipeline).
-     Different bag set → different stats.
-   - **NFCorpus** (predicted 0.0pp, measured 4.2pp, Δ −4.2pp): raw
-     regression output is negative, clamped to 0pp. The clamp itself
-     loses information at the low-rescue tail.
-   - **CQADup/mathematica** (predicted 8.3pp, measured 13.5pp,
-     Δ −5.2pp): structural — see Pattern 8a worst-residual note.
-     MiniLM is unusually noisy on math/LaTeX text, so `median_spec`
-     understates effective bag tightness. Tested all combinations of
-     `p10/p25/std/iqr_spec` as alternatives — none rescue mathematica
-     and most degrade overall LOOCV. Domain-encoder-fit is the missing
-     signal; no available bag-stat feature captures it.
-   - **CQADup/gaming** (predicted 13.4pp, measured 16.1pp, Δ −2.7pp):
-     just outside the band; no obvious side channel.
+   Three previous outside-band cases were rescued by the fix:
 
-   False-SKIP zone after gating + Pattern 8a: SCIDOCS, mathematica,
-   SciFact (the v2 tax band still over-penalises high-base-perfect
-   corpora). The tool errs on the side of SKIP — three false-SKIPs in
-   16 corpora vs zero false-GOs.
+   - **ESCI-Spanish**: −4.6pp → −2.1pp ✓
+   - **SciFact**: −4.4pp → −0.8pp ✓
+   - **NFCorpus**: −4.2pp (clamped at 0) → −0.3pp ✓
+
+   The three outside-band cases in v3 are all near the edge or
+   structural:
+
+   - **FiQA-2018** (Δ +2.8pp): just barely outside; flipped from a v2
+     undershoot (−2.2pp) when train-qrels gave more bags.
+   - **CQADup/gaming** (Δ −2.6pp): same as v2; right at the band edge.
+   - **CQADup/mathematica** (Δ −5.1pp): structural — MiniLM is
+     unusually noisy on math/LaTeX text, so `median_spec` understates
+     effective bag tightness. Tested 6 alternative spec features
+     (`p10/p25/std/iqr_spec` as additions/replacements) — none rescue
+     mathematica, most degrade LOOCV. Domain-encoder-fit is the
+     missing signal; no available bag-stat feature captures it.
+
+   False-SKIPs in v3: SCIDOCS, mathematica, SciFact, NFCorpus (the v2
+   tax band still over-penalises high-base-perfect corpora). The tool
+   errs conservative — four false-SKIPs in 16 corpora vs zero
+   false-GOs. ArguAna correctly hard-SKIPs on the n_bags=0 path.
 
 9. **Readiness-report tool: 5-of-5 correct verdicts on the calibration set.**
    `evaluation/bod_readiness_report.py` combines SCHS + base-difficulty
