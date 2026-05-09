@@ -272,6 +272,31 @@ scale, not by cluster geometry.
    conservative by design (the optimistic-band threshold for GO is
    +5pp, just above what unix delivered). No change recommended.
 
+   **Second predict-then-test on CQADup/webmasters (also never in
+   calibration):**
+
+   | Prior | Predicted | Measured | Δ |
+   |---|---:|---:|---:|
+   | Base R@10 | 0.524 | 0.524 | 0.000 |
+   | Base-blind subset | 38.9% | 38.9% | 0.0pp |
+   | Base-perfect subset | 46.8% | 46.8% | 0.0pp |
+   | **Rescue rate** | **9.3 ±2.6pp** | **10.2pp** | **+0.9pp ✓ in LOO band** |
+   | Realistic Δ R@10 | +1.4pp | — | — |
+   | Optimistic Δ R@10 | +3.3pp | — | — |
+   | Overall Δ R@10 | — | **+4.9pp** | above optimistic |
+
+   The rescue prediction hits, but the realistic tax (4.8pp) was much
+   higher than the actual tax (2.3pp), so the overall Δ overshot the
+   optimistic band. Same pattern as unix.
+
+   **Tax over-estimation on CQADupStack subsets is now a systematic
+   pattern.** Two consecutive predict-then-tests (unix +4.7pp,
+   webmasters +4.9pp) both delivered overall lifts well above the
+   optimistic-band prediction, driven by lower-than-expected tax. The
+   rescue side is well-calibrated; the tax side is conservative for
+   this corpus family. Worth a tax-band refinement pass on
+   `CQADupStack`-class corpora once we have more datapoints.
+
 8c. **End-to-end sweep validation: predictor RMSE 2.09pp on the 14
    in-regime calibration corpora — tighter than the LOO band (2.57pp),
    as expected for in-sample fit.** Running `evaluation/sweep_readiness.py`
