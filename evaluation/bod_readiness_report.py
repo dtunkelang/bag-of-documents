@@ -248,7 +248,35 @@ def load_corpus(args):
     return titles, pids, pid_to_idx, queries_by_qid, qrels_full, pos
 
 
-def base_difficulty(args, titles, pids, queries_by_qid, pos):
+def ensure_catalog_vecs(args, titles):
+    """Load cached catalog vecs or encode + cache. Returns float32 numpy array.
+
+    Pulled out of base_difficulty so the catalog is encoded ONCE up front and
+    shared between compute_chs (via cache_vecs) and base_difficulty. Critical
+    for 5M+ doc corpora (HotpotQA, Climate-FEVER) where double-encoding is
+    fatally slow.
+    """
+    if args.vecs_cache and os.path.exists(args.vecs_cache):
+        print(f"loading cached catalog vecs {args.vecs_cache}...", flush=True)
+        return np.load(args.vecs_cache).astype(np.float32)
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    print(f"encoding catalog with {args.encoder} on {device}...", flush=True)
+    m = SentenceTransformer(args.encoder, device=device)
+    if args.max_seq_length is not None:
+        m.max_seq_length = args.max_seq_length
+    pv = m.encode(titles, normalize_embeddings=True, batch_size=128, show_progress_bar=True).astype(
+        np.float32
+    )
+    if args.vecs_cache:
+        np.save(args.vecs_cache, pv.astype(np.float16))
+        print(f"  cached at {args.vecs_cache}", flush=True)
+    del m
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    return pv
+
+
+def base_difficulty(args, titles, pids, queries_by_qid, pos, pv=None):
     qids = sorted(queries_by_qid)
     queries = [queries_by_qid[q] for q in qids]
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -259,21 +287,8 @@ def base_difficulty(args, titles, pids, queries_by_qid, pos):
             m.max_seq_length = args.max_seq_length
         return m
 
-    if args.vecs_cache and os.path.exists(args.vecs_cache):
-        print(f"loading cached catalog vecs {args.vecs_cache}...", flush=True)
-        pv = np.load(args.vecs_cache).astype(np.float32)
-    else:
-        print(f"encoding catalog with {args.encoder} on {device}...", flush=True)
-        m = _load_encoder()
-        pv = m.encode(
-            titles, normalize_embeddings=True, batch_size=128, show_progress_bar=True
-        ).astype(np.float32)
-        if args.vecs_cache:
-            np.save(args.vecs_cache, pv.astype(np.float16))
-            print(f"  cached at {args.vecs_cache}", flush=True)
-        del m
-        if torch.backends.mps.is_available():
-            torch.mps.empty_cache()
+    if pv is None:
+        pv = ensure_catalog_vecs(args, titles)
 
     print("encoding queries...", flush=True)
     m = _load_encoder()
@@ -410,11 +425,25 @@ def main():
         flush=True,
     )
 
+    # Encode catalog ONCE — shared between SCHS and base-difficulty. For
+    # large corpora (5M+ docs) this halves wall-clock and avoids the
+    # double-encode-then-OOM failure mode where the first encode finishes
+    # but cache wasn't written before SCHS sampling triggered an OOM.
+    print("\n--- 0/2: encode catalog (shared by SCHS + base-difficulty) ---", flush=True)
+    base_pv = ensure_catalog_vecs(args, titles)
+
     print("\n--- 1/2: SCHS (cluster hypothesis score) ---", flush=True)
-    chs = compute_chs(dict(qrels_full), pids, titles, args.encoder, partition="strict")
+    chs = compute_chs(
+        dict(qrels_full),
+        pids,
+        titles,
+        args.encoder,
+        partition="strict",
+        cache_vecs=base_pv,
+    )
 
     print("\n--- 2/3: base-difficulty distribution ---", flush=True)
-    bd_result = base_difficulty(args, titles, pids, queries_by_qid, pos)
+    bd_result = base_difficulty(args, titles, pids, queries_by_qid, pos, pv=base_pv)
     if bd_result is None:
         print("ERROR: no positive-bearing queries — corpus has no usable signal.", flush=True)
         sys.exit(1)
