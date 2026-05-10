@@ -253,12 +253,18 @@ def base_difficulty(args, titles, pids, queries_by_qid, pos):
     queries = [queries_by_qid[q] for q in qids]
     device = "mps" if torch.backends.mps.is_available() else "cpu"
 
+    def _load_encoder():
+        m = SentenceTransformer(args.encoder, device=device)
+        if args.max_seq_length is not None:
+            m.max_seq_length = args.max_seq_length
+        return m
+
     if args.vecs_cache and os.path.exists(args.vecs_cache):
         print(f"loading cached catalog vecs {args.vecs_cache}...", flush=True)
         pv = np.load(args.vecs_cache).astype(np.float32)
     else:
         print(f"encoding catalog with {args.encoder} on {device}...", flush=True)
-        m = SentenceTransformer(args.encoder, device=device)
+        m = _load_encoder()
         pv = m.encode(
             titles, normalize_embeddings=True, batch_size=128, show_progress_bar=True
         ).astype(np.float32)
@@ -270,7 +276,7 @@ def base_difficulty(args, titles, pids, queries_by_qid, pos):
             torch.mps.empty_cache()
 
     print("encoding queries...", flush=True)
-    m = SentenceTransformer(args.encoder, device=device)
+    m = _load_encoder()
     qv = m.encode(
         queries, normalize_embeddings=True, batch_size=256, show_progress_bar=True
     ).astype(np.float32)
@@ -382,6 +388,13 @@ def main():
     ap.add_argument("--queries", required=True, help="queries.jsonl with query_id, query")
     ap.add_argument("--min-relevance", type=int, default=1)
     ap.add_argument("--encoder", default="all-MiniLM-L6-v2")
+    ap.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="override the encoder's max_seq_length (e.g., 256 for bge-base on "
+        "long-form text to keep MPS memory bounded)",
+    )
     ap.add_argument("--vecs-cache", default=None, help="optional .npy cache for catalog vecs")
     ap.add_argument("--label", default=None)
     ap.add_argument("--k", type=int, default=10)

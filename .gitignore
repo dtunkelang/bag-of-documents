@@ -31,6 +31,7 @@ scidocs_data/
 quora_data/
 climate_fever_data/
 cqadupstack_*_data/
+webis_touche2020_data/
 logs/
 
 # HF Space artifacts (large binaries; uploaded to HF, not stored in git)

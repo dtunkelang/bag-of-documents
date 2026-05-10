@@ -83,6 +83,13 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--triplets-per-bag", type=int, default=5)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="override the base model's max_seq_length (e.g., 256 for "
+        "long-form text under bge-base to keep MPS memory bounded)",
+    )
     args = ap.parse_args()
 
     print(f"loading bags from {args.bags_file}...", flush=True)
@@ -97,6 +104,9 @@ def main():
     )
     print(f"\nloading base model {args.base_model} on {device}...", flush=True)
     model = SentenceTransformer(args.base_model, device=device)
+    if args.max_seq_length is not None:
+        print(f"  max_seq_length: {model.max_seq_length} -> {args.max_seq_length}", flush=True)
+        model.max_seq_length = args.max_seq_length
 
     train_loader = DataLoader(triplets, shuffle=True, batch_size=args.batch_size)
     train_loss = losses.MultipleNegativesRankingLoss(model)
