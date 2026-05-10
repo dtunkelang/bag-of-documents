@@ -30,6 +30,8 @@ trec_covid_data/
 scidocs_data/
 quora_data/
 climate_fever_data/
+hotpotqa_data/
+dbpedia_entity_data/
 cqadupstack_*_data/
 webis_touche2020_data/
 logs/
