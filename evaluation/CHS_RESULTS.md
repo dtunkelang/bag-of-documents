@@ -659,6 +659,63 @@ scale, not by cluster geometry.
      fix (different bag construction, different loss). The cheap
      query-side path is closed.
 
+12. **BEIR readiness sweep on 3 untouched paradigms: all SKIP, but
+   for different reasons — and HotpotQA surfaces a sharp "false-SKIP
+   zone" candidate.** Ran the readiness tool (no training) on three
+   large BEIR datasets not in the calibration set, each from a
+   different paradigm than what's already measured:
+
+   | Corpus | n_docs | SCHS | base R@10 | BB% | BP% | rescue (pred) | BM25 vs base | Verdict |
+   |---|---:|---:|---:|---:|---:|---:|---|---|
+   | DBPedia-entity | 4.6M | 0.406 | 0.187 | 50.7% | 9.6% | 2.2 ±2.7pp | either | SKIP |
+   | HotpotQA | 5.2M | 0.377 | 0.512 | 23.1% | 19.6% | **23.3 ±2.7pp** | rerank | SKIP |
+   | Climate-FEVER | 5.4M | 0.344 | 0.097 | 60.0% | 0.7% | 10.4 ±2.7pp | retrieve | SKIP |
+
+   All three SKIP, but the *reasons* differ in informative ways:
+
+   - **DBPedia-entity** (entity retrieval): SCHS just above the 0.40
+     floor, but predicted rescue is small (2.2pp). The verdict is
+     SKIP because the optimistic-band lift won't justify training,
+     not because clustering is broken. Reasonable "marginal corpus"
+     case.
+
+   - **HotpotQA** (multi-hop QA): SCHS 0.377 is just below the floor,
+     but predicted rescue is **23.3pp — second-highest in the entire
+     calibration set, only BestBuy click data (24.9pp) is higher.**
+     n_bags = 85,000 with median_size = 2 reflects HotpotQA's
+     "supporting passage pairs" structure (each question has two
+     supporting docs). The sharp signal would predict a strong lift,
+     but the SCHS floor blocks training. This is the **textbook
+     false-SKIP-zone case**: high signal sharpness + weak clustering
+     geometry. Worth a pilot training run if anyone wants to test
+     whether the SCHS floor is over-conservative for multi-hop
+     paradigms.
+
+   - **Climate-FEVER** (claim verification): SCHS 0.344 well below
+     floor, predicted rescue 10.4pp would be respectable if SCHS
+     allowed it. Has known qrels noise from prior work (1391
+     supporting-evidence judgments for 1535 claims) — clustering
+     score may itself be depressed by label noise. Retrieve
+     architecture (BM25 < base) — typical for paraphrased-claim
+     retrieval.
+
+   **Infrastructure findings from the sweep:**
+   - `bod_readiness_report.py` originally double-encoded the catalog
+     (compute_chs and base_difficulty each ran their own encode).
+     For 5M+ doc corpora this was fatal: the first encode finished
+     but the second never started because of OOM/disk pressure.
+     Refactored to a single up-front encode shared via the existing
+     `cache_vecs` parameter on compute_chs. Wall-clock per dataset
+     halved.
+   - Each dataset's catalog encode is the dominant cost (~3 hr on
+     MiniLM-L6 + MPS for 5M docs). Predict-only sweeps on BEIR-scale
+     corpora are practical at ~3-4 hr each, not feasible at higher
+     throughput without changing the encoder or hardware.
+
+   Data: `logs/{dbpedia_entity,hotpotqa,climate_fever}_readiness.log`.
+   Run script: `overnight_beir_readiness.sh` (canonical; includes the
+   `--chunk 64` and refactored single-encode fixes from this session).
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):

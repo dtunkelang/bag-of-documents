@@ -40,7 +40,7 @@ run_one() {
         TRAIN_ARG="--train-qrels ${DDIR}/train_qrels.jsonl"
     fi
 
-    log "running readiness on ${DATASET}..."
+    log "running readiness on ${DATASET} (chunk=64 for big-corpora matmul memory)..."
     $PY evaluation/bod_readiness_report.py \
         --catalog "${DDIR}/titles.json" \
         --product-ids "${DDIR}/product_ids.json" \
@@ -50,6 +50,7 @@ run_one() {
         --encoder all-MiniLM-L6-v2 \
         --vecs-cache "${DDIR}/base_catalog.vecs.fp16.npy" \
         --label "${LABEL}" \
+        --chunk 64 \
         > "logs/${LABEL}_readiness.log" 2>&1 || {
         log "  readiness FAILED — see logs/${LABEL}_readiness.log"
         return 1
