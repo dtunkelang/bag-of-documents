@@ -184,6 +184,28 @@ def predict_lift(base_blind, base_perfect, base_overall_r10=None, predicted_resc
     return out
 
 
+def false_skip_zone(schs, base_perfect, predicted_rescue=None):
+    """Detect known false-SKIP zones — SCHS just below the 0.40 floor but
+    one of two side conditions makes the SKIP verdict over-conservative.
+    Returns a short label ("low-tax" / "high-rescue") or None.
+
+    - "low-tax" (Pattern 9): SCHS in [0.30, 0.40) AND base-perfect < 5%
+      (low tax exposure). Canonical example: SCIDOCS (+4.1pp despite SKIP).
+    - "high-rescue" (Pattern 13): SCHS in [0.30, 0.40) AND predicted rescue
+      >= 15pp (well above calibration mean). Canonical example: HotpotQA
+      (+35.1pp rescue despite SKIP).
+    """
+    if schs is None or schs != schs:  # NaN check  # noqa: PLR0124
+        return None
+    if not (0.30 <= schs < SCHS_FLOOR):
+        return None
+    if predicted_rescue is not None and predicted_rescue >= 0.15:
+        return "high-rescue"
+    if base_perfect < 0.05:
+        return "low-tax"
+    return None
+
+
 def verdict(schs, base_blind, base_perfect, predicted, n_bags=None):
     # No multi-positive queries → no bags → BoD has nothing to train on.
     # This trumps every other signal; the chain is a non-starter.
@@ -570,23 +592,25 @@ def main():
         print("    - Use a weaker base encoder (more headroom; see Pattern 7 in CHS_RESULTS.md).")
         print("    - Augment qrels with click data or CE-filtered hybrid retrieval.")
         print("    - For SCHS<0.40: consider whether the corpus has any cluster structure at all.")
-        # Known false-SKIP zone: SCHS just below the floor + low base-perfect (low tax
-        # exposure) can still produce a real lift even with mediocre clustering. SCIDOCS
-        # is the canonical example (SCHS 0.367, BP 0.8% -> actual +4.1pp despite SKIP).
-        # NaN check via x == x.
-        if (
-            chs.schs is not None
-            and chs.schs == chs.schs  # noqa: PLR0124  not nan
-            and 0.30 <= chs.schs < SCHS_FLOOR
-            and bd["base_perfect"] < 0.05
-        ):
+        zone = false_skip_zone(chs.schs, bd["base_perfect"], predicted_rescue)
+        if zone == "low-tax":
             print()
-            print("    Note: this corpus sits in the 'false-SKIP zone' (Pattern 9 in")
-            print("    CHS_RESULTS.md): SCHS just below the 0.40 floor AND base-perfect")
-            print("    fraction below 5% (low tax exposure). The realistic-band lift")
-            print(f"    prediction was {predicted['realistic'] * 100:+.1f}pp; SCIDOCS in this")
-            print("    zone delivered +4.1pp actual. Consider piloting BoD anyway with a")
-            print("    small-scale ablation before fully committing.")
+            print("    Note: this corpus sits in the 'low-tax false-SKIP zone' (Pattern 9):")
+            print("    SCHS just below the 0.40 floor AND base-perfect fraction below 5%")
+            print(
+                f"    (low tax exposure). Realistic-band lift was {predicted['realistic'] * 100:+.1f}pp;"
+            )
+            print("    SCIDOCS in this zone delivered +4.1pp actual. Consider a small-scale")
+            print("    ablation before deferring on the SKIP.")
+        elif zone == "high-rescue":
+            print()
+            print("    Note: this corpus sits in the 'high-rescue false-SKIP zone'")
+            print("    (Pattern 13): SCHS just below the 0.40 floor AND predicted rescue")
+            print(f"    {predicted_rescue * 100:.1f}pp >= 15pp (well above calibration mean).")
+            print("    HotpotQA in this zone delivered +35.1pp rescue on base-blind queries")
+            print("    despite SKIP verdict. The SCHS floor is over-conservative for")
+            print("    high-rescue paradigms. Consider piloting BoD with a small-scale")
+            print("    ablation (5K bags, 1 epoch) before deferring on the SKIP.")
 
 
 if __name__ == "__main__":

@@ -41,6 +41,58 @@ def test_predict_lift_decreases_with_base_perfect_size():
         assert low_tax[k] > high_tax[k]
 
 
+def test_false_skip_zone_low_tax():
+    """SCHS in [0.30, 0.40) with low base-perfect → 'low-tax' false-SKIP zone."""
+    mod = _load_module()
+    # SCIDOCS-like: SCHS 0.367, BP 0.8%
+    assert mod.false_skip_zone(schs=0.367, base_perfect=0.008) == "low-tax"
+    # NFCorpus-like: SCHS 0.382, BP 4.3% — still under 5%
+    assert mod.false_skip_zone(schs=0.382, base_perfect=0.043) == "low-tax"
+
+
+def test_false_skip_zone_high_rescue():
+    """SCHS in [0.30, 0.40) with predicted rescue >= 15pp → 'high-rescue' zone."""
+    mod = _load_module()
+    # HotpotQA-like: SCHS 0.377, predicted rescue 23.3pp (0.233)
+    assert (
+        mod.false_skip_zone(schs=0.377, base_perfect=0.20, predicted_rescue=0.233) == "high-rescue"
+    )
+    # Right at the boundary
+    assert mod.false_skip_zone(schs=0.30, base_perfect=0.20, predicted_rescue=0.15) == "high-rescue"
+    # Below the rescue threshold — no zone
+    assert mod.false_skip_zone(schs=0.377, base_perfect=0.20, predicted_rescue=0.10) is None
+
+
+def test_false_skip_zone_high_rescue_wins_over_low_tax():
+    """When both side conditions match, high-rescue is the more informative label."""
+    mod = _load_module()
+    # SCHS 0.35, BP 0.03 (would trigger low-tax), AND predicted rescue 0.20 (would trigger high-rescue)
+    assert mod.false_skip_zone(schs=0.35, base_perfect=0.03, predicted_rescue=0.20) == "high-rescue"
+
+
+def test_false_skip_zone_above_floor():
+    """SCHS at or above the 0.40 floor → not in any false-SKIP zone."""
+    mod = _load_module()
+    assert mod.false_skip_zone(schs=0.45, base_perfect=0.01, predicted_rescue=0.30) is None
+    # Right at the floor.
+    assert mod.false_skip_zone(schs=0.40, base_perfect=0.01, predicted_rescue=0.30) is None
+
+
+def test_false_skip_zone_below_band():
+    """SCHS < 0.30 → too far below floor to be 'just below'; not a candidate."""
+    mod = _load_module()
+    assert mod.false_skip_zone(schs=0.25, base_perfect=0.01, predicted_rescue=0.30) is None
+
+
+def test_false_skip_zone_handles_nan_and_none():
+    """NaN or None SCHS → no zone (corpus probably too small to score)."""
+    import math
+
+    mod = _load_module()
+    assert mod.false_skip_zone(schs=None, base_perfect=0.01) is None
+    assert mod.false_skip_zone(schs=math.nan, base_perfect=0.01) is None
+
+
 def test_verdict_skip_when_no_bags():
     """n_bags=0 → SKIP regardless of SCHS or headroom (no training possible)."""
     mod = _load_module()
