@@ -716,6 +716,67 @@ scale, not by cluster geometry.
    Run script: `overnight_beir_readiness.sh` (canonical; includes the
    `--chunk 64` and refactored single-encode fixes from this session).
 
+13. **HotpotQA pilot training confirms the false-SKIP-zone — the SCHS
+   floor at 0.40 is over-conservative for multi-hop-QA paradigms.**
+   Pattern 12 flagged HotpotQA as a candidate false-SKIP: SCHS 0.377
+   just below the floor, but predicted rescue **23.3pp ±2.7pp** (second
+   only to BestBuy click data). The readiness verdict was SKIP. We
+   trained BoD anyway as a deliberate pilot.
+
+   **Setup (under-trained on purpose):**
+   - 5,000 bags (random sample of the 85,000 available — to avoid the
+     MPS leak that killed the full-corpus run at iter 79).
+   - 1 epoch, batch=16, max_seq=128 — minimum viable training config.
+   - Diagnosed against a 500K-doc subsampled catalog (all 13,783 gold
+     docs + 486,217 random fill from the full 5.2M-doc catalog). The
+     full-catalog BoD encode died at 89% to a jetsam OOM; the subsample
+     preserves the base-vs-BoD Δ since both retrieve from the same pool.
+
+   **Result:**
+
+   | Bucket | n | base | BoD | Δ |
+   |---|---:|---:|---:|---:|
+   | 0.0 (base-blind) | 799 (10.8%) | 0.000 | **0.351** | **+35.1pp rescue** |
+   | 0.5-1.0 | 3,921 (53.0%) | 0.500 | 0.612 | +11.2pp |
+   | 1.0 (base-perfect) | 2,685 (36.3%) | 1.000 | 0.946 | −5.4pp tax |
+   | **overall** | 7,405 | 0.627 | **0.705** | **+7.8pp** |
+
+   The rescue rate on base-blind queries is **+35.1pp** — *higher* than
+   the readiness predictor's 23.3pp ±2.7pp band (the predictor under-
+   estimated). And this is under-trained BoD (5K bags / 1 epoch vs the
+   85K bags / 3 epochs the full pipeline would run). Full training is
+   likely to lift rescue further.
+
+   **Implication: the SCHS 0.40 floor is correct as a default but wrong
+   for high-rescue-prediction paradigms.** The current readiness tool
+   uses SCHS as a hard gate — `verdict = SKIP if SCHS < 0.40 regardless`.
+   HotpotQA shows that a corpus with SCHS just below the floor AND a
+   predicted rescue rate well above the calibration mean is a false-SKIP.
+
+   Two ways to revise (not yet implemented; need more data points
+   before committing):
+   1. **Lower the floor** to e.g. 0.35 globally. Risk: opens up
+      false-GOs on corpora with low SCHS *and* low predicted rescue.
+   2. **Override the floor** when predicted rescue is high. Rule of
+      thumb candidate: "If predicted rescue > 1.5× the
+      calibration-mean rescue (~10pp), bypass the SCHS floor and
+      use the standard GO/CONDITIONAL/SKIP logic." HotpotQA's 23.3pp
+      predicted rescue would clear this bar; DBPedia-entity's 2.2pp
+      would not. Climate-FEVER's 10.4pp is borderline.
+
+   N=1 isn't enough to choose between revisions. The honest framing
+   for now: HotpotQA is a documented false-SKIP; the readiness tool
+   should print a warning when SCHS is in [0.30, 0.40) AND predicted
+   rescue > 15pp. Implementing this warning is small (~10 lines).
+
+   **Infrastructure salvage technique** (worth noting for future runs):
+   when a full-catalog encode dies near completion, build a subsampled
+   catalog with all gold docs + random fill and re-encode. Preserves
+   the BoD/base Δ measurement at a fraction of the compute.
+
+   Run logs: `logs/hotpotqa_pilot_{train,diagnostic}.log`,
+   `logs/hotpotqa_salvage_{status,diagnostic}.log`.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):

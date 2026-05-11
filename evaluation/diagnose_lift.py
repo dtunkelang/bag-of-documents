@@ -188,6 +188,26 @@ def main():
     a = agg(per_q)
     print(f"\n  overall (n={a[0]:,}): base={a[1]:.3f}  BoD={a[2]:.3f}  Δ={a[3]:+.3f}")
 
+    # Per-query JSONL for downstream overlap analysis (e.g., HyDE vs BoD).
+    out_path = os.path.join(
+        os.path.dirname(args.queries) or ".",
+        f"bod_per_query_{args.label}.jsonl",
+    )
+    with open(out_path, "w") as f:
+        for qid, _query, n_gold, base_hit, bod_hit in per_q:
+            f.write(
+                json.dumps(
+                    {
+                        "query_id": qid,
+                        "n_gold": n_gold,
+                        "base_hit": base_hit,
+                        "bod_hit": bod_hit,
+                    }
+                )
+                + "\n"
+            )
+    print(f"\nper-query results at {out_path}", flush=True)
+
 
 if __name__ == "__main__":
     main()
