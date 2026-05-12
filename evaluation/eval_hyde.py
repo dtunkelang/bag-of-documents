@@ -54,16 +54,19 @@ HYDE_PROMPT = (
 )
 
 
-def generate_one(session, url, model, query, max_tokens=200, temperature=0.0):
+def generate_one(session, url, model, query, max_tokens=200, temperature=0.0, seed=None):
     """Generate a single hypothetical passage for `query` via Ollama."""
+    options = {
+        "temperature": temperature,
+        "num_predict": max_tokens,
+    }
+    if seed is not None:
+        options["seed"] = seed
     payload = {
         "model": model,
         "prompt": HYDE_PROMPT.format(query=query),
         "stream": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": max_tokens,
-        },
+        "options": options,
     }
     r = session.post(url, json=payload, timeout=120)
     r.raise_for_status()
@@ -71,47 +74,77 @@ def generate_one(session, url, model, query, max_tokens=200, temperature=0.0):
 
 
 def load_or_generate_passages(args, qids, queries):
-    """Generate (or load cached) hypothetical passages. Returns list of strings
-    parallel to `qids`. Writes incremental cache so a crash resumes."""
+    """Generate (or load cached) hypothetical passages. Returns a list of
+    lists of passages parallel to `qids` (one list per query, length
+    args.n_samples). Writes incremental cache so a crash resumes."""
     cache_safe = args.llm_model.replace(":", "_").replace("/", "_")
+    suffix = "" if args.n_samples == 1 else f"_n{args.n_samples}"
     cache_path = os.path.join(
         os.path.dirname(args.queries) or ".",
-        f"hyde_passages_{cache_safe}.jsonl",
+        f"hyde_passages_{cache_safe}{suffix}.jsonl",
     )
-    cached = {}
+    # For n=1, keep the existing flat format ({query_id, query, passage}).
+    # For n>1, use ({query_id, query, passage, sample_idx}) with multiple rows
+    # per qid.
+    cached_by_qid = {}  # qid -> list of passages (indexed by sample_idx)
     if os.path.exists(cache_path):
         with open(cache_path) as f:
             for line in f:
                 d = json.loads(line)
-                cached[d["query_id"]] = d["passage"]
-        print(f"loaded {len(cached):,} cached HyDE passages from {cache_path}", flush=True)
+                qid = d["query_id"]
+                idx = d.get("sample_idx", 0)
+                cached_by_qid.setdefault(qid, [None] * args.n_samples)
+                if idx < args.n_samples:
+                    cached_by_qid[qid][idx] = d["passage"]
+        n_complete = sum(1 for v in cached_by_qid.values() if v and all(p is not None for p in v))
+        print(
+            f"loaded {n_complete:,} fully-cached qids ({sum(1 for v in cached_by_qid.values() for p in v if p is not None):,} total samples) from {cache_path}",
+            flush=True,
+        )
 
     session = requests.Session()
-    passages = []
+    passages_per_query = []
     t0 = time.time()
+    n_done = 0
     with open(cache_path, "a") as cache_handle:
-        for i, (qid, q) in enumerate(zip(qids, queries)):
-            if qid in cached:
-                passages.append(cached[qid])
-                continue
-            try:
-                p = generate_one(session, args.ollama_url, args.llm_model, q)
-            except Exception as e:
-                print(f"  [{qid}] LLM error: {e} — empty passage", flush=True)
-                p = ""
-            passages.append(p)
-            cache_handle.write(json.dumps({"query_id": qid, "query": q, "passage": p}) + "\n")
-            cache_handle.flush()
-            cached[qid] = p
-            if (i + 1) % 25 == 0 or i + 1 == len(qids):
+        for qid, q in zip(qids, queries):
+            samples = cached_by_qid.get(qid) or [None] * args.n_samples
+            for sample_idx in range(args.n_samples):
+                if samples[sample_idx] is not None:
+                    continue
+                # Use a per-sample seed for reproducibility; T>0 for diversity.
+                seed = (hash(qid) % 100000) + sample_idx
+                try:
+                    p = generate_one(
+                        session,
+                        args.ollama_url,
+                        args.llm_model,
+                        q,
+                        temperature=args.temperature,
+                        seed=seed,
+                    )
+                except Exception as e:
+                    print(f"  [{qid}/s{sample_idx}] LLM error: {e} — empty", flush=True)
+                    p = ""
+                samples[sample_idx] = p
+                row = {"query_id": qid, "query": q, "passage": p}
+                if args.n_samples > 1:
+                    row["sample_idx"] = sample_idx
+                cache_handle.write(json.dumps(row) + "\n")
+                cache_handle.flush()
+            passages_per_query.append(samples)
+            n_done += 1
+            if n_done % 25 == 0 or n_done == len(qids):
                 elapsed = time.time() - t0
-                rate = (i + 1) / elapsed if elapsed > 0 else 0.0
+                avg_chars = int(np.mean([len(p) for ps in passages_per_query for p in ps if p]))
+                rate = n_done / elapsed if elapsed > 0 else 0.0
                 print(
-                    f"  generated {i + 1:,}/{len(qids):,} ({rate:.1f} qps; "
-                    f"avg passage chars={int(np.mean([len(p) for p in passages]))})",
+                    f"  generated {n_done:,}/{len(qids):,} qids "
+                    f"({n_done * args.n_samples:,} total samples; "
+                    f"{rate:.2f} qids/s; avg passage chars={avg_chars})",
                     flush=True,
                 )
-    return passages, cache_path
+    return passages_per_query, cache_path
 
 
 def main():
@@ -127,6 +160,22 @@ def main():
     ap.add_argument("--ollama-url", default=OLLAMA_DEFAULT_URL)
     ap.add_argument("--label", default="corpus")
     ap.add_argument("--k", type=int, default=10)
+    ap.add_argument(
+        "--n-samples",
+        type=int,
+        default=1,
+        help=(
+            "number of hypothetical passages to generate per query; their "
+            "embeddings are averaged + renormalized for retrieval. Original "
+            "HyDE paper used N=8. For N>1, set --temperature > 0 for diversity."
+        ),
+    )
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="LLM sampling temperature; 0.0 deterministic, ~0.7-1.0 for multi-sample diversity",
+    )
     args = ap.parse_args()
 
     print("loading data...", flush=True)
@@ -178,8 +227,12 @@ def main():
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
 
-    print(f"\ngenerating HyDE passages via {args.llm_model} ({args.ollama_url})...", flush=True)
-    passages, cache_path = load_or_generate_passages(args, qids, queries)
+    print(
+        f"\ngenerating HyDE passages via {args.llm_model} "
+        f"(n_samples={args.n_samples}, T={args.temperature}) ({args.ollama_url})...",
+        flush=True,
+    )
+    passages_per_query, cache_path = load_or_generate_passages(args, qids, queries)
     print(f"  cached at {cache_path}", flush=True)
 
     print("\nencoding base queries (raw text)...", flush=True)
@@ -187,11 +240,24 @@ def main():
     base_qv = encoder.encode(
         queries, normalize_embeddings=True, batch_size=256, show_progress_bar=True
     ).astype(np.float32)
-    print("encoding HyDE queries (hypothetical passages)...", flush=True)
-    hyde_qv = encoder.encode(
-        passages, normalize_embeddings=True, batch_size=128, show_progress_bar=True
+    # Encode all N passages per query in one flat batch; then average per-query
+    # and renormalize. Matches the original HyDE multi-sample procedure.
+    flat_passages = [p for ps in passages_per_query for p in ps]
+    print(
+        f"encoding {len(flat_passages):,} HyDE passages ({args.n_samples} per query)...",
+        flush=True,
+    )
+    flat_qv = encoder.encode(
+        flat_passages, normalize_embeddings=True, batch_size=128, show_progress_bar=True
     ).astype(np.float32)
-    del encoder
+    # Reshape (n_queries * n_samples, dim) -> (n_queries, n_samples, dim) -> mean
+    flat_qv = flat_qv.reshape(len(qids), args.n_samples, -1)
+    hyde_qv = flat_qv.mean(axis=1)
+    # Renormalize after averaging
+    norms = np.linalg.norm(hyde_qv, axis=1, keepdims=True)
+    norms[norms < 1e-12] = 1.0
+    hyde_qv = hyde_qv / norms
+    del encoder, flat_qv
 
     print("\nretrieving + scoring (base and HyDE side-by-side)...", flush=True)
     base_top = np.argpartition(-(base_qv @ base_pv.T), args.k, axis=1)[:, : args.k]

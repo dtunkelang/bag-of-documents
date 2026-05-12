@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # (label, data_dir, doc_id_field, measured_rescue_pp). Mirrors the 19-corpus
-# calibration in probe_rescue_predictors.py. ESCI-Spanish kept for now even
+# calibration in evaluation/probe_rescue_predictors.py. ESCI-Spanish kept for now even
 # though bge-base is English-only — a clear "negative result" data point.
 CORPORA = [
     ("BestBuy ACM", "bestbuy_acm_data", "product_id", 24.9),

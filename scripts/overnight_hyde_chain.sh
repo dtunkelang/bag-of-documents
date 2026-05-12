@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Always run from project root (script lives in scripts/ after the May 2026 reorg).
+cd "$(dirname "$0")/.."
 # Overnight HyDE chain: for each corpus, generate hypothetical passages,
 # evaluate, run BoD diagnose, RRF ensemble, and HyDE-vs-BoD overlap.
 # All output flushes to logs/overnight_hyde_chain_status.log.

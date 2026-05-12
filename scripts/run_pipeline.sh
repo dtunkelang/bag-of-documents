@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Always run from project root (script lives in scripts/ after the May 2026 reorg).
+cd "$(dirname "$0")/.."
 # Master pipeline script. Safe to run after a crash/reboot.
 # Skips already-completed steps. Can be re-run idempotently.
 set -e

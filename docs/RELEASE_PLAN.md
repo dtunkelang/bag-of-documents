@@ -35,7 +35,7 @@ Include:
 - `preflight.py` — pre-run validation
 - `query_index.py` — CLI for querying the index
 - `download_catalog.py` — download and sample McAuley catalog
-- `run_pipeline.sh` — pipeline orchestration
+- `scripts/run_pipeline.sh` — pipeline orchestration
 - `tests/` — unit tests
 - `README.md`, `LICENSE` (MIT), `requirements.txt`, `pyproject.toml`
 - `SCALING.md` — guide for scaling to the full 30M product catalog

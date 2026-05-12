@@ -67,7 +67,7 @@ python training/finetune_query_model.py bags.jsonl query_model/ --loss mnrl
 python demo.py
 ```
 
-Or use `run_pipeline.sh` to run the full pipeline end-to-end.
+Or use `scripts/run_pipeline.sh` to run the full pipeline end-to-end.
 
 ## What is the bag-of-documents model?
 

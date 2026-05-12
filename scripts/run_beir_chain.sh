@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Always run from project root (script lives in scripts/ after the May 2026 reorg).
+cd "$(dirname "$0")/.."
 # Generic BEIR chain: download -> readiness -> bags -> hardnegs -> train -> diagnose.
 #
 # Usage:

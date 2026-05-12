@@ -1,4 +1,7 @@
 #!/bin/bash
+
+# Always run from project root (script lives in scripts/ after the May 2026 reorg).
+cd "$(dirname "$0")/.."
 # Overnight readiness-only sweep over 3 untouched large BEIR datasets.
 # Produces SCHS + base-difficulty + predicted-lift verdicts. No training.
 #

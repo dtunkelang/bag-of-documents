@@ -1,6 +1,6 @@
 """Verify shell scripts reference existing Python files.
 
-After the directory reorg, both run_pipeline.sh and eval_new_ce.sh kept
+After the directory reorg, both scripts/run_pipeline.sh and evaluation/eval_new_ce.sh kept
 references to scripts at their old top-level paths and would have failed
 to run. These tests catch that class of regression: any
 `python ... some_script.py` invocation in a .sh file is checked against
