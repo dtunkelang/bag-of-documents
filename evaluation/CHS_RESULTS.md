@@ -955,6 +955,61 @@ scale, not by cluster geometry.
     Run: `evaluation/eval_weighted_fusion.py` (sweeps 2-component
     and 3-component grids, reports best weights + R@10).
 
+14c. **Pseudo-relevance feedback (E-PRF) is a clean negative — the
+    LLM IS the lever, not the doc-space query representation.** Pattern
+    14 documented HyDE's mechanism as "represent the query in document
+    space via an LLM-generated proxy passage." The natural ablation:
+    can the same doc-space-query move work WITHOUT the LLM, by
+    averaging the top-K retrieved doc embeddings (Rocchio-style
+    pseudo-relevance feedback)? Implemented in `evaluation/eval_prf.py`
+    with a grid over K (feedback depth) and α (mixing weight with
+    raw query).
+
+    | Corpus | base | PRF best | HyDE | LLM contribution (HyDE−PRF) |
+    |---|---:|---:|---:|---:|
+    | SciFact | 0.783 | **+1.1pp** | +5.8pp | **+4.7pp** |
+    | NFCorpus | 0.159 | +0.4pp | +1.5pp | +1.1pp |
+    | FiQA | 0.441 | +0.0pp | −3.6pp | **−3.6pp** |
+    | programmers | 0.529 | +0.1pp | −8.5pp | **−8.6pp** |
+    | english | 0.577 | +0.3pp | −5.8pp | **−6.1pp** |
+    | BestBuy | 0.314 | +0.4pp | −0.7pp | −1.1pp |
+
+    **Two clean findings:**
+
+    1. **PRF is near-zero everywhere.** Best lift is 1.1pp on SciFact;
+       most corpora get < 0.5pp. Best α is consistently 0.5-1.0
+       (most weight on the raw query) — pure-PRF (α=0) is worse than
+       base on most corpora. **Pseudo-relevance feedback in dense
+       retrieval is not a useful HyDE substitute.** It's not even a
+       useful standalone retriever.
+
+    2. **The LLM contribution is signed.** On HyDE-winning corpora
+       (SciFact, NFCorpus) the LLM contributes the entire lift — PRF
+       captures almost none of it, so the LLM's world knowledge is
+       genuinely doing useful work. On HyDE-losing corpora
+       (programmers −8.6pp, english −6.1pp, FiQA −3.6pp) the LLM is
+       **actively destructive** — generates plausible-sounding
+       passages that retrieve similar-but-wrong docs, doing 4-9pp of
+       damage relative to the trivial PRF baseline that does ~nothing.
+
+    **Practical implication for the framework:** HyDE is not "a
+    doc-space query trick that happens to use an LLM." It's
+    specifically the LLM that matters — for better or worse. Pattern
+    14's two-axis framework simplifies to:
+
+    - **BoD lift** ≈ f(bag signal sharpness)
+    - **HyDE lift** ≈ f(LLM domain prior strength) — and is
+      *negative* when the prior is weak, not just absent
+    - **PRF is uniformly useless** as a fallback
+
+    No fusion strategy in this paper combines a "pure doc-space
+    pseudo-query" signal because there isn't one — the doc-space-via-
+    averaging move doesn't carry information beyond what the base
+    encoder already had.
+
+    Run: `evaluation/eval_prf.py` (sweeps K ∈ {3, 5, 10}, α ∈
+    {0.0, 0.3, 0.5, 0.7, 1.0}).
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
