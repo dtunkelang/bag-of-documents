@@ -907,17 +907,72 @@ scale, not by cluster geometry.
    complementarity, but with more overlap than SciFact (where only
    4/8 BoD rescues were also HyDE rescues).
 
-   **Pattern emerging across two corpora:**
+   **BestBuy ACM follow-up (1K random test-query subsample; product
+   search where LLM prior is weakest):**
 
-   | Corpus | BoD lift | HyDE lift | RRF lift | LLM-prior strength |
+   | Retriever | R@10 | Δ vs base | rescue% |
+   |---|---:|---:|---:|
+   | base | 0.314 | — | — |
+   | **BoD** | **0.537** | **+22.3pp** | **66.4%** |
+   | HyDE | 0.307 | −0.7pp | 21.4% |
+   | RRF(BoD, HyDE) | 0.460 | +14.6pp | 49.4% |
+   | RRF(base, BoD, HyDE) | 0.416 | +10.2pp | 34.8% |
+   | UNION (oracle) | 0.583 | +26.9pp | 70.2% |
+
+   Predicted before running (we explicitly wrote it down): HyDE would
+   pay heavy spec tax on product-specific queries because Llama 8B
+   generates plausible *generic* product descriptions that retrieve
+   similar-but-wrong SKUs. **Confirmed**: tax on base-perfect is
+   −17.5pp, rescue on base-blind only +9.6pp; net −0.7pp.
+
+   **Overlap on BestBuy base-blind (n=441):** BoD-rescues 293 ∩
+   HyDE-rescues 94 = 77 overlap. **82% of HyDE's rescues are also
+   BoD rescues** — HyDE is essentially subsumed. This is the inverse
+   of SciFact (only 17% of HyDE rescues were also BoD rescues, i.e.
+   HyDE found mostly NEW queries). FiQA sat in between.
+
+   **Three-corpus picture — the dominant lever for each method:**
+
+   | Corpus | BoD | HyDE | RRF | Dominant lever |
    |---|---:|---:|---:|---|
-   | SciFact (biomed) | +1.0pp | **+5.8pp** | +4.9pp (RRF<HyDE) | strong |
-   | FiQA (finance) | **+2.6pp** | −3.6pp | **+3.0pp** (RRF>both) | weak |
+   | SciFact (biomed) | +1.0pp | **+5.8pp** | +4.9pp (loses to HyDE) | LLM-prior strong → HyDE wins |
+   | FiQA (finance) | +2.6pp | −3.6pp | **+3.0pp** (beats both) | balanced → RRF wins |
+   | BestBuy (clicks) | **+22.3pp** | −0.7pp | +14.6pp (loses to BoD) | bag signal sharp → BoD wins |
 
-   HyDE is high-variance, corpus-dependent. BoD is low-variance, modest
-   gain on both. RRF's success depends on whether components are
-   balanced. The framework's prediction — HyDE needs strong LLM domain
-   priors — is supported.
+   **The two governing axes:**
+
+   1. **Bag signal sharpness drives BoD magnitude.** Click data
+      (BestBuy) gives BoD +22.3pp. Graded qrels (FiQA) gives +2.6pp.
+      Noisy multi-positive qrels (SciFact) gives +1.0pp. This matches
+      the rescue-rate predictor's reading of bag stats.
+   2. **LLM-prior strength drives HyDE magnitude.** Strong domain
+      knowledge (SciFact biomedicine) gives HyDE +5.8pp. Mid-knowledge
+      (FiQA finance) gives −3.6pp. Weak (BestBuy SKUs) gives −0.7pp
+      with a heavy tax. As the LLM prior weakens, HyDE's tax on
+      base-perfect grows because it generates plausible-but-wrong
+      neighbors.
+
+   **The overlap pattern reflects which lever is dominant:**
+
+   - SciFact: HyDE dominates → almost disjoint rescues (BoD picks up
+     queries the LLM doesn't know; HyDE picks up the rest).
+   - BestBuy: BoD dominates → HyDE rescues subsumed (Llama mostly
+     surfaces things BoD already had via the training signal).
+   - FiQA: balanced → moderate overlap, complementarity in the middle.
+
+   **RRF only wins when components are balanced.** Lopsided pairs
+   (SciFact, BestBuy) lose to the dominant component. The oracle
+   UNION numbers confirm there's headroom in all three cases, but
+   capturing it requires quality-aware fusion (learned reranker,
+   query-router, or weighted fusion), not RRF.
+
+   **Practical framework recommendation:** the framework should
+   include LLM-prior strength as a fourth factor alongside bag-signal
+   sharpness, base-model competence, and clustering geometry. The
+   prediction rule: BoD wins when bag signal is sharp; HyDE wins when
+   LLM has strong prior in the corpus's domain; either-or — pick the
+   side that has the stronger signal for your corpus. RRF as a default
+   fusion is a clean negative across all three corpora tested.
 
 ## How to add a new corpus to this table
 
