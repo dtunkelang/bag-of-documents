@@ -837,13 +837,36 @@ scale, not by cluster geometry.
    (complementarity at the query level); whether the ensemble actually
    delivers depends on score calibration.
 
+   **Score-fusion (RRF) ablation on SciFact:**
+
+   | Method | R@10 | base-blind rescue |
+   |---|---:|---:|
+   | base | 0.783 | — |
+   | BoD | 0.793 | 12.9% |
+   | **HyDE** | **0.841** | **37.1%** |
+   | RRF(BoD, HyDE) | 0.832 | 27.4% |
+   | RRF(base, BoD, HyDE) | 0.818 | 21.0% |
+   | **UNION (oracle upper bound)** | **0.872** | **43.5%** |
+
+   **RRF under-performs HyDE alone** (0.832 vs 0.841). The mechanism
+   is clear: BoD's rescue rate on SciFact is so much weaker than HyDE's
+   that fusing them dilutes HyDE's high-quality rankings with BoD's
+   noisier ones. RRF works best when components are roughly equal
+   quality; SciFact is too lopsided. **But the oracle UNION (+8.9pp
+   overall, 43.5% rescue) confirms the complementarity headroom is
+   real** — RRF just isn't the fusion strategy that captures it. A
+   quality-weighted fusion, learned reranker, or query-router that
+   sends queries to whichever method is more likely to rescue them
+   would be needed to reach the union ceiling.
+
    **Open questions** (queued, not run):
    - Does the complementarity hold on non-biomedical corpora (FiQA,
      NFCorpus, CQADupStack)? Untested.
    - On corpora where Llama's prior is weak (BestBuy click data,
      niche technical forums), does HyDE under-perform BoD as expected?
      Untested.
-   - Score-fusion: RRF(BoD, HyDE) — does it beat both? Untested.
+   - Quality-weighted or learned fusion to capture the UNION ceiling?
+     RRF was a clean negative; richer fusion methods unexplored.
 
    Pipeline: `evaluation/eval_hyde.py` (HyDE generation + eval),
    `evaluation/diagnose_lift.py` (BoD per-query JSONL),
