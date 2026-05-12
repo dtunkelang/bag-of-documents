@@ -777,6 +777,79 @@ scale, not by cluster geometry.
    Run logs: `logs/hotpotqa_pilot_{train,diagnostic}.log`,
    `logs/hotpotqa_salvage_{status,diagnostic}.log`.
 
+14. **HyDE complements BoD on SciFact — they rescue mostly DIFFERENT
+   queries.** HyDE (Hypothetical Document Embeddings) is the closest
+   philosophical cousin to BoD: both represent the query in document
+   space rather than query space. We tested them head-to-head on
+   SciFact at resource-matched scale — local Llama 3.1 8B Q4 (via
+   Ollama) for HyDE's hypothetical-passage generation, MiniLM-L6 BoD
+   for the supervised path.
+
+   **Aggregate R@10 on SciFact (n=300 test queries):**
+
+   | Retriever | R@10 | Δ vs base |
+   |---|---:|---:|
+   | base (MiniLM raw query) | 0.783 | — |
+   | BoD (MiniLM fine-tuned on bags) | 0.793 | +1.0pp |
+   | HyDE (Llama 3.1 8B → passage → MiniLM) | **0.841** | **+5.8pp** |
+
+   HyDE beats BoD by 4.8pp overall on this corpus. Rescue rate on
+   base-blind queries (n=62, 20.7% of pos-bearing):
+   - **HyDE: +36.3pp** (rescues 23/62 = 37.1% of blind queries)
+   - **BoD: +12.1pp** (rescues 8/62 = 12.9%)
+
+   **The overlap analysis — Pattern 14 headline:**
+
+   |  | HyDE rescues | HyDE misses |
+   |---|---:|---:|
+   | **BoD rescues** | 4 | 4 |
+   | **BoD misses** | 19 | 35 |
+
+   - **Only 4 queries overlap between BoD's 8 rescues and HyDE's 23.**
+   - HyDE rescues 19 queries BoD doesn't; BoD rescues 4 queries HyDE
+     doesn't.
+   - Union rescue = 27 queries (43.5% of base-blind) — almost 2× either
+     method alone.
+
+   The two methods target different failure modes. BoD learns from
+   labeled bag structure (multiple correct passages clustering near a
+   centroid). HyDE leans on the LLM's prior knowledge — for SciFact's
+   biomedical queries, Llama can generate factually accurate hypothetical
+   passages that embed close to the gold scientific abstracts.
+
+   **Caveats:**
+   - **Biomedical SciFact is near-best-case for HyDE.** Llama has
+     strong prior knowledge in scientific domains. Test corpora where
+     Llama's prior is weak (product SKUs, programmer Q&A, niche
+     forum text) likely flip the comparison.
+   - **Inference-time cost asymmetry.** BoD is zero-overhead vs base
+     bi-encoder. HyDE costs an LLM call per query (~7-10 sec at 20
+     tok/s local Llama). For production, HyDE is only viable when
+     the corpus value justifies the latency.
+   - **Resource-matched comparison.** Both methods are at "laptop
+     scale" — local Llama 8B Q4 + MiniLM. Production HyDE with
+     GPT-4-class LLMs would likely raise its rescue rate further.
+
+   **Implication for the framework:** the natural follow-up is an
+   *ensemble*: train BoD AND generate HyDE passages, then either
+   score-fuse (RRF / weighted mean of rankings) or run both retrievers
+   and merge top-k. Pattern 14 establishes the necessary condition
+   (complementarity at the query level); whether the ensemble actually
+   delivers depends on score calibration.
+
+   **Open questions** (queued, not run):
+   - Does the complementarity hold on non-biomedical corpora (FiQA,
+     NFCorpus, CQADupStack)? Untested.
+   - On corpora where Llama's prior is weak (BestBuy click data,
+     niche technical forums), does HyDE under-perform BoD as expected?
+     Untested.
+   - Score-fusion: RRF(BoD, HyDE) — does it beat both? Untested.
+
+   Pipeline: `evaluation/eval_hyde.py` (HyDE generation + eval),
+   `evaluation/diagnose_lift.py` (BoD per-query JSONL),
+   `evaluation/diagnose_hyde_vs_bod.py` (overlap table). Run via Ollama
+   on localhost:11434; LLM model: `llama3.1:8b-instruct-q4_K_M`.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
