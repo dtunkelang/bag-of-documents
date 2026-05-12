@@ -870,8 +870,54 @@ scale, not by cluster geometry.
 
    Pipeline: `evaluation/eval_hyde.py` (HyDE generation + eval),
    `evaluation/diagnose_lift.py` (BoD per-query JSONL),
-   `evaluation/diagnose_hyde_vs_bod.py` (overlap table). Run via Ollama
+   `evaluation/diagnose_hyde_vs_bod.py` (overlap table),
+   `evaluation/eval_rrf_ensemble.py` (RRF + union). Run via Ollama
    on localhost:11434; LLM model: `llama3.1:8b-instruct-q4_K_M`.
+
+   **FiQA-2018 follow-up (financial QA, non-biomedical):**
+
+   | Retriever | R@10 | Δ vs base | base-blind rescue |
+   |---|---:|---:|---:|
+   | base | 0.441 | — | — |
+   | BoD | 0.467 | +2.6pp | 20.7% |
+   | **HyDE** | **0.405** | **−3.6pp** | 21.2% |
+   | RRF(BoD, HyDE) | 0.471 | +3.0pp | 24.8% |
+   | RRF(base, BoD, HyDE) | **0.474** | +3.3pp | 19.8% |
+   | UNION (oracle) | 0.563 | +12.2pp | 33.3% |
+
+   **HyDE alone LOSES on FiQA (−3.6pp)** — the inverse of SciFact. The
+   mechanism: financial questions reference specific entities (companies,
+   instruments, regulations) and Llama 8B's prior generates plausible
+   passages that retrieve *similar but wrong* documents. The spec tax
+   on base-perfect queries is −21.7pp — HyDE destroys nearly a quarter
+   of the queries base was getting right.
+
+   But two things flip vs SciFact:
+   1. **BoD wins modestly on FiQA (+2.6pp)** — supervised bag training
+      adds value when the LLM prior is weak.
+   2. **RRF actually helps on FiQA** — RRF(BoD, HyDE) at +3.0pp beats
+      BoD alone. RRF(base, BoD, HyDE) reaches +3.3pp. The reason: BoD
+      and HyDE rescue rates are *balanced* on FiQA (20.7% vs 21.2%),
+      whereas SciFact was lopsided (12.9% vs 37.1%). RRF works when
+      the components are roughly equal quality.
+
+   **Overlap on FiQA base-blind subset (n=222):** BoD-rescues 46 ∩
+   HyDE-rescues 47 = 19 overlap. BoD-only 27, HyDE-only 28, neither
+   148. Union = 74 (33.3%) — the oracle ceiling. Still substantial
+   complementarity, but with more overlap than SciFact (where only
+   4/8 BoD rescues were also HyDE rescues).
+
+   **Pattern emerging across two corpora:**
+
+   | Corpus | BoD lift | HyDE lift | RRF lift | LLM-prior strength |
+   |---|---:|---:|---:|---|
+   | SciFact (biomed) | +1.0pp | **+5.8pp** | +4.9pp (RRF<HyDE) | strong |
+   | FiQA (finance) | **+2.6pp** | −3.6pp | **+3.0pp** (RRF>both) | weak |
+
+   HyDE is high-variance, corpus-dependent. BoD is low-variance, modest
+   gain on both. RRF's success depends on whether components are
+   balanced. The framework's prediction — HyDE needs strong LLM domain
+   priors — is supported.
 
 ## How to add a new corpus to this table
 
