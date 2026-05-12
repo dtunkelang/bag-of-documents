@@ -777,202 +777,127 @@ scale, not by cluster geometry.
    Run logs: `logs/hotpotqa_pilot_{train,diagnostic}.log`,
    `logs/hotpotqa_salvage_{status,diagnostic}.log`.
 
-14. **HyDE complements BoD on SciFact — they rescue mostly DIFFERENT
-   queries.** HyDE (Hypothetical Document Embeddings) is the closest
-   philosophical cousin to BoD: both represent the query in document
-   space rather than query space. We tested them head-to-head on
-   SciFact at resource-matched scale — local Llama 3.1 8B Q4 (via
-   Ollama) for HyDE's hypothetical-passage generation, MiniLM-L6 BoD
-   for the supervised path.
+14. **HyDE vs BoD across 6 corpora — two governing axes, RRF is a
+    clean negative.** Sustained head-to-head experiment comparing HyDE
+    (Hypothetical Document Embeddings via local Llama 3.1 8B Q4) to
+    BoD (MiniLM-L6 fine-tuned on bags) at resource-matched scale on a
+    laptop. Both methods represent the query in *document space*
+    rather than query space — the same philosophical move via
+    different mechanisms.
 
-   **Aggregate R@10 on SciFact (n=300 test queries):**
+    **Six-corpus summary (R@10 deltas vs base, 1K query subsample for
+    BestBuy, full test sets elsewhere):**
 
-   | Retriever | R@10 | Δ vs base |
-   |---|---:|---:|
-   | base (MiniLM raw query) | 0.783 | — |
-   | BoD (MiniLM fine-tuned on bags) | 0.793 | +1.0pp |
-   | HyDE (Llama 3.1 8B → passage → MiniLM) | **0.841** | **+5.8pp** |
+    | Corpus | base R@10 | BoD Δ | HyDE Δ | RRF(BoD,HyDE) | UNION oracle | LLM-prior strength |
+    |---|---:|---:|---:|---:|---:|---|
+    | SciFact (biomed) | 0.783 | +1.0pp | **+5.8pp** | +4.9pp | +8.9pp | strong (biology) |
+    | NFCorpus (medical/nutrition) | 0.159 | +0.8pp | **+1.5pp** | small | small | strong-but-noisy |
+    | FiQA-2018 (financial QA) | 0.441 | **+2.6pp** | −3.6pp | **+3.0pp** | +12.2pp | mid (general finance) |
+    | CQADup/english (general Q&A) | 0.577 | **+5.7pp** | −5.8pp | +3.4pp | +11.0pp | mid |
+    | CQADup/programmers (code Q&A) | 0.529 | **+4.1pp** | −8.5pp | +1.0pp | +10.3pp | mid-weak |
+    | BestBuy ACM (product clicks, 1K subsample) | 0.314 | **+22.3pp** | −0.7pp | +14.6pp | +26.9pp | weak (SKUs) |
 
-   HyDE beats BoD by 4.8pp overall on this corpus. Rescue rate on
-   base-blind queries (n=62, 20.7% of pos-bearing):
-   - **HyDE: +36.3pp** (rescues 23/62 = 37.1% of blind queries)
-   - **BoD: +12.1pp** (rescues 8/62 = 12.9%)
+    **Two governing axes (the headline finding):**
 
-   **The overlap analysis — Pattern 14 headline:**
+    1. **Bag signal sharpness drives BoD magnitude.** Clicks (BestBuy)
+       → +22.3pp; general qrels (CQADup/english/programmers, FiQA)
+       → +2.6 to +5.7pp; noisy biomedical qrels (SciFact, NFCorpus)
+       → +0.8 to +1.0pp. Matches the calibration table's rescue-rate
+       predictor exactly.
 
-   |  | HyDE rescues | HyDE misses |
-   |---|---:|---:|
-   | **BoD rescues** | 4 | 4 |
-   | **BoD misses** | 19 | 35 |
+    2. **LLM-prior strength drives HyDE magnitude.** Llama 3.1 8B has
+       strong biomedical priors → SciFact +5.8pp, NFCorpus +1.5pp.
+       Mid priors for finance and general Q&A → FiQA −3.6pp, english
+       −5.8pp. Weak priors for programming forums and product SKUs
+       → programmers −8.5pp, BestBuy −0.7pp (small only because
+       BestBuy's base R@10 is already low — the spec tax was a hefty
+       −17.5pp on base-perfect queries).
 
-   - **Only 4 queries overlap between BoD's 8 rescues and HyDE's 23.**
-   - HyDE rescues 19 queries BoD doesn't; BoD rescues 4 queries HyDE
-     doesn't.
-   - Union rescue = 27 queries (43.5% of base-blind) — almost 2× either
-     method alone.
+    HyDE *wins overall* only on the two biomedical corpora (2/6).
+    BoD wins on the other four (4/6) and ties or wins narrowly on
+    NFCorpus. As LLM domain knowledge degrades, HyDE's spec tax on
+    base-perfect grows rapidly: the LLM generates plausible-but-wrong
+    neighbors that retrieve similar-but-not-the-correct docs.
 
-   The two methods target different failure modes. BoD learns from
-   labeled bag structure (multiple correct passages clustering near a
-   centroid). HyDE leans on the LLM's prior knowledge — for SciFact's
-   biomedical queries, Llama can generate factually accurate hypothetical
-   passages that embed close to the gold scientific abstracts.
+    **The overlap pattern matches which axis dominates:**
 
-   **Caveats:**
-   - **Biomedical SciFact is near-best-case for HyDE.** Llama has
-     strong prior knowledge in scientific domains. Test corpora where
-     Llama's prior is weak (product SKUs, programmer Q&A, niche
-     forum text) likely flip the comparison.
-   - **Inference-time cost asymmetry.** BoD is zero-overhead vs base
-     bi-encoder. HyDE costs an LLM call per query (~7-10 sec at 20
-     tok/s local Llama). For production, HyDE is only viable when
-     the corpus value justifies the latency.
-   - **Resource-matched comparison.** Both methods are at "laptop
-     scale" — local Llama 8B Q4 + MiniLM. Production HyDE with
-     GPT-4-class LLMs would likely raise its rescue rate further.
+    | Corpus | BoD rescues | HyDE rescues | overlap | structure |
+    |---|---:|---:|---:|---|
+    | SciFact | 8 | 23 | 4 (17%) | **disjoint** — HyDE picks up what BoD misses, vice versa |
+    | NFCorpus | 22 | 25 | 12 (48%) | balanced |
+    | FiQA | 46 | 47 | 19 (41%) | balanced |
+    | english | 115 | 74 | 30 (41%) | balanced-skewed-to-BoD |
+    | programmers | 53 | 54 | 14 (26%) | balanced |
+    | BestBuy | 293 | 94 | 77 (82%) | **subsumed** — HyDE rescues are mostly BoD rescues too |
 
-   **Implication for the framework:** the natural follow-up is an
-   *ensemble*: train BoD AND generate HyDE passages, then either
-   score-fuse (RRF / weighted mean of rankings) or run both retrievers
-   and merge top-k. Pattern 14 establishes the necessary condition
-   (complementarity at the query level); whether the ensemble actually
-   delivers depends on score calibration.
+    The "complementarity" we observed on SciFact (only 4/8 BoD
+    rescues overlap with HyDE's 23) is corpus-specific, not a
+    general property. As the dominant axis switches from "HyDE wins
+    big" (SciFact) to "BoD wins big" (BestBuy), the overlap pattern
+    swings from disjoint to subsumed.
 
-   **Score-fusion (RRF) ablation on SciFact:**
+    **RRF is a clean negative as a default fusion.** Across 5 of 6
+    corpora, RRF underperforms the dominant component:
+    - SciFact: RRF +4.9pp < HyDE +5.8pp
+    - english: RRF +3.4pp < BoD +5.7pp
+    - programmers: RRF +1.0pp << BoD +4.1pp
+    - BestBuy: RRF +14.6pp << BoD +22.3pp
+    - NFCorpus: both methods barely move, RRF doesn't help
 
-   | Method | R@10 | base-blind rescue |
-   |---|---:|---:|
-   | base | 0.783 | — |
-   | BoD | 0.793 | 12.9% |
-   | **HyDE** | **0.841** | **37.1%** |
-   | RRF(BoD, HyDE) | 0.832 | 27.4% |
-   | RRF(base, BoD, HyDE) | 0.818 | 21.0% |
-   | **UNION (oracle upper bound)** | **0.872** | **43.5%** |
+    Only FiQA's balanced case (BoD +2.6pp, HyDE −3.6pp, mid-quality
+    components) lets RRF win at +3.0pp. The oracle UNION beats RRF
+    by 5–15pp on every corpus, confirming the headroom is real but
+    requires *quality-aware* fusion (learned reranker, query-router,
+    weighted fusion), not RRF.
 
-   **RRF under-performs HyDE alone** (0.832 vs 0.841). The mechanism
-   is clear: BoD's rescue rate on SciFact is so much weaker than HyDE's
-   that fusing them dilutes HyDE's high-quality rankings with BoD's
-   noisier ones. RRF works best when components are roughly equal
-   quality; SciFact is too lopsided. **But the oracle UNION (+8.9pp
-   overall, 43.5% rescue) confirms the complementarity headroom is
-   real** — RRF just isn't the fusion strategy that captures it. A
-   quality-weighted fusion, learned reranker, or query-router that
-   sends queries to whichever method is more likely to rescue them
-   would be needed to reach the union ceiling.
+    **Framework recommendation:**
 
-   **Open questions** (queued, not run):
-   - Does the complementarity hold on non-biomedical corpora (FiQA,
-     NFCorpus, CQADupStack)? Untested.
-   - On corpora where Llama's prior is weak (BestBuy click data,
-     niche technical forums), does HyDE under-perform BoD as expected?
-     Untested.
-   - Quality-weighted or learned fusion to capture the UNION ceiling?
-     RRF was a clean negative; richer fusion methods unexplored.
+    Add **LLM-prior strength** as a fourth factor alongside the
+    three existing ones (SCHS, base-difficulty distribution,
+    rescue-rate predictor). The decision rule:
 
-   Pipeline: `evaluation/eval_hyde.py` (HyDE generation + eval),
-   `evaluation/diagnose_lift.py` (BoD per-query JSONL),
-   `evaluation/diagnose_hyde_vs_bod.py` (overlap table),
-   `evaluation/eval_rrf_ensemble.py` (RRF + union). Run via Ollama
-   on localhost:11434; LLM model: `llama3.1:8b-instruct-q4_K_M`.
+    - **BoD wins** when bag signal is sharp (clicks > graded qrels >
+      noisy qrels). Magnitude predictable from the calibration table.
+    - **HyDE wins** when the LLM has strong domain knowledge for the
+      corpus AND the supervised signal is weak/noisy. Roughly:
+      "biomedical, scientific, general-knowledge facts" → consider
+      HyDE; "products, niche technical forums, code, specific
+      entities" → BoD only.
+    - **Both** when domain is "strong-LLM-knowledge AND sharp-bag-
+      signal" — neither component dominates, RRF or learned fusion
+      could help. We haven't tested this corner directly; the
+      framework predicts it would also be the case where RRF actually
+      works.
+    - **Neither** when domain has weak LLM prior AND noisy bag
+      signal. Use base encoder, don't pay the BoD training cost or
+      HyDE inference cost.
 
-   **FiQA-2018 follow-up (financial QA, non-biomedical):**
+    **Cost-of-deployment lens:** HyDE pays ~7-10 sec LLM call per
+    query at local-8B scale; BoD is zero overhead at inference. The
+    deployment-decision rule reduces to: if HyDE could in principle
+    help, pay the inference cost only when the corpus is in the
+    "strong-LLM-knowledge AND weak-bag-signal" quadrant. That's a
+    narrow regime.
 
-   | Retriever | R@10 | Δ vs base | base-blind rescue |
-   |---|---:|---:|---:|
-   | base | 0.441 | — | — |
-   | BoD | 0.467 | +2.6pp | 20.7% |
-   | **HyDE** | **0.405** | **−3.6pp** | 21.2% |
-   | RRF(BoD, HyDE) | 0.471 | +3.0pp | 24.8% |
-   | RRF(base, BoD, HyDE) | **0.474** | +3.3pp | 19.8% |
-   | UNION (oracle) | 0.563 | +12.2pp | 33.3% |
+    Pipeline: `evaluation/eval_hyde.py` (HyDE generation + eval),
+    `evaluation/diagnose_lift.py` (BoD per-query JSONL),
+    `evaluation/diagnose_hyde_vs_bod.py` (overlap table),
+    `evaluation/eval_rrf_ensemble.py` (RRF + UNION upper bound).
+    `overnight_hyde_chain.sh` runs all four phases for a list of
+    corpora in sequence. LLM via Ollama on `localhost:11434`; model:
+    `llama3.1:8b-instruct-q4_K_M`.
 
-   **HyDE alone LOSES on FiQA (−3.6pp)** — the inverse of SciFact. The
-   mechanism: financial questions reference specific entities (companies,
-   instruments, regulations) and Llama 8B's prior generates plausible
-   passages that retrieve *similar but wrong* documents. The spec tax
-   on base-perfect queries is −21.7pp — HyDE destroys nearly a quarter
-   of the queries base was getting right.
+    **Open follow-ups** (not run):
 
-   But two things flip vs SciFact:
-   1. **BoD wins modestly on FiQA (+2.6pp)** — supervised bag training
-      adds value when the LLM prior is weak.
-   2. **RRF actually helps on FiQA** — RRF(BoD, HyDE) at +3.0pp beats
-      BoD alone. RRF(base, BoD, HyDE) reaches +3.3pp. The reason: BoD
-      and HyDE rescue rates are *balanced* on FiQA (20.7% vs 21.2%),
-      whereas SciFact was lopsided (12.9% vs 37.1%). RRF works when
-      the components are roughly equal quality.
-
-   **Overlap on FiQA base-blind subset (n=222):** BoD-rescues 46 ∩
-   HyDE-rescues 47 = 19 overlap. BoD-only 27, HyDE-only 28, neither
-   148. Union = 74 (33.3%) — the oracle ceiling. Still substantial
-   complementarity, but with more overlap than SciFact (where only
-   4/8 BoD rescues were also HyDE rescues).
-
-   **BestBuy ACM follow-up (1K random test-query subsample; product
-   search where LLM prior is weakest):**
-
-   | Retriever | R@10 | Δ vs base | rescue% |
-   |---|---:|---:|---:|
-   | base | 0.314 | — | — |
-   | **BoD** | **0.537** | **+22.3pp** | **66.4%** |
-   | HyDE | 0.307 | −0.7pp | 21.4% |
-   | RRF(BoD, HyDE) | 0.460 | +14.6pp | 49.4% |
-   | RRF(base, BoD, HyDE) | 0.416 | +10.2pp | 34.8% |
-   | UNION (oracle) | 0.583 | +26.9pp | 70.2% |
-
-   Predicted before running (we explicitly wrote it down): HyDE would
-   pay heavy spec tax on product-specific queries because Llama 8B
-   generates plausible *generic* product descriptions that retrieve
-   similar-but-wrong SKUs. **Confirmed**: tax on base-perfect is
-   −17.5pp, rescue on base-blind only +9.6pp; net −0.7pp.
-
-   **Overlap on BestBuy base-blind (n=441):** BoD-rescues 293 ∩
-   HyDE-rescues 94 = 77 overlap. **82% of HyDE's rescues are also
-   BoD rescues** — HyDE is essentially subsumed. This is the inverse
-   of SciFact (only 17% of HyDE rescues were also BoD rescues, i.e.
-   HyDE found mostly NEW queries). FiQA sat in between.
-
-   **Three-corpus picture — the dominant lever for each method:**
-
-   | Corpus | BoD | HyDE | RRF | Dominant lever |
-   |---|---:|---:|---:|---|
-   | SciFact (biomed) | +1.0pp | **+5.8pp** | +4.9pp (loses to HyDE) | LLM-prior strong → HyDE wins |
-   | FiQA (finance) | +2.6pp | −3.6pp | **+3.0pp** (beats both) | balanced → RRF wins |
-   | BestBuy (clicks) | **+22.3pp** | −0.7pp | +14.6pp (loses to BoD) | bag signal sharp → BoD wins |
-
-   **The two governing axes:**
-
-   1. **Bag signal sharpness drives BoD magnitude.** Click data
-      (BestBuy) gives BoD +22.3pp. Graded qrels (FiQA) gives +2.6pp.
-      Noisy multi-positive qrels (SciFact) gives +1.0pp. This matches
-      the rescue-rate predictor's reading of bag stats.
-   2. **LLM-prior strength drives HyDE magnitude.** Strong domain
-      knowledge (SciFact biomedicine) gives HyDE +5.8pp. Mid-knowledge
-      (FiQA finance) gives −3.6pp. Weak (BestBuy SKUs) gives −0.7pp
-      with a heavy tax. As the LLM prior weakens, HyDE's tax on
-      base-perfect grows because it generates plausible-but-wrong
-      neighbors.
-
-   **The overlap pattern reflects which lever is dominant:**
-
-   - SciFact: HyDE dominates → almost disjoint rescues (BoD picks up
-     queries the LLM doesn't know; HyDE picks up the rest).
-   - BestBuy: BoD dominates → HyDE rescues subsumed (Llama mostly
-     surfaces things BoD already had via the training signal).
-   - FiQA: balanced → moderate overlap, complementarity in the middle.
-
-   **RRF only wins when components are balanced.** Lopsided pairs
-   (SciFact, BestBuy) lose to the dominant component. The oracle
-   UNION numbers confirm there's headroom in all three cases, but
-   capturing it requires quality-aware fusion (learned reranker,
-   query-router, or weighted fusion), not RRF.
-
-   **Practical framework recommendation:** the framework should
-   include LLM-prior strength as a fourth factor alongside bag-signal
-   sharpness, base-model competence, and clustering geometry. The
-   prediction rule: BoD wins when bag signal is sharp; HyDE wins when
-   LLM has strong prior in the corpus's domain; either-or — pick the
-   side that has the stronger signal for your corpus. RRF as a default
-   fusion is a clean negative across all three corpora tested.
+    - Train a per-query router that predicts whether BoD or HyDE will
+      rescue a given query. Target the oracle UNION rate (10-15pp
+      headroom per corpus).
+    - Quality-weighted fusion: `w*BoD_score + (1-w)*HyDE_score` with
+      per-corpus calibrated weight.
+    - Stronger LLM (frontier API class) — would lift HyDE's regime
+      ceiling but doesn't change the framework axes; the cost-of-
+      deployment shifts further toward "only worth it on
+      strong-prior corpora."
 
 ## How to add a new corpus to this table
 
