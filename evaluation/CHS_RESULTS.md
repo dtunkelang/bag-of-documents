@@ -1156,6 +1156,63 @@ scale, not by cluster geometry.
     Run: `evaluation/encode_esci_images.py` then
     `evaluation/eval_clip_fusion_rrf.py`.
 
+17. **Three-way union-oracle confirms BoD / HyDE / Doc2Query are
+    empirically orthogonal — +3.5 to +6pp router headroom on every
+    corpus.** Joined per-query hit data across all three methods on 5
+    corpora (SciFact, NFCorpus, FiQA, programmers, english) using
+    cached `*_per_query_*.jsonl` files. Computed the UNION-oracle:
+    best-per-query across the three methods, the LOWER bound on what
+    perfect per-query routing could achieve.
+
+    **Five-corpus summary (R@10 deltas vs base):**
+
+    | Corpus | base | BoD Δ | HyDE Δ | D2Q Δ | UNION Δ | router headroom |
+    |---|---:|---:|---:|---:|---:|---:|
+    | SciFact | 0.78 | +1.0pp | +5.8pp | +2.7pp | **+9.3pp** | +3.5pp |
+    | NFCorpus | 0.16 | +0.8pp | +1.5pp | +0.4pp | **+5.3pp** | +3.8pp |
+    | FiQA | 0.44 | +2.6pp | −3.6pp | +15.8pp | **+19.8pp** | +4.0pp |
+    | programmers | 0.53 | +4.1pp | −8.5pp | +14.1pp | **+18.9pp** | +4.9pp |
+    | english | 0.58 | +5.7pp | −5.8pp | +8.8pp | **+14.9pp** | +6.0pp |
+
+    "Router headroom" = UNION Δ minus best-single-method Δ. Universally
+    +3.5 to +6pp. A perfect per-query router would deliver that gain
+    over picking one method.
+
+    **Even net-negative HyDE has unique base-blind rescues.** On the
+    base-blind subset (queries where base R@10 = 0), the count of
+    queries that *only* HyDE rescued (no other method finds gold):
+
+    | Corpus | base-blind n | only-BoD | only-HyDE | only-D2Q | all-three | none |
+    |---|---:|---:|---:|---:|---:|---:|
+    | SciFact | 62 | 2 | 13 | 1 | 0 | 34 |
+    | NFCorpus | 99 | 10 | 12 | 3 | 3 | 61 |
+    | FiQA | 222 | 3 | 11 | 43 | 14 | 105 |
+    | programmers | 348 | 16 | 22 | 70 | 9 | 185 |
+    | english | 522 | 48 | 23 | 59 | 18 | 304 |
+
+    On FiQA, programmers, and english — corpora where HyDE *loses*
+    aggregate by 3.6 to 8.5pp — HyDE still uniquely finds gold for
+    11-23 base-blind queries. The methods are partially disjoint;
+    HyDE's destructive base-perfect tax is what makes its aggregate
+    negative, not lack of rescue value.
+
+    **Practical implication: per-query routing is the next production
+    move.** The router-training follow-up has been queued since Pattern
+    14. The headroom is now quantified — +3.5 to +6pp depending on
+    corpus, larger than the lift gap between most fixed methods. Open
+    question: how much of that ceiling a learned router (with query
+    embedding or simple length/topic features) can capture in practice.
+
+    **The "none" cell is sobering.** On every corpus, more base-blind
+    queries are unsalvageable by *any* of these three methods than
+    are rescued by all three combined. Routing closes a real gap but
+    a hard ceiling remains. Lifting the ceiling needs structurally
+    different signals (multi-hop retrieval, cross-encoder rescoring
+    of expanded candidate pools, etc.).
+
+    Run: `evaluation/eval_three_way_oracle.py` (consumes cached
+    `*_per_query_*.jsonl` from each data dir; no recomputation).
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
