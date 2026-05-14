@@ -36,6 +36,9 @@ IMPORT_SKIP = {
     # Loads eval data files at module top level — fails in clean CI without
     # esci_us_data/. Refactor to def main() if revisiting.
     "evaluation/eval_ensemble.py",
+    # Opens esci_us_data/product_ids.json at module top level (one-off
+    # data-acquisition utility, same pattern as download/*).
+    "evaluation/check_image_coverage.py",
 }
 
 
