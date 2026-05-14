@@ -1010,6 +1010,152 @@ scale, not by cluster geometry.
     Run: `evaluation/eval_prf.py` (sweeps K ∈ {3, 5, 10}, α ∈
     {0.0, 0.3, 0.5, 0.7, 1.0}).
 
+15. **Doc2Query as a doc-side LLM lever — broader regime than HyDE,
+    but dilutes at full corpus.** Generate K=5 plausible queries per
+    doc via LLM, fuse into the doc rep via vector averaging, retrieve
+    with raw text queries. Tested as the explicit doc-side dual to
+    HyDE.
+
+    **Seven-corpus oracle results (only docs in test qrels expanded;
+    upper bound on Doc2Query lift):**
+
+    | Corpus | Domain | Base R@10 | HyDE Δ | Doc2Query oracle Δ |
+    |---|---|---:|---:|---:|
+    | SciFact | Biomedical | 0.78 | +4.7pp | +7.9pp |
+    | NFCorpus | Biomedical | 0.16 | small | +0.4pp |
+    | FiQA-2018 | Financial QA | 0.44 | **−2.6pp** | **+15.8pp** |
+    | CQADup/programmers | Tech Q&A | 0.53 | **−8.5pp** | **+14.1pp** |
+    | CQADup/english | English Q&A | 0.58 | **−6.1pp** | +8.8pp |
+    | ArguAna | Argumentation | 0.77 | n/a | +9.6pp |
+    | SciDocs | Scientific citation | 0.23 | n/a | +7.7pp |
+
+    **6 of 7 corpora oracle-win at +7.7 to +15.8pp.** Only NFCorpus
+    is essentially flat — explained by its 53% one-word topic-keyword
+    queries ("Panama", "BPA", "betel nuts") that LLM-generated
+    search-style queries can't bridge to. Stratified by query length,
+    NFCorpus 6+-word queries do lift +0.7pp; the per-doc augmentation
+    helps where the query is substantive.
+
+    **Three corpora are decisive for the orthogonality thesis:** FiQA
+    (HyDE −2.6pp, Doc2Query +15.8pp), programmers (HyDE −8.5pp,
+    Doc2Query +14.1pp), english (HyDE −6.1pp, Doc2Query +8.8pp).
+    Same LLM, same corpus, opposite outcomes. HyDE and Doc2Query are
+    not interchangeable — they ask the LLM different questions and
+    succeed in different regimes.
+
+    **The hidden bug that almost killed this experiment.** Initial
+    canonical Doc2Query (append generated queries to passage text,
+    re-encode) gave null results everywhere. Root cause: MiniLM-L6
+    has 256-token context, but 70-79% of SciFact/NFCorpus docs
+    already exceed that. Appended queries were silently truncated
+    out before reaching the encoder. The vec_avg fix (encode queries
+    separately and average with passage vec) preserves both signals
+    and unmasked the real result. **Method-implementation diagnostic
+    that should be standard: verify the augmentation actually reaches
+    the encoder before declaring failure.**
+
+    **Full-corpus dilution is real, structural, and not tunable from
+    inside the method.** SciFact's oracle was +7.9pp. Adding non-gold
+    expansions monotonically eroded the lift: at 7% non-gold expanded
+    +7.8pp, at 32% non-gold +5.1pp, at 100% non-gold (full corpus)
+    **+2.7pp final**. Three mitigation knobs all failed:
+    - **K sweep** (1→5 queries per doc): K=5 already optimal; smaller
+      K gives noisier mean-query attractor, more drift on base-perfect
+    - **Passage:query weight** (α=0.5 baseline → 0.95): leaning
+      toward passage loses rescue without buying back tax
+    - **Coherence filter** (drop docs with low intra-query cosine):
+      trims rescue AND dilution proportionally — high-coherence docs
+      aren't the "useful" ones, just better attractors regardless of
+      whether they're gold or distractor
+
+    Mechanism: every non-gold expansion creates 5 query-like
+    attractors that compete with the 5 attractors on gold docs.
+    Selective expansion would fix this but requires *external signal*
+    (real query logs, BoD-trained doc clusters, or anticipated query
+    distribution). With public BEIR corpora that have only test
+    qrels, oracle is the ceiling and full-corpus is the floor.
+
+    **Framework refinement — three orthogonal LLM-era levers:**
+
+    | Lever | Question asked | Intervention point | Key gate |
+    |---|---|---|---|
+    | BoD | learn query→doc from real signal | training time | bag signal sharpness |
+    | HyDE | LLM imagines an answer doc | inference time | LLM doc-prior strength |
+    | Doc2Query | LLM imagines plausible queries | build time | query-distribution match |
+
+    HyDE failed on 4/6 corpora because its lever (LLM doc-prior
+    strength) is asymmetric — strong only for domains where the LLM
+    has rich training data. Doc2Query's lever (query-distribution
+    match) is easier to satisfy: the LLM doesn't need to know the
+    domain, it just needs to write plausible search queries for
+    text it can read. That's a near-universal skill for any
+    capable LLM, which is why Doc2Query oracle wins broadly.
+
+    **Build-time methods are gentler than training-time methods on
+    base-perfect queries.** Doc2Query's vec_avg keeps the passage
+    vec at 50% weight in the doc rep, so base-perfect queries
+    retain their text-matching path. Across all 7 corpora the
+    base-perfect tax is 0.0pp to −1.6pp. BoD fine-tuning, by
+    contrast, shifts the encoder for *all* queries and typically
+    pays 5-15pp tax on base-perfect.
+
+    Run: `evaluation/eval_doc2query.py --augmentation-mode vec_avg`
+    (--oracle-only for the test-set-gold subset; default is full
+    corpus).
+
+16. **CLIP image fusion on ESCI — clean negative across three fusion
+    strategies.** Goal: test whether multimodal product images add
+    orthogonal signal beyond text retrieval. Setup: HEAD-checked
+    1.22M ESCI-US ASINs against `images-na.ssl-images-amazon.com
+    /images/P/<ASIN>.01.LZZZZZZZ.jpg`, found 427,207 (35%) had real
+    images; CLIP ViT-B/32 (LAION-2B) encoded them; tested weighted
+    sum, z-score normalized, and RRF fusion against MiniLM text
+    retrieval.
+
+    **Results across three fusion strategies (R@10 vs text-only base
+    of 0.1585, 22,458 queries):**
+
+    | Method | R@10 | Δ vs text | Miss rescue | Perfect tax |
+    |---|---:|---:|---:|---:|
+    | text only | 0.1585 | 0 | 0 | 0 |
+    | image only | 0.0900 | −6.85pp | +4.4pp | −61.5pp |
+    | best weighted sum (α=0.90) | 0.1601 | +0.17pp | +0.7pp | −1.7pp |
+    | RRF (k=60, M=100) | 0.1417 | −1.68pp | +3.4pp | −20.5pp |
+    | z-score (α=0.9) | 0.1569 | −0.16pp | +1.3pp | −2.9pp |
+
+    Best result is +0.17pp at α=0.90 — within measurement noise.
+
+    **Why image fusion fails on ESCI:**
+    1. **Image-only R@10 = 0.09** is too weak as a stand-alone
+       ranker. Image alone retrieves wrong docs 91% of the time
+       because visually-similar products span query intent classes.
+    2. **CLIP captures category-level info that text already has.**
+       Products in the same query class look broadly similar to
+       generic CLIP (round earcups, dark colors for "wireless
+       headphones"). The marginal info would be at the level of
+       brand, spec, model variant — which CLIP ViT-B/32 trained on
+       generic web images cannot isolate.
+    3. **Coverage asymmetry compounds.** 35% image coverage means
+       non-image docs are tied/random in the image ranking, biasing
+       any rank- or score-based fusion toward image-bearing docs
+       regardless of relevance.
+
+    Image as a fusion partner only adds value on **visually-
+    distinctive product queries** ("ornate gold picture frame",
+    "vintage leather jacket") — a narrow band where the image
+    captures discriminative information that text descriptions
+    don't. Across the broader test set this band is too small to
+    swing the aggregate.
+
+    **Framework slot:** image is NOT an orthogonal modality lever
+    for ESCI product retrieval at the level of generic CLIP. A
+    product-tuned CLIP (FashionCLIP, ABO) or a larger model
+    (ViT-L/14 with cleaner pretraining) might shift the curve at
+    the margin but is unlikely to transform it.
+
+    Run: `evaluation/encode_esci_images.py` then
+    `evaluation/eval_clip_fusion_rrf.py`.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
