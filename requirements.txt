@@ -11,6 +11,7 @@ uvicorn>=0.20
 torch>=2.0
 datasets>=4.0
 open_clip_torch>=2.20
+peft>=0.18
 
 # Development
 ruff>=0.15
