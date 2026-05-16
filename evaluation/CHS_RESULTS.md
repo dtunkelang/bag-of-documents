@@ -1307,6 +1307,68 @@ scale, not by cluster geometry.
     `training/finetune_lora_bod.py` for LoRA-BoD training (supports
     `--resume-from` for warm restart from any checkpoint).
 
+19. **Four-way union-oracle: domain-pretraining is a fourth orthogonal
+    lever to BoD/HyDE/Doc2Query.** Extension of Pattern 17's three-way
+    oracle. Adds Algolia drop-in as a fourth method and asks: does it
+    rescue queries the trained methods all miss? If yes, the
+    bottleneck taxonomy from Pattern 18 holds empirically — each lever
+    targets a different bottleneck, and a perfect router benefits from
+    routing across all four.
+
+    **Five-corpus four-way oracle (R@10 deltas vs MiniLM base):**
+
+    | Corpus | BoD Δ | HyDE Δ | D2Q Δ | Algolia Δ | UNION-3 | UNION-4 | Algolia headroom |
+    |---|---:|---:|---:|---:|---:|---:|---:|
+    | NFCorpus | +0.8pp | +1.5pp | +0.4pp | +0.8pp | +5.3pp | **+6.5pp** | **+1.2pp** |
+    | SciFact | +1.0pp | +5.8pp | +2.7pp | +2.7pp | +9.3pp | **+10.3pp** | **+1.0pp** |
+    | FiQA | +2.6pp | −3.6pp | +15.8pp | +3.1pp | +19.8pp | **+21.7pp** | **+1.8pp** |
+    | programmers | +4.1pp | −8.5pp | +14.1pp | +2.4pp | +18.9pp | **+20.6pp** | **+1.7pp** |
+    | english | +5.7pp | −5.8pp | +8.8pp | **−3.4pp** | +14.9pp | **+16.1pp** | **+1.3pp** |
+
+    **Algolia adds +1.0 to +1.8pp to the oracle ceiling on every
+    corpus — even on english where Algolia alone is net-negative
+    (−3.4pp).** The english result is the cleanest evidence: a
+    method whose aggregate R@10 is below base can still contribute
+    to the oracle if its *exclusive base-blind rescues* are disjoint
+    from the other methods' rescues. On english, only-Algolia
+    rescues 19 base-blind queries that BoD/HyDE/Doc2Query all miss.
+
+    **Base-blind exclusivity (queries where each method *alone*
+    finds gold and the others all miss):**
+
+    | Corpus | base-blind n | only-BoD | only-HyDE | only-D2Q | only-Algolia | all-four | none |
+    |---|---:|---:|---:|---:|---:|---:|---:|
+    | NFCorpus | 99 | 6 | 10 | 2 | 8 | 1 | 53 |
+    | SciFact | 62 | 1 | 7 | 1 | 2 | 0 | 32 |
+    | FiQA | 222 | 3 | 9 | 33 | 8 | 10 | 97 |
+    | programmers | 348 | 13 | 14 | 40 | 13 | 5 | 172 |
+    | english | 522 | 44 | 18 | 42 | 19 | 7 | 285 |
+
+    Algolia has between 2 and 19 exclusive rescues on each corpus —
+    smaller magnitude than D2Q/HyDE typically, but consistently non-
+    zero. This is the empirical signature of an orthogonal lever:
+    its rescues overlap with the other methods imperfectly.
+
+    **Framework validation.** Pattern 18's bottleneck taxonomy
+    predicts that domain pretraining (Algolia) attacks the
+    base-capacity bottleneck, while BoD/HyDE/D2Q attack the
+    supervision-signal / query-text / query-distribution bottlenecks
+    respectively. The four-way oracle bears this out — if any of
+    these methods were redundant with another, oracle headroom from
+    adding it would be near zero. Instead each contributes
+    independently.
+
+    **Practical implication.** A per-query router targeting all four
+    methods (or four-way weighted fusion) has +1-2pp of headroom on
+    top of three-way (Pattern 17). Combined with Pattern 17's +3.5-6pp
+    headroom over best-single-method, perfect four-way routing offers
+    +4.5-8pp over picking any one method. This is the practical
+    ceiling for the "stack everything" production strategy.
+
+    Run: `evaluation/eval_four_way_oracle.py --corpus <name>`.
+    Caches per-query Algolia hits in `<data_dir>/algolia_per_query.jsonl`
+    for reuse.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
