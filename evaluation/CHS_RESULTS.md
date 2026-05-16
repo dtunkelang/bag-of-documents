@@ -1213,6 +1213,100 @@ scale, not by cluster geometry.
     Run: `evaluation/eval_three_way_oracle.py` (consumes cached
     `*_per_query_*.jsonl` from each data dir; no recomputation).
 
+18. **Stronger domain-specialized base + LoRA-BoD on top — each lever
+    attacks a different bottleneck.** Tested whether the framework's
+    findings extend to a much stronger base encoder. Subject:
+    [`algolia-large-multilang-generic-v2410`](https://huggingface.co/algolia/algolia-large-multilang-generic-v2410)
+    — a Solon-large-based (0.6B params), e-commerce-specialized,
+    multilingual encoder; ~26× more parameters than MiniLM-L6, drop-in
+    via `sentence_transformers` with asymmetric query encoding
+    (`"query: "` prefix on queries).
+
+    **Three-corpus drop-in baseline (no training):**
+
+    | Corpus | Domain | MiniLM-L6 base | Algolia base | Δ |
+    |---|---|---:|---:|---:|
+    | BestBuy ACM (1K test) | E-commerce | 0.3142 | 0.3902 | **+7.6pp** |
+    | ESCI-US (22K test) | E-commerce | 0.1585 | 0.2066 | **+4.8pp** |
+    | NFCorpus | Biomedical | 0.1589 | 0.1667 | +0.8pp |
+
+    Substantial drop-in lift where domain matches (e-commerce), near-
+    zero on biomedical — exactly what the encoder's specialization
+    claim predicts. Notably, Algolia base on ESCI-US (0.2066) matches
+    or slightly exceeds the MiniLM-BoD 6M-MNRL retriever (0.1983) —
+    a drop-in domain-specialized encoder reaches what months of
+    qrels-trained MiniLM fine-tuning produced. The base-capacity
+    bottleneck is real and addressable by domain pretraining.
+
+    **LoRA-BoD on top of Algolia.** Wrapped Algolia in LoRA adapters
+    (r=16, Q/K/V targets, ~2.4M / 562M = 0.4% trainable params) and
+    fine-tuned on BoD-style triplets (query, positive, hardneg) drawn
+    from corpus qrels + FAISS-mined hardnegs. Tested at two training
+    scales on ESCI-US to control for "undertrained" interpretation.
+
+    | Corpus | Signal | Scale | Algolia base | Algolia+LoRA-BoD | Δ |
+    |---|---|---:|---:|---:|---:|
+    | BestBuy ACM | click logs | 2× baseline | 0.3902 | **0.4260** | **+3.6pp** |
+    | ESCI-US | qrels | 2× baseline | 0.2066 | 0.1960 | −1.1pp |
+    | ESCI-US | qrels | 5× baseline | 0.2066 | 0.1850 | **−2.2pp** |
+
+    **The 2× → 5× regression on ESCI-US is the decisive datapoint.**
+    Doubling-down on noisy-qrels training monotonically degraded the
+    model. This rules out scale-limitation as an explanation: the
+    methodology genuinely doesn't engage when its target bottleneck
+    isn't binding. Meanwhile on BestBuy, LoRA-BoD lifted Algolia base
+    by +3.6pp using the same recipe — the contrast is in the
+    *training-signal sharpness*, exactly the axis Pattern 14
+    established for BoD on MiniLM.
+
+    **Framework refinement — bottleneck axes:**
+
+    | Lever | Bottleneck it attacks | When it binds |
+    |---|---|---|
+    | Domain pretraining at scale | Base capacity | Generic encoders lack domain priors |
+    | BoD (real query→doc signal) | Supervision-signal sharpness | Training data sharp enough to teach intent |
+    | HyDE (LLM doc-prior) | Query-text quality / brevity | Queries don't bridge to docs in vector space |
+    | Doc2Query (LLM query-prior) | Query-distribution match | Test queries match LLM-generated styles |
+    | CLIP / multimodal | Out-of-vocabulary visual cue | Text representation is structurally insufficient |
+
+    Different methods are most useful when their bottleneck is binding.
+    A method whose bottleneck *isn't* binding is, at best, neutral —
+    and at worst, actively distorts the existing rep (e.g. noisy-qrels
+    BoD on a strong base).
+
+    **Pareto implication.** The retrieval-quality vs cost frontier
+    isn't a single curve — it's a multi-axis surface, and each lever
+    moves it along a different axis. Domain pretraining buys quality
+    with inference-latency cost; methodology like BoD buys quality
+    with training-time-and-signal cost (inference stays cheap). In
+    production, the right move depends on which bottleneck is binding
+    AND which cost dimension you can pay.
+
+    **For practitioners deciding where to invest:**
+    - **No training signal available** → drop in a domain-specialized
+      encoder if one exists for your domain. Pure cost-vs-quality
+      trade-off on latency.
+    - **Sharp training signal available** (clicks, conversions, A/B-
+      tested feedback) → BoD methodology compounds with whatever base
+      you have. The MiniLM-BoD floor (+22pp on click signal) and the
+      Algolia-BoD demonstration (+3.6pp on top of an already-strong
+      base) both hold up; sharper signal predicts more lift.
+    - **Only noisy qrels** → BoD may not lift atop a specialized base.
+      Either improve signal quality first or stay on drop-in.
+    - **Latency budget tight** → smaller-base + methodology > larger-
+      base alone for the same latency budget, given sharp signal.
+
+    **The compound is what's interesting.** Each lever in isolation
+    has limits. The Pareto frontier moves furthest when you stack
+    methodologies on top of a strong base, on top of sharp signal.
+    The framework's value isn't picking the "winning" lever — it's
+    diagnosing which bottlenecks are binding so you can pick the
+    right combination.
+
+    Run: `evaluation/eval_alt_encoder.py` for drop-in eval;
+    `training/finetune_lora_bod.py` for LoRA-BoD training (supports
+    `--resume-from` for warm restart from any checkpoint).
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
