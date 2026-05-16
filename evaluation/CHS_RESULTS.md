@@ -73,6 +73,48 @@ scale, not by cluster geometry.
 
 ## Patterns worth noting
 
+**Index** (chronological; each entry below has the full discussion):
+
+*Cluster Hypothesis Score (CHS) calibration*
+- **1.** SCHS rank-orders BoD lift magnitudes
+- **2.** High SCHS + too few multi-positive queries is a trap (NQ caveat)
+- **3.** HCHS adds signal mainly with genuine hard negatives in qrels
+- **4.** Strong-inv rate caveats
+- **5.** SCHS is necessary but doesn't predict lift magnitude alone
+
+*Specialization tax and base-shrinking*
+- **6.** Sharper hardnegs sharpen rescue AND the specialization tax
+- **7.** Stronger base shrinks the base-blind subset (causal test)
+
+*Rescue-rate predictor*
+- **8a.** Bag stats predict rescue rate below base R@10 = 0.85
+- **8b.** FiQA predict-then-test — framework validates, priors update
+- **8c.** End-to-end sweep validation (RMSE 2.09pp on 14 corpora)
+- **8d.** CQADup/unix pure predict-then-test
+- **8e.** Predictor calibration is encoder-specific
+- **8f.** bge-base BoD is signal-bound, not inherently bad
+
+*Readiness tool and BEIR sweep*
+- **9.** Readiness-report tool: 5-of-5 correct verdicts
+- **10.** Rerank-vs-retrieve dominance tracks BM25-vs-base
+- **11.** Specialization tax is intrinsic — query-side routing can't fix
+- **12.** BEIR readiness sweep: 3 SKIP, HotpotQA flagged as false-SKIP candidate
+- **13.** HotpotQA pilot confirms the false-SKIP zone
+
+*LLM-era methods*
+- **14.** HyDE vs BoD across 6 corpora — two governing axes; RRF clean negative
+- **14b.** Weighted SCORE fusion beats RRF
+- **14c.** Pseudo-relevance feedback (PRF) clean negative — the LLM IS the lever
+- **15.** Doc2Query as doc-side LLM lever — broader regime than HyDE
+- **16.** CLIP image fusion on ESCI — clean negative across three strategies
+
+*Oracle composition and base encoder*
+- **17.** Three-way union-oracle (BoD + HyDE + Doc2Query) — +3.5-6pp router headroom
+- **18.** Stronger domain-specialized base + LoRA-BoD — each lever attacks a different bottleneck
+- **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
+
+---
+
 1. **SCHS rank-orders BoD lift magnitudes**, not just success/failure:
    - BestBuy ACM (+17.5pp): SCHS 0.525
    - ESCI-US (~+7pp): SCHS 0.54
@@ -1326,11 +1368,12 @@ scale, not by cluster geometry.
     | english | +5.7pp | −5.8pp | +8.8pp | **−3.4pp** | +14.9pp | **+16.1pp** | **+1.3pp** |
 
     **Algolia adds +1.0 to +1.8pp to the oracle ceiling on every
-    corpus — even on english where Algolia alone is net-negative
-    (−3.4pp).** The english result is the cleanest evidence: a
-    method whose aggregate R@10 is below base can still contribute
-    to the oracle if its *exclusive base-blind rescues* are disjoint
-    from the other methods' rescues. On english, only-Algolia
+    corpus — even on english, where Algolia's drop-in trailed the
+    MiniLM baseline by 3.4pp on aggregate R@10.** The english result
+    is the cleanest evidence of orthogonality: a method whose
+    aggregate R@10 trails base on a given corpus can still contribute
+    to the oracle ceiling if its *exclusive base-blind rescues* are
+    disjoint from the other methods' rescues. On english, only-Algolia
     rescues 19 base-blind queries that BoD/HyDE/Doc2Query all miss.
 
     **Base-blind exclusivity (queries where each method *alone*
