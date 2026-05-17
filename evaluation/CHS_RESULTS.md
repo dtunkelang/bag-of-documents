@@ -1412,6 +1412,122 @@ scale, not by cluster geometry.
     Caches per-query Algolia hits in `<data_dir>/algolia_per_query.jsonl`
     for reuse.
 
+20. **BGE-large drop-in lifts everywhere; LoRA-BoD on top compounds
+    but inference-scale loses to training-signal at ~23× cost-per-pp.**
+    Eight-corpus drop-in evaluation of BGE-large (335M params,
+    24 layers × 1024-dim) plus the compound BGE-large + LoRA-BoD
+    fine-tune on BestBuy. Tests two related claims: (a) does a
+    frontier general encoder substitute for in-domain supervision, and
+    (b) when both are available, does the supervision signal still
+    carry through on top of the bigger base.
+
+    **Eight-corpus BGE-large drop-in vs MiniLM-L6 base:**
+
+    | Corpus | n | MiniLM base R@10 | BGE-large R@10 | Δ |
+    |---|---:|---:|---:|---:|
+    | NFCorpus | 323 | 0.1589 | 0.1910 | +3.21pp |
+    | SciFact | 300 | 0.7833 | 0.8724 | +8.91pp |
+    | SciDocs | 1,000 | — | 0.2359 | — |
+    | CQADup/programmers | 876 | 0.5286 | 0.5592 | +3.06pp |
+    | CQADup/english | 1,570 | 0.5771 | 0.5901 | +1.30pp |
+    | FiQA | 648 | 0.4413 | 0.5143 | +7.30pp |
+    | BestBuy ACM | 1,000 | 0.3142 | 0.3734 | +5.92pp |
+    | ESCI-US | 22,458 | ~0.156 | 0.2087 | ~+5.3pp |
+
+    BGE-large drop-in is positive on every corpus where a base
+    comparison exists, with magnitudes ranging +1.3 to +8.9pp. The
+    spread tracks how well a generic encoder's priors fit the corpus:
+    technical / scientific text (scifact, fiqa) lifts most; long
+    forum text (english) lifts least. This establishes BGE-large as
+    a competitive baseline before the BoD comparison.
+
+    **BGE-large + LoRA-BoD on BestBuy:**
+
+    | Model | Params | R@10 | Δ vs MiniLM base |
+    |---|---:|---:|---:|
+    | MiniLM-L6 base | 22M | 0.3142 | — |
+    | BGE-large drop-in | 335M | 0.3734 | +5.92pp |
+    | BGE-large + LoRA-BoD | 335M | **0.4286** | **+11.44pp** |
+    | MiniLM-L6 + BoD | 22M | **0.5368** | **+22.26pp** |
+
+    LoRA-BoD (r=16, Q/K/V targets, 2.36M / 337M = 0.7% trainable,
+    243k MNRL triplets with FAISS-mined hardnegs, 1 epoch, ~4.4hr on
+    MPS) lifts BGE-large by +5.5pp over its drop-in baseline,
+    confirming supervision signal carries through at this scale.
+
+    **Two negative comparisons make the framework prediction sharp:**
+
+    1. **BGE-large + BoD < MiniLM + BoD by 10.82pp.** A 15× larger
+       general base, fine-tuned on the same bags, *loses* to MiniLM
+       fine-tuned on the same bags. Scale alone — even strong scale —
+       doesn't substitute for the supervision signal MiniLM is
+       capturing. On click-supervised tasks the binding constraint
+       is signal access, not base capacity.
+
+    2. **BGE-large + LoRA-BoD lift (+5.5pp) < bge-base + full-FT-BoD
+       lift (+14.9pp on the same BestBuy corpus, from
+       `project_bge_base_bod_probe`).** Diminishing returns from
+       scale: stronger drop-in baseline leaves less BoD headroom,
+       and LoRA's rank-r constraint absorbs some of the recoverable
+       gap. The compound is real but sub-linear in scale.
+
+    **Cost-efficiency Pareto:** Encode latency on Apple Silicon MPS
+    (chunked, fp16 catalog, batch 64) scales roughly with
+    depth × hidden², giving the following rough cost ratios for
+    short product titles like BestBuy:
+
+    | Model | Params | Encode rate | Rel cost | BestBuy Δ vs MiniLM base | pp / cost-unit |
+    |---|---:|---:|---:|---:|---:|
+    | MiniLM-L6 + BoD | 22M | ~1500 docs/s | 1× | +22.26pp | **22.26** |
+    | MiniLM-L6 base | 22M | ~1500 docs/s | 1× | 0 | 0 |
+    | BGE-large drop-in | 335M | ~120 docs/s | 12× | +5.92pp | 0.49 |
+    | BGE-large + LoRA-BoD | 335M | ~120 docs/s | 12× | +11.44pp | 0.95 |
+
+    **MiniLM-BoD is ~23× more cost-efficient per percentage point
+    than BGE-large + LoRA-BoD on BestBuy.** Inference-time scale and
+    training-time signal both move quality, but the slopes differ by
+    more than an order of magnitude when the signal is sharp.
+
+    **What this refines from Pattern 18.** Pattern 18 framed domain
+    pretraining and BoD as orthogonal levers attacking different
+    bottlenecks (base capacity vs supervision-signal sharpness).
+    The Tier-2 evidence sharpens the *quantitative* asymmetry: when
+    the supervision signal is sharp (real clicks), the signal lever
+    moves quality further per cost-unit than the scale lever, by a
+    large multiple. The compound (BGE-large + LoRA-BoD) is positive
+    but offers no Pareto advantage over MiniLM + BoD on BestBuy —
+    you pay 12× the inference cost for half the quality lift.
+
+    **When the compound IS worth it.** Pattern 18 showed Algolia +
+    LoRA-BoD lifting +3.6pp on BestBuy *over Algolia base* — same
+    direction as this finding. The compound is consistently
+    positive; what varies is whether the inference-scale cost
+    is worth paying. Domain pretraining (Algolia) buys quality
+    that BoD can't reach (cross-lingual, brand priors); LoRA-BoD on
+    top adds further headroom. The decision becomes: do you have
+    sharp signal AND need scale's specific contributions (domain
+    coverage, longer context, non-Latin scripts)? Then compound. If
+    you have sharp signal but generic-English / short-text is enough,
+    MiniLM + BoD dominates.
+
+    **For practitioners.** Three-way decision tree, refining Pattern
+    18's:
+    - Sharp signal + generic-English content + latency-sensitive →
+      **MiniLM + BoD**. Best cost-efficiency by a large margin.
+    - Sharp signal + need scale's specific affordances (cross-lingual,
+      long-context, domain pretraining) → **frontier-base + LoRA-BoD**.
+      Pay the inference cost only for what the bigger base actually
+      delivers beyond the small base.
+    - Noisy signal only → drop-in eval and stop. BoD's lift is
+      gated on signal quality (Pattern 14), and the cost of training
+      doesn't return enough quality at any scale.
+
+    Run: `training/finetune_lora_bod.py bestbuy_acm_data/bags_with_hardnegs.jsonl
+    query_model_bestbuy_bge_large_bod --base-model BAAI/bge-large-en-v1.5
+    --triplets-per-bag 5 --epochs 1 --batch-size 8 --max-seq-length 128`
+    then `evaluation/eval_alt_encoder.py --model query_model_bestbuy_bge_large_bod`
+    (no query prefix — training was prefix-free).
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
