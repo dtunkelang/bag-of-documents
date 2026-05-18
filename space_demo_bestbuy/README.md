@@ -36,7 +36,6 @@ The +17.75pp R@10 lift is preserved when scaled from the original 53K-subset eva
 - The example queries are picked to illustrate distinct failure modes of off-the-shelf semantic search:
   - `ati` — brand abbreviation (Radeon graphics cards) base doesn't recognize
   - `dvd storage` — abstract intent (cases/wallets, not DVDs themselves)
-  - `turtlebeach` — joined brand name (headsets)
   - `i pad 2` — spaced tokenization (iPad 2)
   - `iphone 4 incase` — InCase brand vs preposition
 

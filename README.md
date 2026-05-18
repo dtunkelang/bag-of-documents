@@ -173,7 +173,7 @@ in medium, LiYuan + BGE in quality) dominate quality-tier latency.
 
 A second demo, [`demo_bestbuy.py`](demo_bestbuy.py), shows the BoD lift on the
 BestBuy ACM clickthrough dataset side-by-side with off-the-shelf MiniLM. Type
-e.g. `ati`, `dvd storage`, `turtlebeach`, or `i pad 2` and watch base return 0–1
+e.g. `ati`, `dvd storage`, or `i pad 2` and watch base return 0–1
 clicked products in the top-10 while the BoD-trained model returns 8–10. Build
 the artifacts with `download/build_bestbuy_bags.py` (after running
 `download/prepare_bestbuy_acm.py` on the manually-downloaded Kaggle archive),

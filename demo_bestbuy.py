@@ -138,7 +138,6 @@ def build_app(R):
     examples = [
         "ati",  # brand abbreviation -> Radeon graphics
         "dvd storage",  # abstract intent -> cases/wallets, not DVDs
-        "turtlebeach",  # joined brand name -> headsets
         "stereo system",  # product class -> bundles, not components
         "i pad 2",  # spaced tokenization -> iPad 2
         "definitive technology",  # generic-sounding brand -> speakers
