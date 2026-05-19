@@ -1509,17 +1509,57 @@ scale, not by cluster geometry.
     but offers no Pareto advantage over MiniLM + BoD on BestBuy —
     you pay 12× the inference cost for half the quality lift.
 
-    **When the compound IS worth it.** Pattern 18 showed Algolia +
-    LoRA-BoD lifting +3.6pp on BestBuy *over Algolia base* — same
-    direction as this finding. The compound is consistently
-    positive; what varies is whether the inference-scale cost
-    is worth paying. Domain pretraining (Algolia) buys quality
-    that BoD can't reach (cross-lingual, brand priors); LoRA-BoD on
-    top adds further headroom. The decision becomes: do you have
-    sharp signal AND need scale's specific contributions (domain
-    coverage, longer context, non-Latin scripts)? Then compound. If
-    you have sharp signal but generic-English / short-text is enough,
-    MiniLM + BoD dominates.
+    **When the compound IS worth it — ESCI-Spanish carveout.** The
+    BestBuy result shows MiniLM-BoD dominating in English. The
+    cross-lingual carveout claim is that *scale + retrieval-objective
+    pretraining* wins when the deployment requires capabilities the
+    small English-only base can't deliver. Tested on ESCI-Spanish
+    (260k catalog, 11k bags, 3,844 queries) across four drop-in
+    bases plus two BoD compounds — all evals at R@10, relevance≥2:
+
+    | Model | Params | R@10 | Note |
+    |---|---:|---:|---|
+    | all-MiniLM-L6-v2 (English-only) | 22M | 0.1237 | shares Latin subwords w/ Spanish |
+    | paraphrase-multilingual-MiniLM-L12 | 118M | 0.0543 | *worse* than English-only |
+    | paraphrase-multilingual-mpnet-base | 278M | 0.0734 | *worse* than English-only |
+    | **BAAI/bge-m3** (multilingual retrieval) | 568M | **0.1887** | scale + retrieval pretraining wins |
+    | ml-MiniLM-L12 + LoRA-BoD | 118M | 0.1271 | BoD rescues weak base to ~English-only level |
+    | **bge-m3 + LoRA-BoD** | 568M | **0.2056** | compound wins decisively |
+
+    **Three findings flip Pattern 20's BestBuy story:**
+
+    1. **Drop-in is no longer a 4-4 mpnet/BGE split on cross-lingual.**
+       Multilingual paraphrase models (ml-MiniLM, ml-mpnet)
+       *underperform* English-only MiniLM by 6.9pp and 5.0pp
+       respectively, despite 5-13× the parameters. Paraphrase-objective
+       pretraining is actively harmful for retrieval at these scales,
+       and the multilingual capacity doesn't compensate. Only
+       retrieval-objective multilingual scale (bge-m3) wins (+6.5pp
+       over English-only).
+
+    2. **Cost-efficiency Pareto inverts on cross-lingual.** On
+       BestBuy, MiniLM-BoD dominates by ~23× cost-efficiency. On
+       ESCI-Spanish, the BoD compound *winner* is bge-m3 + LoRA-BoD
+       (0.2056) — a 26× more expensive base, and the lift is worth
+       it: ml-MiniLM-BoD lands at 0.1271, an 8pp absolute gap.
+       MiniLM-BoD's English advantage doesn't transfer when its
+       underlying base can't represent the query language.
+
+    3. **BoD rescues but doesn't substitute.** ml-MiniLM + LoRA-BoD
+       at 0.1271 lands within 0.3pp of English-only-MiniLM drop-in
+       (0.1237). BoD on a broken multilingual base recovers to the
+       quality of the *English alternative*, not to the quality of
+       the strong multilingual base + BoD. Supervision can repair a
+       weak base, but capacity ceilings are still binding above some
+       lift threshold.
+
+    The ESCI-Spanish chain refines the framework's binding-constraint
+    rule: when scale delivers a *qualitative* capability the small
+    base lacks (cross-lingual coverage via retrieval-objective
+    pretraining), the cost-efficiency Pareto inverts and the
+    compound is the correct choice. When scale only delivers
+    *quantitative* improvement (BestBuy, where English-only already
+    works), BoD on the small base dominates.
 
     **For practitioners.** Three-way decision tree, refining Pattern
     18's:
