@@ -27,6 +27,7 @@ IMPORT_SKIP = {
     # Do real work (HTTP downloads) at top level — would slow CI and fail
     # without network. Refactor to def main() if revisiting.
     "download/download_esci_es.py",
+    "download/download_esci_jp.py",
     "download/download_esci_us.py",
     "download/download_nfcorpus.py",
     "download/download_fiqa.py",
