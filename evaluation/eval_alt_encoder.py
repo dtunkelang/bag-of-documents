@@ -103,6 +103,13 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--query-prefix", default="")
     ap.add_argument(
+        "--doc-prefix",
+        default="",
+        help="prefix prepended to each catalog title before encoding "
+        "(e.g., 'passage: ' for mE5). Persists into the saved vec file, "
+        "so use a distinct --out-name when changing this.",
+    )
+    ap.add_argument(
         "--out-name", required=True, help="stem for output files (foo → foo.vecs.fp16.npy)"
     )
     ap.add_argument(
@@ -162,9 +169,13 @@ def main():
 
     out_vecs = data / f"{args.out_name}.vecs.fp16.npy"
     progress = data / f"{args.out_name}.progress.json"
-    print(f"\nencoding catalog → {out_vecs} (chunked, resumable)...", flush=True)
+    encode_titles = [args.doc_prefix + t for t in titles] if args.doc_prefix else titles
+    print(
+        f"\nencoding catalog → {out_vecs} (chunked, resumable, doc-prefix='{args.doc_prefix}')...",
+        flush=True,
+    )
     catalog_vecs = encode_catalog_chunked(
-        m, titles, out_vecs, progress, args.chunk_size, args.batch_size
+        m, encode_titles, out_vecs, progress, args.chunk_size, args.batch_size
     ).astype(np.float32)
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()

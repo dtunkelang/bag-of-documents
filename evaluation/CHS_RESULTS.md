@@ -112,6 +112,7 @@ scale, not by cluster geometry.
 - **17.** Three-way union-oracle (BoD + HyDE + Doc2Query) — +3.5-6pp router headroom
 - **18.** Stronger domain-specialized base + LoRA-BoD — each lever attacks a different bottleneck
 - **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
+- **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual carveout (ESCI-Spanish) — when scale's qualitative affordance is worth its inference cost
 
 ---
 

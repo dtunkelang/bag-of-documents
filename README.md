@@ -47,27 +47,43 @@ Latencies (per query):
 
 ## Quick Start
 
+The fastest way to try BoD end-to-end on ESCI-US (Amazon products, English
+queries):
+
 ```bash
-# Install dependencies
+git clone https://github.com/dtunkelang/bag-of-documents
+cd bag-of-documents
 pip install -r requirements.txt
+bash scripts/run_esci_us_demo.sh    # download + index + bag + fine-tune
+python demo.py                      # browse retrieval results at localhost:7860
+```
 
-# Download product catalog (ESCI 1.2M subset)
-python download/download_catalog.py
+`scripts/run_esci_us_demo.sh` is idempotent — each step skips if its output
+already exists, so re-runs after interruptions are safe. It uses a public
+cross-encoder (`cross-encoder/ms-marco-MiniLM-L-12-v2`) for relevance
+filtering, so no local model setup is required.
 
-# Build indexes (FAISS + tantivy)
-python indexing/build_index.py
+### Live demos (no install)
 
-# Compute bags from ESCI queries
-python training/compute_bags.py queries.jsonl bags.jsonl --ce-rerank models/esci-cross-encoder
+- **ESCI products:** [hf.co/spaces/dtunkelang/bag-of-documents-demo](https://huggingface.co/spaces/dtunkelang/bag-of-documents-demo)
+- **BestBuy clickthrough:** [hf.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo](https://huggingface.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo)
 
-# Fine-tune the query model (use --loss mnrl for BoD reranker training)
+### Manual recipe (under the hood)
+
+If you want to drive each stage yourself instead of the wrapper:
+
+```bash
+python download/download_esci_us.py   # writes esci_us_data/{titles,queries,qrels}
+ln -sf ../esci_us_data/titles.json combined_index/titles.json
+python indexing/build_index.py        # builds combined_index/{index.faiss, tantivy_index}
+python training/compute_bags.py esci_us_data/test_queries.jsonl bags.jsonl \
+    --ce-rerank cross-encoder/ms-marco-MiniLM-L-12-v2 --ce-threshold 0.3
 python training/finetune_query_model.py bags.jsonl query_model/ --loss mnrl
-
-# Run the demo
 python demo.py
 ```
 
-Or use `scripts/run_pipeline.sh` to run the full pipeline end-to-end.
+For the older end-to-end pipeline (assumes a pre-downloaded ESCI cross-
+encoder at `models/esci-cross-encoder`), see `scripts/run_pipeline.sh`.
 
 ## What is the bag-of-documents model?
 
