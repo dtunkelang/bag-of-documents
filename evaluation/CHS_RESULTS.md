@@ -112,7 +112,7 @@ scale, not by cluster geometry.
 - **17.** Three-way union-oracle (BoD + HyDE + Doc2Query) — +3.5-6pp router headroom
 - **18.** Stronger domain-specialized base + LoRA-BoD — each lever attacks a different bottleneck
 - **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
-- **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual carveout (ESCI-Spanish) — when scale's qualitative affordance is worth its inference cost
+- **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual carveout (ESCI-Spanish, with mE5 ablation) — objective+language coverage dominates scale on cross-lingual retrieval
 
 ---
 
@@ -1518,49 +1518,64 @@ scale, not by cluster geometry.
     (260k catalog, 11k bags, 3,844 queries) across four drop-in
     bases plus two BoD compounds — all evals at R@10, relevance≥2:
 
-    | Model | Params | R@10 | Note |
-    |---|---:|---:|---|
-    | all-MiniLM-L6-v2 (English-only) | 22M | 0.1237 | shares Latin subwords w/ Spanish |
-    | paraphrase-multilingual-MiniLM-L12 | 118M | 0.0543 | *worse* than English-only |
-    | paraphrase-multilingual-mpnet-base | 278M | 0.0734 | *worse* than English-only |
-    | **BAAI/bge-m3** (multilingual retrieval) | 568M | **0.1887** | scale + retrieval pretraining wins |
-    | ml-MiniLM-L12 + LoRA-BoD | 118M | 0.1271 | BoD rescues weak base to ~English-only level |
-    | **bge-m3 + LoRA-BoD** | 568M | **0.2056** | compound wins decisively |
+    | Model | Params | Objective | R@10 | Note |
+    |---|---:|---|---:|---|
+    | all-MiniLM-L6-v2 (English-only) | 22M | retrieval | 0.1237 | shares Latin subwords w/ Spanish |
+    | paraphrase-multilingual-MiniLM-L12 | 118M | paraphrase | 0.0543 | *worse* than English-only |
+    | **intfloat/multilingual-e5-small** | 118M | **retrieval** | **0.1656** | at matched params, retrieval >> paraphrase |
+    | paraphrase-multilingual-mpnet-base | 278M | paraphrase | 0.0734 | *worse* than English-only |
+    | **intfloat/multilingual-e5-base** | 278M | **retrieval** | **0.1657** | identical to mE5-small — scale flat here |
+    | **BAAI/bge-m3** (multilingual retrieval) | 568M | retrieval | **0.1887** | retrieval objective + scale wins |
+    | ml-MiniLM-L12 + LoRA-BoD | 118M | paraphrase | 0.1271 | BoD rescues weak base to ~English-only level |
+    | **bge-m3 + LoRA-BoD** | 568M | retrieval | **0.2056** | compound wins decisively |
 
-    **Three findings flip Pattern 20's BestBuy story:**
+    **Four findings flip Pattern 20's BestBuy story:**
 
-    1. **Drop-in is no longer a 4-4 mpnet/BGE split on cross-lingual.**
-       Multilingual paraphrase models (ml-MiniLM, ml-mpnet)
-       *underperform* English-only MiniLM by 6.9pp and 5.0pp
-       respectively, despite 5-13× the parameters. Paraphrase-objective
-       pretraining is actively harmful for retrieval at these scales,
-       and the multilingual capacity doesn't compensate. Only
-       retrieval-objective multilingual scale (bge-m3) wins (+6.5pp
-       over English-only).
+    1. **Pretraining objective dominates scale on cross-lingual retrieval.**
+       At matched 118M params, retrieval-trained mE5-small (0.1656) beats
+       paraphrase-trained ml-MiniLM-L12 (0.0543) by **+11.13pp** — a 3×
+       quality gap from the pretraining objective alone. At matched 278M,
+       mE5-base (0.1657) beats ml-mpnet-base (0.0734) by **+9.23pp**.
+       Paraphrase-objective pretraining is actively harmful for cross-
+       lingual retrieval; multilingual capacity is necessary but not
+       sufficient.
 
-    2. **Cost-efficiency Pareto inverts on cross-lingual.** On
-       BestBuy, MiniLM-BoD dominates by ~23× cost-efficiency. On
-       ESCI-Spanish, the BoD compound *winner* is bge-m3 + LoRA-BoD
-       (0.2056) — a 26× more expensive base, and the lift is worth
-       it: ml-MiniLM-BoD lands at 0.1271, an 8pp absolute gap.
-       MiniLM-BoD's English advantage doesn't transfer when its
-       underlying base can't represent the query language.
+    2. **Scale matters only at the margin within retrieval-pretrained
+       multilingual.** mE5-small (118M) and mE5-base (278M) land at
+       essentially identical R@10 (0.1656 vs 0.1657) despite 2.4× the
+       params. Only bge-m3 (568M, 4.8× mE5-small) breaks above, at 0.1887
+       (+2.3pp). So 92% of the cross-lingual quality benefit available
+       in this family comes from objective+language coverage at the
+       smallest tier; scale buys diminishing returns above 118M.
+       Practical implication: mE5-small is the strong, cheap multilingual
+       default; bge-m3 only when the extra 2pp is worth ~5× the cost.
 
-    3. **BoD rescues but doesn't substitute.** ml-MiniLM + LoRA-BoD
-       at 0.1271 lands within 0.3pp of English-only-MiniLM drop-in
-       (0.1237). BoD on a broken multilingual base recovers to the
-       quality of the *English alternative*, not to the quality of
-       the strong multilingual base + BoD. Supervision can repair a
-       weak base, but capacity ceilings are still binding above some
-       lift threshold.
+    3. **Cost-efficiency Pareto still inverts on cross-lingual for the
+       compound.** On BestBuy, MiniLM-BoD dominates by ~23× cost-
+       efficiency. On ESCI-Spanish, the BoD compound *winner* is bge-m3
+       + LoRA-BoD (0.2056) — a 26× more expensive base, and the lift is
+       worth it: ml-MiniLM-BoD lands at 0.1271, an 8pp absolute gap.
+       The English-MiniLM-BoD advantage doesn't transfer when the
+       underlying base can't represent the query language. (Note: a
+       likely-better small-compound baseline would be **mE5-small + BoD**
+       — untested here, but mE5-small drop-in already lands close to
+       ml-MiniLM-BoD's 0.1271; the BoD compound on the right small
+       multilingual base may close more of the gap.)
+
+    4. **BoD rescues but doesn't substitute.** ml-MiniLM + LoRA-BoD at
+       0.1271 lands within 0.3pp of English-only-MiniLM drop-in (0.1237).
+       BoD on a broken multilingual base recovers to the quality of the
+       *English alternative*, not to the quality of the strong
+       multilingual base + BoD. Supervision can repair a weak base, but
+       capacity ceilings remain binding above some lift threshold.
 
     The ESCI-Spanish chain refines the framework's binding-constraint
-    rule: when scale delivers a *qualitative* capability the small
-    base lacks (cross-lingual coverage via retrieval-objective
-    pretraining), the cost-efficiency Pareto inverts and the
-    compound is the correct choice. When scale only delivers
-    *quantitative* improvement (BestBuy, where English-only already
-    works), BoD on the small base dominates.
+    rule: when the *base's pretraining objective and language coverage*
+    are the binding constraint (cross-lingual + retrieval), the right
+    move is to pick a base that satisfies both — and most of the win is
+    already available at small scale. When the base is already adequate
+    (BestBuy, English, retrieval-trained MiniLM), BoD on the small base
+    dominates.
 
     **For practitioners.** Three-way decision tree, refining Pattern
     18's:
