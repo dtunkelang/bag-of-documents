@@ -2,6 +2,7 @@
 
 An implementation of the [bag-of-documents](https://dtunkelang.medium.com/modeling-queries-as-bags-of-documents-b7d79d0916ab) model for e-commerce product search, evaluated against ESCI on a 1.2M Amazon product catalog. Two BoD-trained reranker encoders fused on top of BM25 candidates produce the current shipped state of the art.
 
+- **Talk (slides embedded)**: [The Bag-of-Documents Model for Query Understanding and Retrieval](https://dtunkelang.medium.com/the-bag-of-documents-model-for-query-understanding-and-retrieval-6d110bff85b0)
 - **Blog post**: [Distilling Retrieval Pipelines to a Single Embedding Model](https://dtunkelang.medium.com/distilling-retrieval-pipelines-to-a-single-embedding-model-606f3ecf0c91)
 - **Live demo**: [huggingface.co/spaces/dtunkelang/bag-of-documents-demo](https://huggingface.co/spaces/dtunkelang/bag-of-documents-demo)
 - **Model and data**: [huggingface.co/datasets/dtunkelang/bag-of-documents](https://huggingface.co/datasets/dtunkelang/bag-of-documents)
