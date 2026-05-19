@@ -11,16 +11,18 @@ Dataset target (huggingface.co/datasets/dtunkelang/bag-of-documents):
   - evaluation/regime_queries.jsonl
   - README.md (regenerated with new artifact docs)
 
-Space target (huggingface.co/spaces/dtunkelang/bag-of-documents-demo):
-  - app.py (from space_demo/app.py)
-  - README.md (from space_demo/README.md)
-  - requirements.txt (from space_demo/requirements.txt)
+Space targets:
+  - huggingface.co/spaces/dtunkelang/bag-of-documents-demo
+    (from space_demo/{app.py, README.md, requirements.txt})
+  - huggingface.co/spaces/dtunkelang/bag-of-documents-bestbuy-demo
+    (from space_demo_bestbuy/{app.py, README.md, requirements.txt})
 
 Usage:
     python scripts/push_to_hf.py --dry-run    # preview only
-    python scripts/push_to_hf.py              # push dataset + space
+    python scripts/push_to_hf.py              # push dataset + both spaces
     python scripts/push_to_hf.py --dataset    # dataset only
-    python scripts/push_to_hf.py --space      # space only
+    python scripts/push_to_hf.py --space      # ESCI space only
+    python scripts/push_to_hf.py --bestbuy    # BestBuy space only
 """
 
 import sys
@@ -37,6 +39,7 @@ from huggingface_hub import HfApi
 ROOT = Path(__file__).resolve().parent.parent
 DATASET_REPO = "dtunkelang/bag-of-documents"
 SPACE_REPO = "dtunkelang/bag-of-documents-demo"
+BESTBUY_SPACE_REPO = "dtunkelang/bag-of-documents-bestbuy-demo"
 
 
 # Dataset artifacts: (local_path, repo_path, size_check)
@@ -77,6 +80,12 @@ SPACE_FILES = [
     (ROOT / "space_demo" / "app.py", "app.py"),
     (ROOT / "space_demo" / "README.md", "README.md"),
     (ROOT / "space_demo" / "requirements.txt", "requirements.txt"),
+]
+
+BESTBUY_SPACE_FILES = [
+    (ROOT / "space_demo_bestbuy" / "app.py", "app.py"),
+    (ROOT / "space_demo_bestbuy" / "README.md", "README.md"),
+    (ROOT / "space_demo_bestbuy" / "requirements.txt", "requirements.txt"),
 ]
 
 
@@ -136,9 +145,9 @@ def push_dataset(api, dry_run):
             )
 
 
-def push_space(api, dry_run):
-    print(f"\n=== Pushing to space {SPACE_REPO} ===")
-    for local, repo_path in SPACE_FILES:
+def push_space_files(api, repo, files, dry_run):
+    print(f"\n=== Pushing to space {repo} ===")
+    for local, repo_path in files:
         if not local.exists():
             print(f"  MISSING: {local}", file=sys.stderr)
             continue
@@ -148,21 +157,32 @@ def push_space(api, dry_run):
             api.upload_file(
                 path_or_fileobj=str(local),
                 path_in_repo=repo_path,
-                repo_id=SPACE_REPO,
+                repo_id=repo,
                 repo_type="space",
                 commit_message=f"update {repo_path}",
             )
+
+
+def push_space(api, dry_run):
+    push_space_files(api, SPACE_REPO, SPACE_FILES, dry_run)
+
+
+def push_bestbuy_space(api, dry_run):
+    push_space_files(api, BESTBUY_SPACE_REPO, BESTBUY_SPACE_FILES, dry_run)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dataset", action="store_true")
-    parser.add_argument("--space", action="store_true")
+    parser.add_argument("--space", action="store_true", help="ESCI space")
+    parser.add_argument("--bestbuy", action="store_true", help="BestBuy space")
     args = parser.parse_args()
 
-    do_dataset = args.dataset or not (args.dataset or args.space)
-    do_space = args.space or not (args.dataset or args.space)
+    selected = args.dataset or args.space or args.bestbuy
+    do_dataset = args.dataset or not selected
+    do_space = args.space or not selected
+    do_bestbuy = args.bestbuy or not selected
 
     api = HfApi()
     me = api.whoami()
@@ -174,6 +194,8 @@ def main():
         push_dataset(api, args.dry_run)
     if do_space:
         push_space(api, args.dry_run)
+    if do_bestbuy:
+        push_bestbuy_space(api, args.dry_run)
 
     print("\nDone.")
 
