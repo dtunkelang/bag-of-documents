@@ -1641,6 +1641,36 @@ scale, not by cluster geometry.
     rerun on a machine without MPS unified-memory pressure (CUDA box
     with separate GPU memory, or a 64GB+ Apple Silicon).
 
+    **Domain-pretraining carveout — also tested, also negative.**
+    Pattern 18 listed three hypothesized "scale wins" carveouts:
+    cross-lingual (now refuted — see above), long-context (untested),
+    and domain-specialized pretraining. The third was tested with
+    PubMedBert (S-PubMedBert-MS-MARCO) + LoRA-BoD on NFCorpus
+    (biomedical). Results:
+
+    | Model | R@10 |
+    |---|---:|
+    | all-MiniLM-L6 base | 0.1589 |
+    | BAAI/bge-large-en-v1.5 drop-in | 0.1910 |
+    | PubMedBert drop-in | 0.1409 |
+    | PubMedBert + LoRA-BoD | 0.1515 |
+
+    PubMedBert + LoRA-BoD lifts its own drop-in by +1.06pp but lands
+    *below* MiniLM-L6 base (−0.74pp) and well below BGE-large drop-in
+    (−3.95pp). Domain-specialized pretraining (biomedical language
+    modeling) does not substitute for retrieval-objective pretraining,
+    and BoD on top doesn't close the gap. The "domain pretraining is
+    a scale carveout" hypothesis from Pattern 18 doesn't survive
+    empirical test. Consistent with Pattern 20's broader framing:
+    the binding lever is *retrieval-objective pretraining*, not
+    *any* specialized pretraining.
+
+    Two of three hypothesized carveouts (cross-lingual, domain-
+    pretraining) tested and refuted. Only long-context remains
+    untested; based on the pattern, expectation is that the carveout
+    is more about the model's max_seq_length and attention
+    architecture than scale per se — but this is a guess until tested.
+
     **For practitioners.** Three-way decision tree, refining Pattern
     18's:
     - Sharp signal + generic-English content + latency-sensitive →
