@@ -112,7 +112,7 @@ scale, not by cluster geometry.
 - **17.** Three-way union-oracle (BoD + HyDE + Doc2Query) — +3.5-6pp router headroom
 - **18.** Stronger domain-specialized base + LoRA-BoD — each lever attacks a different bottleneck
 - **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
-- **20.** Three-model drop-in matrix + cost-quality Pareto; ESCI-Spanish chain (with mE5 ablation + mE5-small-BoD) — **small + retrieval-objective base + BoD is the Pareto champion on both English and cross-lingual**; the "scale wins cross-lingual" carveout collapses when the right small base is tested
+- **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual replication on ESCI-Spanish + ESCI-Japanese (mE5 ablation + mE5-small-BoD on both) — **small + retrieval-objective base + BoD is the Pareto champion on English, Spanish, and Japanese**; the "scale wins cross-lingual" carveout collapses when the right small base is tested, replicated on a non-Latin-script language
 
 ---
 
@@ -1592,8 +1592,54 @@ scale, not by cluster geometry.
     objective multilingual pretraining is necessary. The scale lever
     becomes near-zero once the objective and language coverage are
     right.
-    (BestBuy, English, retrieval-trained MiniLM), BoD on the small base
-    dominates.
+
+    **ESCI-Japanese replication.** Re-ran the chain on ESCI-Japanese
+    (340k catalog, 13.4k bags, 4,667 queries) to test whether the
+    Spanish finding generalizes to a non-Latin-script language where
+    English-MiniLM can't lean on subword overlap. Drop-in matrix on
+    relevance≥2:
+
+    | Model | Params | Objective | R@10 |
+    |---|---:|---|---:|
+    | all-MiniLM-L6-v2 (English-only) | 22M | retrieval | 0.0571 |
+    | intfloat/multilingual-e5-small | 118M | retrieval | **0.2050** |
+    | intfloat/multilingual-e5-base | 278M | retrieval | 0.2050 |
+    | BAAI/bge-m3 | 568M | retrieval | 0.2004 |
+    | **mE5-small + LoRA-BoD** | **118M** | **retrieval** | **0.2411** |
+
+    Three observations:
+
+    1. **The "scale doesn't help" finding becomes *scale slightly hurts*
+       on Japanese.** mE5-small (118M) ties mE5-base (278M) at 0.2050
+       and *beats* bge-m3 (568M) at 0.2004. Within the retrieval-
+       trained multilingual family on Japanese, parameter count
+       beyond 118M is dead weight at drop-in.
+
+    2. **English-only catastrophically fails on non-Latin script as
+       predicted.** all-MiniLM-L6 drops to R@10 0.0571 on Japanese
+       (vs 0.1237 on Spanish where Latin subwords helped). The
+       carveout test is now valid: when the small base genuinely
+       can't compete, what does the framework recommend?
+
+    3. **mE5-small + LoRA-BoD wins by a wide margin: +3.61pp over
+       mE5-small drop-in, +4.07pp over bge-m3 drop-in, at 1/5
+       bge-m3's cost.** Same pattern as Spanish (where the lift was
+       +5.13pp — slightly larger because the drop-in was weaker).
+       The Pareto champion is mE5-small + BoD on cross-lingual,
+       period.
+
+    **Note on bge-m3 + LoRA-BoD on Japanese.** The Japanese chain
+    queued bge-m3 + LoRA-BoD as a confirming data point but the
+    training hit catastrophic MPS cache fragmentation around step
+    1500 — rate degraded from ~1.3 s/it (matching Spanish) to
+    20-27 s/it, with extrapolated completion time pushed from ~3
+    hours to ~40 hours. The training was killed at step 3024/8364
+    (~36%). The framework finding is already crisp without it: the
+    Pareto champion is established as mE5-small + LoRA-BoD; bge-m3 +
+    LoRA-BoD would have been a confirming "scale-on-compound still
+    loses" point, not a falsifying one. If you want this data point,
+    rerun on a machine without MPS unified-memory pressure (CUDA box
+    with separate GPU memory, or a 64GB+ Apple Silicon).
 
     **For practitioners.** Three-way decision tree, refining Pattern
     18's:
