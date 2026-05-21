@@ -14,6 +14,8 @@ open_clip_torch>=2.20
 peft>=0.18
 fugashi[unidic-lite]>=1.5
 einops>=0.8
+openai>=2.0
+python-dotenv>=1.0
 
 # Development
 ruff>=0.15
