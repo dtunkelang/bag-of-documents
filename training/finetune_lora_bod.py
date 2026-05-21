@@ -103,7 +103,10 @@ def main():
         else ("cuda" if torch.cuda.is_available() else "cpu")
     )
     print(f"loading {args.base_model} on {device}...", flush=True)
-    model = SentenceTransformer(args.base_model, device=device)
+    st_kwargs = {}
+    if "nomic" in args.base_model.lower():
+        st_kwargs["trust_remote_code"] = True
+    model = SentenceTransformer(args.base_model, device=device, **st_kwargs)
     model.max_seq_length = args.max_seq_length
 
     # Wrap the underlying transformer in LoRA
@@ -172,6 +175,33 @@ def main():
     model._first_module().auto_model = merged
     model.save(args.output_dir)
     print(f"saved merged model to {args.output_dir}", flush=True)
+
+    # Workaround: peft's merge_and_unload + ST save with custom-architecture
+    # models (e.g., nomic-embed) can produce a state_dict where the
+    # transformer block keys gain an extra `encoder.` prefix (e.g.,
+    # `encoder.encoder.layers.0.attn.Wqkv.weight` instead of
+    # `encoder.layers.0.attn.Wqkv.weight`). Detect and fix in place so
+    # downstream loaders match cleanly.
+    from safetensors import safe_open  # noqa: E402
+    from safetensors.torch import load_file, save_file  # noqa: E402
+
+    sf_path = os.path.join(args.output_dir, "model.safetensors")
+    if os.path.exists(sf_path):
+        with safe_open(sf_path, framework="pt") as f:
+            keys = list(f.keys())
+        if any(k.startswith("encoder.encoder.") for k in keys):
+            print("post-save fixup: stripping doubled 'encoder.' prefix...", flush=True)
+            sd = load_file(sf_path)
+            new_sd = {
+                (
+                    k.replace("encoder.encoder.", "encoder.", 1)
+                    if k.startswith("encoder.encoder.")
+                    else k
+                ): v
+                for k, v in sd.items()
+            }
+            save_file(new_sd, sf_path)
+            print(f"  rewrote {len(new_sd)} keys", flush=True)
 
 
 if __name__ == "__main__":

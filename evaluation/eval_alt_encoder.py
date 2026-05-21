@@ -119,6 +119,13 @@ def main():
     )
     ap.add_argument("--chunk-size", type=int, default=50_000)
     ap.add_argument("--batch-size", type=int, default=64)
+    ap.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=0,
+        help="override model.max_seq_length (0 = keep model default). Use to cap "
+        "activation memory for long-context models like nomic-embed (8192 default).",
+    )
     ap.add_argument("--k", type=int, default=10)
     args = ap.parse_args()
 
@@ -161,7 +168,12 @@ def main():
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"\nloading {args.model} on {device}...", flush=True)
     t0 = time.time()
-    m = SentenceTransformer(args.model, device=device)
+    st_kwargs = {}
+    if "nomic" in args.model.lower():
+        st_kwargs["trust_remote_code"] = True
+    m = SentenceTransformer(args.model, device=device, **st_kwargs)
+    if args.max_seq_length > 0:
+        m.max_seq_length = args.max_seq_length
     print(
         f"  loaded in {time.time() - t0:.1f}s  dim={m.get_sentence_embedding_dimension()}  max_seq={m.max_seq_length}",
         flush=True,
