@@ -117,6 +117,7 @@ scale, not by cluster geometry.
 - **22.** nomic-embed-text-v1.5 (137M, retrieval-objective, English) drop-in matrix across BestBuy / NFCorpus / ESCI-US — **new mid-scale English drop-in Pareto champion** (ties Algolia at 1/4 params, ties BGE-large at ~40% params on ESCI-US); **but** BoD compound on BestBuy lifts only +3.62pp (vs MiniLM-BoD's +22pp), reinforcing Pattern 20's monotonic-decreasing curve — drop-in quality and BoD-engageable headroom are inversely correlated regardless of pretraining objective
 - **23.** BestBuy 3-tier rerank stack — **the right CC architecture is retriever-pool dependent**. BM25 → BoD+BGE fusion loses 11.6pp R@10 to plain BoD-as-retriever (0.4209 vs 0.5368) because BM25's top-100 misses too many click-relevant products. BoD-retrieve → BGE rerank @ w=0.25 *does* lift R@10 by +0.07pp and E@1 by +1.9pp over BoD-retrieve alone — single-bi-encoder + CE fusion works on click signal when the bi-encoder is the right retriever; cross-lingual Pattern 21 finding refines, doesn't generalize
 - **24.** Long-context Pattern 18 carveout REFUTED — nomic-embed-text-v1.5 (native 8192 context) at max_seq=512 (full doc coverage) loses to MiniLM-L6 base by ~1pp on CQADupStack programmers + english, and loses by 5-7pp to mpnet (max_seq=512, general-similarity pretrained). **All three Pattern 18 scale-wins hypotheses now closed as negatives.** Framework refinement: small-model-wins is robust; the orthogonal axis is *pretraining objective* — retrieval-objective for product catalog, general-similarity for long-form NL
+- **25.** Multi-vector / ColBERT late-interaction drop-in REFUTED across 3 corpus classes (ESCI-US, BestBuy, CQADupStack/programmers) — ColBERTv2 max-sim loses to BM25-alone by 1.5-17pp, and adds noise (not orthogonal signal) when used as a 4th stream in CC5 fusion. The post-CC5 diagnostic's strongest queued lever closes negative. **All recommended post-CC5 levers now refuted**; further per-corpus lift requires structured attribute data or cleaner training signal (LLM-judge qrels cleanup, now tractable with OpenAI API access)
 
 ---
 
@@ -2144,6 +2145,121 @@ scale, not by cluster geometry.
     --out-name nomic_catalog_seq512`. ~30 min on MPS per corpus at
     max_seq=512 (memory-bandwidth bound, throughput drops 4-8× vs
     max_seq=256).
+
+25. **Multi-vector / ColBERT late-interaction drop-in — CLEAN NEGATIVE
+    across three corpus classes.** The post-CC5 diagnostic
+    ([[project_post_cc5_negatives_may2026]]) identified the 15%
+    strong-inversion separability rate on ESCI-US as a structural
+    ceiling no single-vector bi-encoder can break, and proposed
+    multi-vector / late-interaction (ColBERT-style) as the lever to
+    attack it. Two independent external analyses (ChatGPT threads
+    shared 2026-05-20) converged on the same recommendation. With
+    Patterns 21-24 closed, this was the last high-priority queued
+    lever from the post-CC5 diagnostic.
+
+    Implementation: `evaluation/colbert_maxsim.py` — lightweight
+    ColBERTv2 max-sim scorer loading `colbert-ir/colbertv2.0` directly
+    from HuggingFace as BertModel + a manual `linear.weight` projection
+    (768 → 128). Sidesteps the `colbert-ai` package's transformers 5.x
+    incompatibility and the `voyager`/`fast-plaid` Python 3.14 wheel
+    gap. Works on MPS without patches. Smoke-tested on 4 toy products
+    — produces correct top-1 rankings.
+
+    **Drop-in over BM25 top-100 candidate pool (sub-question 1):**
+
+    | Corpus | n | BM25 alone R@10 | ColBERTv2 max-sim R@10 | Δ |
+    |---|---:|---:|---:|---:|
+    | ESCI-US (English product titles, ~108 char median) | 100 | 0.2033 | **0.0992** | **−10.4pp** |
+    | BestBuy ACM 1K (English product titles, short) | 1,000 | 0.3361 | **0.1663** | **−16.98pp** |
+    | CQADupStack/programmers (English forum NL, ~824 char median) | 200 | 0.3765 | **0.3610** | **−1.55pp** |
+
+    Pattern is consistent across short-title and long-doc corpora —
+    ColBERTv2 max-sim loses to plain BM25 alone everywhere tested. The
+    doc-length hypothesis (short product titles too sparse for
+    max-sim aggregation) is partially refuted: even on 824-char forum
+    docs, ColBERT loses by 1.5pp. The gap shrinks with doc length but
+    doesn't flip sign.
+
+    **As 4th fusion stream alongside CC5 (sub-question 3):**
+
+    | Setup | R@10 (n=100 ESCI-US sample) | E@1 |
+    |---|---:|---:|
+    | sumsim alone | 0.1979 | 0.3800 |
+    | BGE alone | 0.2109 | 0.4700 |
+    | **CC5 3-way (sumsim + LiYuan + BGE)** | **0.2111** | 0.4600 |
+    | CC5 (0.4/0.2/0.4) | 0.2080 | 0.4600 |
+    | 4-way equal (+ ColBERT) | 0.2032 | 0.4100 |
+    | 4-way (0.35/0.15/0.35/0.15 sum/li/bge/colb) | 0.2068 | 0.4600 |
+    | 4-way (0.3/0.15/0.4/0.15 sum/li/bge/colb) | 0.2072 | 0.4700 |
+
+    Every fusion weight loses 0.4-0.8pp R@10 vs CC5 alone. **ColBERT
+    adds noise, not orthogonal signal.** Sub-question 3 also refuted.
+
+    **Three clean reads:**
+
+    1. **MS-MARCO-trained max-sim doesn't transfer to e-commerce or
+       forum QA without task-specific training.** The pretraining task
+       (passage retrieval over Wikipedia-like text) doesn't generalize
+       to short product titles or compositional attribute matching.
+       The diagnostic's "multi-vector cracks the 15% separability
+       ceiling" intuition relied on the architecture being structurally
+       superior; in practice it's bounded by training-data domain match.
+
+    2. **Even orthogonality doesn't help when the stream is
+       systematically wrong.** ColBERT scores correlate weakly enough
+       with sumsim/LiYuan/BGE that one might expect fusion to lift
+       (any orthogonal signal usually helps a CC5-style ensemble). The
+       fact that it hurts at every weight implies the score distribution
+       isn't just noisy — it's anti-correlated enough on the gold
+       positives that any non-zero weight degrades the ensemble.
+
+    3. **The 15% separability ceiling appears not to be crackable by
+       ColBERTv2 max-sim on these corpora.** Combined with the
+       post-CC5 diagnostic finding that the negation/attribute failures
+       are structured-data gaps (not encoder gaps), the conclusion
+       firms up: **multi-vector is the wrong lever for this problem
+       class.** The right lever is structured product representation
+       (attributes, brand, dimensions as separate fields) — Pattern 6
+       infrastructure for that is `download/build_enriched_titles.py`,
+       and the CE-side test of richer text remains queued.
+
+    **Sub-question 2 (training ColBERT on BoD bags) NOT RUN.** Prior
+    probability of significant lift is now low: pretrained drop-in
+    loses 10-17pp on short titles, fusion adds nothing, and
+    bag-derived signal at our scale (~243k triplets) is unlikely to
+    overcome a 10pp gap given the inherent architecture-corpus
+    mismatch. Estimated cost-benefit: 1-2 days of training + eval for
+    likely ≤+2pp lift over MiniLM-BoD. Closed under "low-prior research"
+    unless a stronger multi-vector base (e.g., trained-for-products
+    ColBERT variant) becomes available.
+
+    **Framework implication.** With Pattern 25 closing the
+    multi-vector lever, the post-CC5 diagnostic's recommended levers
+    are all tested:
+    - Stronger bi-encoder bases (BGE, etc.): refuted (Pattern 18, 20)
+    - Hardneg mining: refuted (3 negatives)
+    - Learned per-query router: refuted
+    - Multi-vector / ColBERT: refuted (Pattern 25)
+    - Negation parsing: refuted (Pattern 5 entry)
+    - Richer product text (BM25 side): refuted; semantic side queued
+    - Long-context: refuted (Pattern 24)
+
+    The framework's compound architectures (CC5 on ESCI-US, BoD-as-
+    retriever + BGE on BestBuy) are at their corpus-class ceilings.
+    Further lift on existing corpora requires either:
+    - Structured product attribute data (not just title text)
+    - Cleaner training signal (LLM-judged qrels at scale — now
+      tractable with [[project_openai_api_available]])
+    - Different corpus classes that the framework hasn't been tested
+      on (legal, code, specialized domain with rich attribute data)
+
+    Run: `evaluation/colbert_maxsim.py --data-dir esci_us_data
+    --candidate-pool combined_index_us_minilm/ce_top100_candidates.npy
+    --index-titles combined_index_us_minilm/titles.json
+    --qids-source combined_index_us_minilm/bm25s_qids.json
+    --max-queries 100 --top-k 100`. Throughput on MPS: 1.2-3.5 q/s
+    depending on doc length (short titles fast, 800-char docs slow);
+    full 22k ESCI-US would take ~3-5h but the n=100 result is decisive.
 
 ## How to add a new corpus to this table
 
