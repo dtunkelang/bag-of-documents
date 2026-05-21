@@ -2337,13 +2337,32 @@ scale, not by cluster geometry.
     lever needs bi-encoder diversity" finding hints at why fusion
     across them works when the query-class router is uncertain.
 
+    **Cross-lingual extension (ES + JP, added 2026-05-21):**
+
+    Pattern 20 established `mE5-small + LoRA-BoD` (118M, retrieval-objective, multilingual) as the cross-lingual Pareto champion across Spanish and Japanese ESCI. The same `encode_openai_embeddings.py` + `eval_openai_embeddings.py` flow on `esci_es_data` (260k catalog, n=3,844 eval) and `esci_jp_data` (339k catalog, n=4,667 eval):
+
+    | Corpus | n | Prior best drop-in (P20) | te3-large @ 1024 | Δ vs best drop-in | te3-small @ 1024 | Δ vs best drop-in |
+    |---|---:|---|---:|---:|---:|---:|
+    | ESCI-ES | 3,844 | bge-m3 568M @ 0.1887 | **0.2368** | **+4.81pp** | **0.2024** | **+1.37pp** |
+    | ESCI-JP | 4,667 | mE5-small 118M @ 0.2050 | **0.2248** | **+1.98pp** | 0.1814 | −2.36pp |
+
+    **Latin / non-Latin script asymmetry.** The closed model's quality decays sharply from Latin to non-Latin scripts:
+
+    - **Spanish (Latin):** both `-large` AND `-small` beat the best Pattern 20 drop-in. `-large @ 0.2368` further **beats the Pareto-champion compound `mE5-small + LoRA-BoD` (0.2169) by +1.99pp** — the qrels-trained BoD advantage on Spanish does not survive a closed-model drop-in swap. The new cross-lingual Pareto champion on Spanish is `text-embedding-3-large` drop-in.
+    - **Japanese (non-Latin / CJK):** only `-large` wins drop-in (+1.98pp over mE5-small); `-small` loses by −2.36pp. `-large` still loses to `mE5-small + LoRA-BoD` (0.2411) by **−1.63pp**. The compound advantage holds on Japanese; mE5-small + BoD remains the Pareto champion if qrels are available.
+
+    **Why this is consistent with Pattern 20's monotone-decreasing curve.** Stronger drop-in ⇒ smaller BoD lift. On ES, `te3-large`'s drop-in (0.2368) is already above mE5-small+BoD's compound (0.2169), so any hypothetical BoD lift on top of `te3-large` would only widen the gap. On JP, `te3-large` (0.2248) lands between mE5-small drop-in (0.2050) and mE5-small+BoD compound (0.2411) — there's still measurable headroom that BoD on a trainable multilingual base captures. The closed-model coverage gap from Latin → non-Latin is the underlying mechanism: bytes per token are higher in CJK, the encoder sees less effective context per character, and the supervised multilingual model has a script-specific advantage that scale alone cannot recover.
+
+    **Cost.** ES: $1.29 (-large) + $0.20 (-small). JP: $2.51 (-large) + $0.39 (-small) — JP large is 2× ES large despite only 1.30× the doc count, all from CJK token-density. Total cross-lingual extension spend: **$4.39**. Pattern 26 cumulative: **$9.59**.
+
     **Framework refinement (Pattern 26 row of the corpus-class →
     architecture mapping):**
 
     | Corpus class | Best drop-in (no training) | Best compound (training data) |
     |---|---|---|
     | English product catalog | text-embedding-3-large @ 1024 | MiniLM + BoD (if click) or CC5 (if qrels) |
-    | Cross-lingual product (Spanish, Japanese) | TBD (-large ES/JP eval queued) | mE5-small + LoRA-BoD (Pattern 20) |
+    | Cross-lingual product (Spanish, Latin script) | text-embedding-3-large @ 1024 (0.2368, beats compound) | text-embedding-3-large drop-in itself — beats mE5-small+BoD by +1.99pp |
+    | Cross-lingual product (Japanese, non-Latin) | text-embedding-3-large @ 1024 (0.2248) | mE5-small + LoRA-BoD (Pattern 20, 0.2411) |
     | Biomedical | text-embedding-3-large @ 1024 (now wins NFCorpus drop-in) | (no compound recipe established) |
     | Long-form NL forum (CQADupStack) | mpnet (general-similarity > retrieval-objective) | MiniLM + BoD (Pattern 14 measured +4.1pp) |
 
@@ -2374,8 +2393,8 @@ scale, not by cluster geometry.
     ```
 
     Spend ledger at `.api_spend.jsonl` (gitignored). Total cost of
-    Pattern 26 evidence: ~$5.20 across all three corpora and both
-    model variants.
+    Pattern 26 evidence: ~$9.59 across five corpora (BestBuy, NFCorpus,
+    ESCI-US, ESCI-ES, ESCI-JP) and both model variants.
 
 ## How to add a new corpus to this table
 
