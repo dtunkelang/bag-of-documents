@@ -113,6 +113,7 @@ scale, not by cluster geometry.
 - **18.** Stronger domain-specialized base + LoRA-BoD — each lever attacks a different bottleneck
 - **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
 - **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual replication on ESCI-Spanish + ESCI-Japanese (mE5 ablation + mE5-small-BoD on both) — **small + retrieval-objective base + BoD is the Pareto champion on English, Spanish, and Japanese**; the "scale wins cross-lingual" carveout collapses when the right small base is tested, replicated on a non-Latin-script language
+- **21.** Cross-lingual CC5-analog on ESCI-Spanish + ESCI-Japanese — **BGE-reranker-v2-m3 alone over BM25 top-100 is the strongest single lever**; BoD+BGE fusion loses-or-ties BGE-alone at every weight, refuting that the English CC5 lift transfers with a single bi-encoder. The CC5 lift is load-bearing on the *3-bi-encoder ensemble*, not on bi-encoder + CE composition per se
 
 ---
 
@@ -1688,6 +1689,133 @@ scale, not by cluster geometry.
     --triplets-per-bag 5 --epochs 1 --batch-size 8 --max-seq-length 128`
     then `evaluation/eval_alt_encoder.py --model query_model_bestbuy_bge_large_bod`
     (no query prefix — training was prefix-free).
+
+21. **Cross-lingual CC5-analog — BGE-reranker alone is the lever; BoD+BGE
+    fusion does NOT replicate the English CC5 lift with a single
+    bi-encoder.** Tested whether layering `BAAI/bge-reranker-v2-m3` on
+    top of the Pattern 20 Pareto-champion (`mE5-small + LoRA-BoD`) gives
+    the same ~+1pp R@10 lift that English CC5 demonstrated. Architecture:
+
+        BM25 top-100 (lang-tokenizer)
+            ↓
+        bi-encoder rerank: mE5-LoRA-BoD cosine
+            ↓
+        CE rerank: BGE-reranker-v2-m3
+            ↓
+        per-query min-max normalize, fuse at w_bge in {0.25, 0.5, 0.75}
+
+    bm25s with language-specific tokenizer (Spanish: Snowball+stopwords;
+    Japanese: fugashi+UniDic-lite). 16-combo k1/b sweep on each corpus
+    found **(k1=0.3, b=0.75)** optimal for both — same plateau region
+    as English's (0.3, 0.6) winner.
+
+    **ESCI-Spanish (n=3,844, BM25 top-100 pool):**
+
+    | Setup | R@10 | nDCG@10 | E@1 | E@3 |
+    |---|---:|---:|---:|---:|
+    | BoD-as-retriever (Pattern 20 ref) | 0.2169 | — | — | — |
+    | BM25 alone | 0.2264 | 0.4083 | 0.4735 | 0.4343 |
+    | BoD alone (mE5-LoRA-BoD over top-100) | 0.1621 | 0.2851 | 0.3231 | 0.2973 |
+    | **BGE alone** | **0.2551** | **0.4676** | **0.5455** | **0.4997** |
+    | BoD + BGE w=0.25 | 0.2239 | 0.4088 | 0.4800 | 0.4373 |
+    | BoD + BGE w=0.50 | 0.2452 | 0.4490 | 0.5273 | 0.4787 |
+    | BoD + BGE w=0.75 | 0.2525 | 0.4639 | 0.5445 | 0.4965 |
+
+    **ESCI-Japanese (n=4,667, BM25 top-100 pool):**
+
+    | Setup | R@10 | nDCG@10 | E@1 | E@3 |
+    |---|---:|---:|---:|---:|
+    | BoD-as-retriever (Pattern 20 ref) | 0.2411 | — | — | — |
+    | BM25 alone | 0.2354 | 0.4295 | 0.4990 | 0.4566 |
+    | BoD alone (mE5-LoRA-BoD over top-100) | 0.1849 | 0.3307 | 0.3696 | 0.3457 |
+    | **BGE alone** | **0.2488** | **0.4569** | **0.5256** | **0.4896** |
+    | BoD + BGE w=0.25 | 0.2333 | 0.4279 | 0.4885 | 0.4584 |
+    | BoD + BGE w=0.50 | 0.2474 | 0.4521 | 0.5100 | 0.4842 |
+    | BoD + BGE w=0.75 | 0.2503 | 0.4574 | 0.5230 | 0.4903 |
+
+    **Five crisp findings:**
+
+    1. **BGE-reranker-v2-m3 alone over BM25 top-100 is the strongest
+       single lever on both corpora.** ES +2.9pp R@10 over BM25-alone,
+       +3.8pp over the Pattern 20 BoD-retriever (0.2551 vs 0.2169).
+       JP +1.3pp over BM25-alone, +0.8pp over BoD-retriever
+       (0.2488 vs 0.2411). A drop-in multilingual CE on lexical
+       candidates beats the trained-from-bags mE5-small + LoRA-BoD
+       used as a retriever on both languages.
+
+    2. **BoD + BGE fusion at every weight tested is at-or-below
+       BGE-alone on both corpora.** ES: every w_bge in {0.25, 0.50, 0.75}
+       loses 0.3-3.1pp R@10 vs BGE-alone. JP: w=0.75 ties BGE-alone
+       within noise (+0.15pp), w=0.25 and w=0.50 lose 0.1-1.5pp. The
+       English CC5 finding (sumsim+LiYuan+BGE 3-way mean ≈ 2-way
+       sumsim+BGE at +1.0pp R@10 over BGE-alone) does **not** transfer
+       when the bi-encoder side is a single encoder rather than a 3-way
+       ensemble. **The CC5 lift is load-bearing on the ensemble, not
+       on the bi-encoder + CE composition per se.**
+
+    3. **BoD-as-reranker over BM25 candidates is catastrophic on both
+       languages.** ES: 0.1621 vs BM25-alone 0.2264 (−6.4pp R@10);
+       JP: 0.1849 vs 0.2354 (−5.1pp). The single mE5-LoRA-BoD encoder
+       reorders BM25's keyword-matched candidates by a geometry that's
+       worse than BM25's own order. Same shape on English, where
+       L1/L2 (each MiniLM-BoD reranker alone) scored 19.67/19.20% vs
+       BM25-alone 20.33%. The English ensemble's strength came from
+       three bi-encoders trained on different signal slices (bag-MNRL,
+       qrels-hardneg, ESCI-supervised); replacing all three with one
+       bag-MNRL encoder removes the orthogonality.
+
+    4. **BM25-vs-BoD-retriever shape differs between corpora.** ES BM25
+       alone (0.2264) BEATS Pattern 20 BoD-retriever (0.2169) by
+       +0.95pp — same shape as English where BM25-alone (0.2033) ≈
+       BoD-retriever (0.1983). JP BM25 (0.2354) is BELOW BoD-retriever
+       (0.2411) by −0.57pp. Hypothesis: fugashi-tokenized BM25 on
+       Japanese product titles captures less of the relevance signal
+       than morpheme-level stemming + stopwords does on English / Spanish
+       product titles. Worth a tokenizer-ablation probe (char n-grams
+       vs sudachi vs fugashi) to confirm.
+
+    5. **Pattern 20 still stands for retrieval; Pattern 21 narrows the
+       compound lever.** mE5-LoRA-BoD remains the Pareto champion *as
+       a retriever* (Pattern 20 numbers unchanged). But it does not
+       compose with BGE-reranker the way English's 3-bi-encoder ensemble
+       does. For cross-lingual retrieval on product corpora, the
+       winning architecture is **BM25 (lang-tokenizer) → BGE-reranker-v2-m3
+       top-K** — skip the trained bi-encoder layer.
+
+    **Framework refinement — when does an ensemble compose with a CE?**
+    Today's results combined with English's CC5 imply a three-tier rule:
+
+    | Bi-encoder side | CE side | Compound vs CE-alone |
+    |---|---|---|
+    | 3-way ensemble trained on disjoint signal slices | BGE-reranker | **+1pp** (English CC5) |
+    | 1 retrieval-objective-trained bi-encoder | BGE-reranker | **flat / negative** (Pattern 21 ES, JP) |
+    | 1 BoD-trained bi-encoder | LiYuan + BGE 3-way | (untested at single-bi-encoder scale) |
+
+    The compound lever requires *bi-encoder diversity*, not just
+    *bi-encoder presence*. A single encoder's signal is already absorbed
+    by BGE's full attention; adding it to the fusion dilutes rather
+    than complements. This is structurally consistent with the
+    encoder-correlation diagnostic in `[[project_bm25_hybrid_sota]]`
+    (CE vs mean-of-3-encoders = 0.476 Spearman; CE vs single encoder
+    likely much higher).
+
+    **For practitioners deploying cross-lingual:**
+    - Default architecture: **BM25 (lang-tokenizer) → BGE-reranker-v2-m3
+      over top-100.** ~50 MB lexical index, no encoder catalog re-encode,
+      ~100ms BM25 + ~2-3s/query CE on MPS.
+    - mE5-LoRA-BoD adds drop-in retrieval headroom (Pattern 20) but is
+      dominated by BGE-on-BM25 once you can afford the CE pass.
+    - To replicate English CC5's +1pp fusion lift cross-lingually you
+      would need to *train* 2-3 distinct bi-encoders on disjoint signal
+      slices (qrels-hardneg, ESCI-supervised, bag-MNRL) for the target
+      language — not yet tested.
+
+    Run: `indexing/build_bm25s_cross_lingual.py --data-dir esci_es_data
+    --language es` (analogous for `--language jp`) builds the lexical
+    index with k1/b sweep. Then `evaluation/eval_cc_cross_lingual.py
+    --data-dir esci_es_data --bod-model query_model_esci_es_me5_small_lora_bod
+    --top-k 100` runs the fusion eval end-to-end. Checkpoint every 200
+    queries; resume if interrupted. ES took 2h26m on MPS / JP 3h44m.
 
 ## How to add a new corpus to this table
 
