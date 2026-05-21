@@ -62,7 +62,7 @@ def main():
     model_id = args.model
     print(f"Loading model {model_id}...")
     model = SentenceTransformer(model_id)
-    dim = model.get_sentence_embedding_dimension()
+    dim = model.get_embedding_dimension()
     embeddings_size_gb = len(titles) * dim * 4 / 1e9
     print(f"  Embedding dimension: {dim}, estimated size: {embeddings_size_gb:.1f} GB")
 

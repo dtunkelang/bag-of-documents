@@ -69,7 +69,7 @@ CORPORA = {
 
 def encode_catalog_chunked(model, titles, out_path, progress_path, chunk_size=10000, batch_size=64):
     """Chunked memmap-resumable encode (same pattern as eval_alt_encoder.py)."""
-    dim = model.get_sentence_embedding_dimension()
+    dim = model.get_embedding_dimension()
     target_shape = (len(titles), dim)
     if not out_path.exists():
         np.save(out_path, np.zeros(target_shape, dtype=np.float16))
@@ -118,7 +118,7 @@ def compute_algolia_per_query(data_dir: Path, pids, pid_to_idx, titles, queries_
 
     vec_path = data_dir / "algolia_catalog.vecs.fp16.npy"
     prog_path = data_dir / "algolia_catalog.progress.json"
-    target_shape = (len(pids), m.get_sentence_embedding_dimension())
+    target_shape = (len(pids), m.get_embedding_dimension())
     needs_encode = not vec_path.exists() or np.load(vec_path, mmap_mode="r").shape != target_shape
     if needs_encode:
         print("  encoding catalog with Algolia...", flush=True)

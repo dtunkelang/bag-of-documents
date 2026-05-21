@@ -116,6 +116,7 @@ scale, not by cluster geometry.
 - **21.** Cross-lingual CC5-analog on ESCI-Spanish + ESCI-Japanese — **BGE-reranker-v2-m3 alone over BM25 top-100 is the strongest single lever**; BoD+BGE fusion loses-or-ties BGE-alone at every weight, refuting that the English CC5 lift transfers with a single bi-encoder. The CC5 lift is load-bearing on the *3-bi-encoder ensemble*, not on bi-encoder + CE composition per se
 - **22.** nomic-embed-text-v1.5 (137M, retrieval-objective, English) drop-in matrix across BestBuy / NFCorpus / ESCI-US — **new mid-scale English drop-in Pareto champion** (ties Algolia at 1/4 params, ties BGE-large at ~40% params on ESCI-US); **but** BoD compound on BestBuy lifts only +3.62pp (vs MiniLM-BoD's +22pp), reinforcing Pattern 20's monotonic-decreasing curve — drop-in quality and BoD-engageable headroom are inversely correlated regardless of pretraining objective
 - **23.** BestBuy 3-tier rerank stack — **the right CC architecture is retriever-pool dependent**. BM25 → BoD+BGE fusion loses 11.6pp R@10 to plain BoD-as-retriever (0.4209 vs 0.5368) because BM25's top-100 misses too many click-relevant products. BoD-retrieve → BGE rerank @ w=0.25 *does* lift R@10 by +0.07pp and E@1 by +1.9pp over BoD-retrieve alone — single-bi-encoder + CE fusion works on click signal when the bi-encoder is the right retriever; cross-lingual Pattern 21 finding refines, doesn't generalize
+- **24.** Long-context Pattern 18 carveout REFUTED — nomic-embed-text-v1.5 (native 8192 context) at max_seq=512 (full doc coverage) loses to MiniLM-L6 base by ~1pp on CQADupStack programmers + english, and loses by 5-7pp to mpnet (max_seq=512, general-similarity pretrained). **All three Pattern 18 scale-wins hypotheses now closed as negatives.** Framework refinement: small-model-wins is robust; the orthogonal axis is *pretraining objective* — retrieval-objective for product catalog, general-similarity for long-form NL
 
 ---
 
@@ -2048,6 +2049,101 @@ scale, not by cluster geometry.
     then `evaluation/eval_cc_cross_lingual.py --bm25-suffix _bodret_1k`
     to run the fusion eval over it. Total compute: ~25 min on MPS for
     1K queries × top-100 BGE-reranker scoring.
+
+24. **Long-context Pattern 18 carveout — REFUTED on CQADupStack
+    programmers + english.** Pattern 18 hypothesized long-context as
+    the third "scale wins" case (alongside cross-lingual and domain
+    pretraining). Pattern 20 closed the first two by showing that
+    `mE5-small + LoRA-BoD` (118M, retrieval-objective, multilingual)
+    beats `bge-m3` (568M) on cross-lingual at 1/5 the cost, and that
+    biomedical PubMedBert pretraining doesn't substitute for retrieval-
+    objective pretraining. The long-context leg has been the last
+    untested Pattern 18 hypothesis.
+
+    Subject: `nomic-ai/nomic-embed-text-v1.5` (137M, retrieval-objective
+    pretrained, native max_seq=8192). Same model that became the
+    Pattern 22 English drop-in Pareto champion on product corpora.
+    Test corpus: CQADupStack programmers (32,176 docs, 876 queries) +
+    english (40,221 docs, 1,570 queries) — both NL-heavy forum text,
+    capped at 1500 chars per doc (~250-280 tokens; max_seq=512 gives
+    full coverage). Run nomic at max_seq=256 (truncated) and max_seq=512
+    (full coverage) to isolate the context-window lever.
+
+    | Corpus | n | MiniLM-L6 base | nomic @ 256 | nomic @ 512 | mpnet drop-in (P20) | BGE-large drop-in (P20) |
+    |---|---:|---:|---:|---:|---:|---:|
+    | CQADup/programmers | 876 | 0.5286 | 0.5163 | **0.5193** | **0.5795** | 0.5592 |
+    | CQADup/english | 1,570 | 0.5771 | — | **0.5692** | **0.6386** | 0.5901 |
+
+    Per-query buckets on programmers (n=876, vs MiniLM-base): the
+    nomic@512 R@10=0.5193 result decomposes as 0.1888 / 0.3719 / 0.6344
+    / 0.8281 across miss / 0-5 / 5-10 / perfect buckets — nomic only
+    rescues 4pp on hard queries while losing 1-2pp on every other
+    bucket, exactly the shape of a model that's structurally weaker on
+    this corpus rather than truncation-bound.
+
+    **Three crisp findings:**
+
+    1. **The long-context extension is not the binding lever on these
+       corpora.** nomic @ 256 → 512 lifts R@10 by just **+0.30pp on
+       programmers** — well within bootstrap noise. The full-coverage
+       configuration still loses to MiniLM-L6 base (-0.93pp programmers,
+       -0.79pp english). If "long context unlocks long-NL retrieval"
+       were the lever, doubling the context window on a model designed
+       for 8192 context would have lifted by more than 0.3pp.
+
+    2. **The actual winning lever is general-similarity pretraining.**
+       mpnet (110M, max_seq=512, paraphrase-mined general-similarity
+       pretrained) wins by +5.09pp programmers / +6.15pp english over
+       MiniLM-base, and by +6.02pp / +6.94pp over nomic@512. Retrieval-
+       objective pretraining (nomic, mE5) is the right lever on
+       product-catalog retrieval (Pattern 20 / 22); general-similarity
+       pretraining is the right lever on conversational / forum NL.
+       The two are orthogonal axes, neither subsumed by scale or
+       context window.
+
+    3. **Pattern 18's long-context carveout is closed as a negative.**
+       All three Pattern 18 hypotheses (cross-lingual, domain-pretraining,
+       long-context) are now refuted as "scale-wins" cases. The framework's
+       Pareto curve is robustly small-model-wins, with two orthogonal
+       *objective* axes (general-similarity vs retrieval-objective)
+       that determine the right small model per corpus class.
+
+    **Framework refinement — corpus-class to objective mapping:**
+
+    | Corpus class | Right pretraining objective | Pareto champion |
+    |---|---|---|
+    | Product catalog (English, click) | retrieval-objective | MiniLM-L6 + BoD (22M, 0.5368) |
+    | Product catalog (English, qrels) | retrieval-objective | MiniLM-L6 + BoD (22M, 0.156 → 0.198 retriever) |
+    | Product catalog (Spanish, qrels) | retrieval-objective + multilingual | mE5-small + LoRA-BoD (118M, 0.2169) |
+    | Product catalog (Japanese, qrels) | retrieval-objective + multilingual | mE5-small + LoRA-BoD (118M, 0.2411) |
+    | Long-form NL forum (English, qrels) | **general-similarity** | **mpnet-base** (110M, 0.5795 / 0.6386 drop-in) |
+    | Biomedical (English, qrels) | retrieval-objective + broad pretraining | BGE-large (335M, 0.1910 drop-in) |
+
+    **Practitioner rule (refined):** the right small base depends on
+    corpus class:
+    - Product catalog → retrieval-objective small model (mE5-small or
+      MiniLM if English-only and you can train BoD).
+    - Conversational / forum NL → general-similarity small model (mpnet).
+    - Biomedical / domain-specific → no small-model rule yet; BGE-large
+      still wins drop-in by +2-4pp over alternatives.
+
+    The framework's "small wins" claim holds, but adding "what kind of
+    small" became necessary as the corpus mix grew. Both objectives
+    achieve their wins at ~100M params; neither needs scale.
+
+    **What still feeds BoD on long-NL NQ corpora is open.** Pattern 14
+    showed BoD lift on CQADupStack/programmers (+4.1pp over MiniLM-base,
+    0.5286 → 0.5698). Does mpnet+BoD compound on this corpus? Untested.
+    Expected: smaller BoD lift than MiniLM gets (drop-in is already
+    +5pp higher), but could still beat MiniLM+BoD's 0.5698 in absolute
+    terms. Queued as a follow-on.
+
+    Run: `evaluation/eval_alt_encoder.py --model nomic-ai/nomic-embed-text-v1.5
+    --query-prefix 'search_query: ' --doc-prefix 'search_document: '
+    --max-seq-length 512 --batch-size 8 --data-dir cqadupstack_*_data
+    --out-name nomic_catalog_seq512`. ~30 min on MPS per corpus at
+    max_seq=512 (memory-bandwidth bound, throughput drops 4-8× vs
+    max_seq=256).
 
 ## How to add a new corpus to this table
 

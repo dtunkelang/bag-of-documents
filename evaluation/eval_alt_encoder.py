@@ -37,7 +37,7 @@ def encode_catalog_chunked(
 ):
     """Encode `titles` into `out_path` (fp16 .npy) chunked. Atomic per chunk
     via `progress_path` (JSON list of completed chunk indices)."""
-    dim = model.get_sentence_embedding_dimension()
+    dim = model.get_embedding_dimension()
     target_shape = (len(titles), dim)
 
     if not out_path.exists():
@@ -175,7 +175,7 @@ def main():
     if args.max_seq_length > 0:
         m.max_seq_length = args.max_seq_length
     print(
-        f"  loaded in {time.time() - t0:.1f}s  dim={m.get_sentence_embedding_dimension()}  max_seq={m.max_seq_length}",
+        f"  loaded in {time.time() - t0:.1f}s  dim={m.get_embedding_dimension()}  max_seq={m.max_seq_length}",
         flush=True,
     )
 
