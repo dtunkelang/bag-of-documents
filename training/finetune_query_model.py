@@ -28,6 +28,8 @@ import torch
 from sentence_transformers import (
     InputExample,
     SentenceTransformer,
+)
+from sentence_transformers.sentence_transformer import (
     evaluation,
     losses,
 )
