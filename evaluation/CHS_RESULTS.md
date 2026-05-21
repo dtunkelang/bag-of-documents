@@ -114,6 +114,7 @@ scale, not by cluster geometry.
 - **19.** Four-way union-oracle — domain pretraining as fourth orthogonal lever
 - **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual replication on ESCI-Spanish + ESCI-Japanese (mE5 ablation + mE5-small-BoD on both) — **small + retrieval-objective base + BoD is the Pareto champion on English, Spanish, and Japanese**; the "scale wins cross-lingual" carveout collapses when the right small base is tested, replicated on a non-Latin-script language
 - **21.** Cross-lingual CC5-analog on ESCI-Spanish + ESCI-Japanese — **BGE-reranker-v2-m3 alone over BM25 top-100 is the strongest single lever**; BoD+BGE fusion loses-or-ties BGE-alone at every weight, refuting that the English CC5 lift transfers with a single bi-encoder. The CC5 lift is load-bearing on the *3-bi-encoder ensemble*, not on bi-encoder + CE composition per se
+- **22.** nomic-embed-text-v1.5 (137M, retrieval-objective, English) drop-in matrix across BestBuy / NFCorpus / ESCI-US — **new mid-scale English drop-in Pareto champion** (ties Algolia at 1/4 params, ties BGE-large at ~40% params on ESCI-US); **but** BoD compound on BestBuy lifts only +3.62pp (vs MiniLM-BoD's +22pp), reinforcing Pattern 20's monotonic-decreasing curve — drop-in quality and BoD-engageable headroom are inversely correlated regardless of pretraining objective
 
 ---
 
@@ -1816,6 +1817,115 @@ scale, not by cluster geometry.
     --data-dir esci_es_data --bod-model query_model_esci_es_me5_small_lora_bod
     --top-k 100` runs the fusion eval end-to-end. Checkpoint every 200
     queries; resume if interrupted. ES took 2h26m on MPS / JP 3h44m.
+
+22. **nomic-embed-text-v1.5 — a new mid-scale English drop-in Pareto
+    candidate; BoD compound still loses to MiniLM at 1/6 the cost.**
+    Tested `nomic-ai/nomic-embed-text-v1.5` (137M params, retrieval-
+    objective pretrained, 768-dim, max_seq 8192 → capped at 256 for
+    product titles, English-only). Sits at the previously empty
+    137M-param point on the Pareto curve between MiniLM-L6 (22M) and
+    BGE-large (335M).
+
+    **Drop-in matrix across 3 corpora (R@10):**
+
+    | Model | Params | BestBuy ACM (1K) | NFCorpus | ESCI-US (22K) |
+    |---|---:|---:|---:|---:|
+    | MiniLM-L6 | 22M | 0.3142 | 0.1589 | ~0.156 |
+    | mpnet-base | 110M | 0.3145 | 0.1661 | 0.1485 |
+    | **nomic-embed-text-v1.5** | **137M** | **0.3892** | **0.1669** | **0.2084** |
+    | BGE-large-en-v1.5 | 335M | 0.3734 | **0.1910** | 0.2087 |
+    | Algolia (Solon-large) | 562M | 0.3902 | 0.1667 | 0.2066 |
+
+    **Three clean reads:**
+
+    1. **On BestBuy and ESCI-US (clean English e-commerce), nomic at
+       137M effectively ties or beats BGE-large at 335M and Algolia at
+       562M.** BestBuy: 0.3892 vs Algolia's 0.3902 (within 0.1pp at
+       1/4 the params); ESCI-US: 0.2084 vs BGE-large's 0.2087 (within
+       0.03pp at ~40% the params). The "retrieval-objective trained at
+       right scale" hypothesis is validated — when the domain is
+       English-general e-commerce and the pretraining matches the
+       retrieval task, you don't need scale.
+    2. **On NFCorpus (biomedical), nomic is dominated by BGE-large**
+       (0.1669 vs 0.1910, −2.4pp). The domain-pretraining lever
+       (Pattern 18) remains intact: nomic's general English pretraining
+       doesn't substitute for BGE-large's broader scientific exposure.
+       Same shape as Algolia on NFCorpus (0.1667).
+    3. **mpnet at 110M sits at MiniLM's level on BestBuy and BELOW on
+       ESCI-US** (0.1485 vs ~0.156). Drop-in scale alone doesn't help
+       on product retrieval. nomic at 137M (just 27M more params than
+       mpnet) but with retrieval-objective pretraining shows the lift
+       comes from the *objective*, not the scale.
+
+    **BestBuy compound: nomic + LoRA-BoD R@10 0.4254** (LoRA rank=16
+    on `Wqkv` fused projection, 0.43% trainable params, 1 epoch on
+    48,516 BestBuy bags = 242,580 triplets, MPS).
+
+    | Model | Params | drop-in | +BoD | BoD Δ | rel cost | pp/cost |
+    |---|---:|---:|---:|---:|---:|---:|
+    | **MiniLM-L6 + BoD** | 22M | 0.3142 | **0.5368** | **+22.26pp** | 1× | **22.3** |
+    | mpnet + BoD | 110M | 0.3145 | 0.4699 | +15.54pp | ~5× | 3.1 |
+    | nomic + LoRA-BoD | 137M | 0.3892 | 0.4254 | +3.62pp | ~6× | 0.60 |
+    | BGE-large + LoRA-BoD | 335M | 0.3734 | 0.4286 | +11.44pp | ~12× | 0.95 |
+    | Algolia + LoRA-BoD | 562M | 0.3902 | 0.4260 | +3.6pp | ~26× | 0.43 |
+
+    **The framework rule strengthens with this fifth data point.**
+    nomic's BoD lift (+3.62pp) lands in the same regime as Algolia's
+    (+3.6pp) despite being at 1/4 the params — even though nomic's
+    drop-in is dramatically better than mpnet's at half nomic's param
+    count. The inverse correlation between *drop-in quality* and
+    *BoD-engageable supervision-signal headroom* holds across:
+    - architecture family (BERT-derived MiniLM/mpnet, custom nomic-BERT,
+      XLM-RoBERTa-derived Algolia)
+    - pretraining objective (general LM, retrieval-objective, domain-
+      specialized)
+    - parameter count (22M to 562M, two orders of magnitude)
+
+    The simpler statement: **stronger drop-in absorbs the supervision
+    signal that BoD would otherwise rescue.** Once drop-in already
+    handles the easy slice well, BoD has less to lift. MiniLM's drop-in
+    leaves the largest base-blind subset, which is precisely where BoD
+    earns its +22pp lift.
+
+    **Pareto-frontier update.** Two regimes now distinguish cleanly:
+    - **Compound (need BoD lift):** MiniLM-L6 + BoD remains the BestBuy
+      Pareto champion. No mid-scale base unlocks more BoD-engageable
+      signal.
+    - **Drop-in only (cheap path):** nomic-embed-text-v1.5 at 137M is
+      the new English drop-in Pareto champion — same quality as Algolia
+      at 1/4 the cost, beats mpnet by +7-8pp at ~1.25× the params.
+      Choose nomic when training data is unavailable or the corpus
+      isn't yet bag-buildable; choose MiniLM + BoD when click/qrels
+      signal is available.
+
+    **Carveouts and confirmations:**
+    - The "scale wins on biomedical" carveout (Pattern 18) holds:
+      nomic doesn't penetrate the NFCorpus domain gap.
+    - The "small + retrieval-objective + BoD" Pareto rule (Pattern 20)
+      passes its first out-of-sample test on a previously-untested
+      mid-scale candidate.
+    - The Pattern 18 hypothesis that "training-signal-sharpness is
+      the binding constraint, not base capacity" is reinforced —
+      changing the base from 22M (MiniLM) to 137M (nomic) bought +7.5pp
+      drop-in but only +3.62pp compound, narrowing the gap to MiniLM
+      from -7.5pp drop-in to -11.14pp compound.
+
+    **Implementation notes (encoded in code).** nomic's custom
+    `NomicBertModel` has a fused `Wqkv` projection and an architecture
+    quirk: after `peft.merge_and_unload()` + sentence-transformers save,
+    the state_dict has a doubled `encoder.encoder.layers.*` prefix that
+    silently loads with random transformer weights and produces garbage
+    R@10. The training script auto-detects and strips the prefix.
+    `eval_alt_encoder.py` also accepts `--max-seq-length` to cap the
+    8192-token default for activation-memory reasons on MPS.
+
+    Run: `evaluation/eval_alt_encoder.py --model nomic-ai/nomic-embed-text-v1.5
+    --query-prefix 'search_query: ' --doc-prefix 'search_document: '
+    --max-seq-length 256 --batch-size 16 --data-dir DATA_DIR
+    --out-name nomic_catalog` for drop-in. Then
+    `training/finetune_lora_bod.py BAGS query_model_*_nomic_lora_bod
+    --base-model nomic-ai/nomic-embed-text-v1.5 --target-modules Wqkv
+    --max-seq-length 256 --batch-size 8` for the BoD compound.
 
 ## How to add a new corpus to this table
 
