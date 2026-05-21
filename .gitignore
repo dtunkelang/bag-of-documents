@@ -8,6 +8,11 @@ __pycache__/
 .ruff_cache/
 .coverage
 
+# Secrets (never commit)
+.env
+.env.local
+*.key
+
 # Data (hosted on HuggingFace, not in repo)
 combined_index/
 combined_index_*/
