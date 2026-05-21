@@ -54,9 +54,9 @@ from sentence_transformers import CrossEncoder, SentenceTransformer  # noqa: E40
 K_EVAL = 10
 
 
-def per_query_metrics(retrieved_pids, qrels_q, k=K_EVAL):
-    pos_e = {pid for pid, g in qrels_q.items() if g >= 3}
-    pos_es = {pid for pid, g in qrels_q.items() if g >= 2}
+def per_query_metrics(retrieved_pids, qrels_q, k=K_EVAL, min_rel=2, exact_rel=3):
+    pos_e = {pid for pid, g in qrels_q.items() if g >= exact_rel}
+    pos_es = {pid for pid, g in qrels_q.items() if g >= min_rel}
     if not pos_es:
         return None
     top_k = retrieved_pids[:k]
@@ -85,17 +85,21 @@ def normalize_per_query(scores, valid_mask):
     return out
 
 
-def score_with_bod(model_dir, queries, top_pos, catalog_vecs):
+def score_with_bod(model_dir, queries, top_pos, catalog_vecs, query_prefix=""):
     device = (
         "mps"
         if torch.backends.mps.is_available()
         else ("cuda" if torch.cuda.is_available() else "cpu")
     )
     print(f"loading BoD model from {model_dir} on {device}...", flush=True)
-    m = SentenceTransformer(model_dir, device=device)
+    st_kwargs = {}
+    if "nomic" in str(model_dir).lower():
+        st_kwargs["trust_remote_code"] = True
+    m = SentenceTransformer(model_dir, device=device, **st_kwargs)
     t0 = time.time()
+    prefixed = [query_prefix + q for q in queries] if query_prefix else queries
     qv = m.encode(
-        queries, normalize_embeddings=True, batch_size=64, show_progress_bar=False
+        prefixed, normalize_embeddings=True, batch_size=64, show_progress_bar=False
     ).astype(np.float32)
     print(f"  encoded {len(queries):,} queries in {time.time() - t0:.0f}s", flush=True)
 
@@ -201,7 +205,17 @@ def score_with_bge(
     return scores
 
 
-def eval_setups(qids, qrels, top_pos, pids_arr, score_matrices, valid, sample_idx=None):
+def eval_setups(
+    qids,
+    qrels,
+    top_pos,
+    pids_arr,
+    score_matrices,
+    valid,
+    sample_idx=None,
+    min_rel=2,
+    exact_rel=3,
+):
     """score_matrices is dict label -> (N, K) float."""
     pids_arr = np.asarray(pids_arr)
     if sample_idx is None:
@@ -218,7 +232,7 @@ def eval_setups(qids, qrels, top_pos, pids_arr, score_matrices, valid, sample_id
                 pids_arr[int(top_pos[qi, j])] if top_pos[qi, j] >= 0 else None for j in order
             ]
             ordering = [p for p in ordering if p is not None]
-            m = per_query_metrics(ordering, qrels[qid])
+            m = per_query_metrics(ordering, qrels[qid], min_rel=min_rel, exact_rel=exact_rel)
             if m is None:
                 continue
             r, nd, e1, e3 = m
@@ -256,6 +270,38 @@ def main():
     ap.add_argument("--top-k", type=int, default=100, help="rerank pool size")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--skip-bge", action="store_true", help="skip BGE scoring (use existing)")
+    ap.add_argument("--queries-file", default="test_queries.jsonl")
+    ap.add_argument("--qrels-file", default="test_qrels.jsonl")
+    ap.add_argument(
+        "--bm25-suffix",
+        default="",
+        help="suffix appended to bm25s_top200/bm25s_qids (e.g. '_1k') so this "
+        "eval finds the right split's BM25 artifacts",
+    )
+    ap.add_argument(
+        "--out-suffix",
+        default="",
+        help="suffix appended to bod/bge score caches and results.json under cc_eval/",
+    )
+    ap.add_argument(
+        "--query-prefix",
+        default="",
+        help="prepend to each query before BoD encoding (e.g. 'search_query: ' for nomic)",
+    )
+    ap.add_argument(
+        "--min-relevance",
+        type=int,
+        default=2,
+        help="qrels relevance threshold for 'relevant' (default 2 = ESCI E+S; "
+        "set to 1 for binary qrels like BestBuy)",
+    )
+    ap.add_argument(
+        "--exact-relevance",
+        type=int,
+        default=3,
+        help="qrels relevance threshold for 'exact match' (default 3 = ESCI E only; "
+        "set to 1 for binary qrels)",
+    )
     args = ap.parse_args()
 
     data = Path(args.data_dir).resolve()
@@ -264,12 +310,12 @@ def main():
     print(f"corpus: {data.name}  top_k: {args.top_k}", flush=True)
 
     qrels = defaultdict(dict)
-    with open(data / "test_qrels.jsonl") as f:
+    with open(data / args.qrels_file) as f:
         for line in f:
             r = json.loads(line)
             qrels[r["query_id"]][r["product_id"]] = r["relevance"]
     queries_all = {}
-    with open(data / "test_queries.jsonl") as f:
+    with open(data / args.queries_file) as f:
         for line in f:
             d = json.loads(line)
             queries_all[d["query_id"]] = d["query"]
@@ -278,12 +324,14 @@ def main():
     with open(data / "product_ids.json") as f:
         pids_arr = json.load(f)
 
-    with open(data / "bm25s_qids.json") as f:
+    qids_path = data / f"bm25s_qids{args.bm25_suffix}.json"
+    top_path = data / f"bm25s_top200{args.bm25_suffix}.npy"
+    with open(qids_path) as f:
         eval_qids = json.load(f)
-    bm25_top_full = np.load(data / "bm25s_top200.npy")
+    bm25_top_full = np.load(top_path)
     if bm25_top_full.shape[1] < args.top_k:
         raise SystemExit(
-            f"bm25s_top200.npy has only {bm25_top_full.shape[1]} cols; need {args.top_k}"
+            f"{top_path.name} has only {bm25_top_full.shape[1]} cols; need {args.top_k}"
         )
     top_pos = bm25_top_full[:, : args.top_k].astype(np.int64)
     queries = [queries_all[qid] for qid in eval_qids]
@@ -292,19 +340,21 @@ def main():
     valid = top_pos >= 0
 
     # 1) score with BoD
-    bod_path = out_dir / f"bod_top{args.top_k}_scores.npy"
+    bod_path = out_dir / f"bod_top{args.top_k}_scores{args.out_suffix}.npy"
     if bod_path.exists():
         bod_scores = np.load(bod_path)
         print(f"loaded cached BoD scores from {bod_path}", flush=True)
     else:
         catalog_vecs = np.load(data / args.bod_vecs, mmap_mode="r")
-        bod_scores = score_with_bod(args.bod_model, queries, top_pos, catalog_vecs)
+        bod_scores = score_with_bod(
+            args.bod_model, queries, top_pos, catalog_vecs, query_prefix=args.query_prefix
+        )
         np.save(bod_path, bod_scores)
         print(f"saved BoD scores -> {bod_path}", flush=True)
 
     # 2) score with BGE-reranker
-    bge_path = out_dir / f"bge_top{args.top_k}_scores.npy"
-    bge_progress = out_dir / f"bge_top{args.top_k}_progress.json"
+    bge_path = out_dir / f"bge_top{args.top_k}_scores{args.out_suffix}.npy"
+    bge_progress = out_dir / f"bge_top{args.top_k}_progress{args.out_suffix}.json"
     if args.skip_bge:
         if not bge_path.exists():
             print(
@@ -321,7 +371,16 @@ def main():
                 "BoD alone (mE5+LoRA-BoD over BM25 top-K)": np.where(valid, nm_bod, -np.inf),
             }
             print(f"\neval over {len(eval_qids):,} queries:", flush=True)
-            results = eval_setups(eval_qids, qrels, top_pos, pids_arr, score_matrices, valid)
+            results = eval_setups(
+                eval_qids,
+                qrels,
+                top_pos,
+                pids_arr,
+                score_matrices,
+                valid,
+                min_rel=args.min_relevance,
+                exact_rel=args.exact_relevance,
+            )
             with open(out_dir / "results_bod_only.json", "w") as f:
                 json.dump(results, f, indent=2)
             return
@@ -356,9 +415,18 @@ def main():
     }
 
     print(f"\neval over {len(eval_qids):,} queries (BM25 top-{args.top_k} pool):", flush=True)
-    results = eval_setups(eval_qids, qrels, top_pos, pids_arr, score_matrices, valid)
+    results = eval_setups(
+        eval_qids,
+        qrels,
+        top_pos,
+        pids_arr,
+        score_matrices,
+        valid,
+        min_rel=args.min_relevance,
+        exact_rel=args.exact_relevance,
+    )
 
-    with open(out_dir / "results.json", "w") as f:
+    with open(out_dir / f"results{args.out_suffix}.json", "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nsaved results -> {out_dir / 'results.json'}", flush=True)
 

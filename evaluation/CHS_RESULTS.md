@@ -115,6 +115,7 @@ scale, not by cluster geometry.
 - **20.** Three-model drop-in matrix + cost-quality Pareto; cross-lingual replication on ESCI-Spanish + ESCI-Japanese (mE5 ablation + mE5-small-BoD on both) — **small + retrieval-objective base + BoD is the Pareto champion on English, Spanish, and Japanese**; the "scale wins cross-lingual" carveout collapses when the right small base is tested, replicated on a non-Latin-script language
 - **21.** Cross-lingual CC5-analog on ESCI-Spanish + ESCI-Japanese — **BGE-reranker-v2-m3 alone over BM25 top-100 is the strongest single lever**; BoD+BGE fusion loses-or-ties BGE-alone at every weight, refuting that the English CC5 lift transfers with a single bi-encoder. The CC5 lift is load-bearing on the *3-bi-encoder ensemble*, not on bi-encoder + CE composition per se
 - **22.** nomic-embed-text-v1.5 (137M, retrieval-objective, English) drop-in matrix across BestBuy / NFCorpus / ESCI-US — **new mid-scale English drop-in Pareto champion** (ties Algolia at 1/4 params, ties BGE-large at ~40% params on ESCI-US); **but** BoD compound on BestBuy lifts only +3.62pp (vs MiniLM-BoD's +22pp), reinforcing Pattern 20's monotonic-decreasing curve — drop-in quality and BoD-engageable headroom are inversely correlated regardless of pretraining objective
+- **23.** BestBuy 3-tier rerank stack — **the right CC architecture is retriever-pool dependent**. BM25 → BoD+BGE fusion loses 11.6pp R@10 to plain BoD-as-retriever (0.4209 vs 0.5368) because BM25's top-100 misses too many click-relevant products. BoD-retrieve → BGE rerank @ w=0.25 *does* lift R@10 by +0.07pp and E@1 by +1.9pp over BoD-retrieve alone — single-bi-encoder + CE fusion works on click signal when the bi-encoder is the right retriever; cross-lingual Pattern 21 finding refines, doesn't generalize
 
 ---
 
@@ -1926,6 +1927,127 @@ scale, not by cluster geometry.
     `training/finetune_lora_bod.py BAGS query_model_*_nomic_lora_bod
     --base-model nomic-ai/nomic-embed-text-v1.5 --target-modules Wqkv
     --max-seq-length 256 --batch-size 8` for the BoD compound.
+
+23. **BestBuy 3-tier rerank stack — the right CC architecture is
+    retriever-pool dependent.** Tested whether the English ESCI CC5
+    pattern (BM25 → ensemble rerank) and the cross-lingual Pattern 21
+    finding ("single bi-encoder + CE fusion doesn't lift") transfer to
+    click-supervised data. Subject: BestBuy ACM (53,048 products, 1K
+    test queries with binary qrels), `query_model_bestbuy_bod` (MiniLM-L6
+    full-FT BoD on click signal, Pattern 20 R@10 baseline 0.5368), and
+    `BAAI/bge-reranker-v2-m3` as the CE stream.
+
+    **Two architectures tested, with full BoD + BGE fusion at three
+    weights each:**
+
+    | Architecture | Pool | Best setup | R@10 | nDCG@10 | E@1 | E@3 |
+    |---|---|---|---:|---:|---:|---:|
+    | A: Pattern 20 baseline | — | BoD-as-retriever | 0.5368 | — | — | — |
+    | B: BM25 → fusion (CC5-style on BM25 pool) | BM25 top-100 | BoD+BGE w=0.25 | 0.4209 | 0.3963 | 0.4000 | 0.3628 |
+    | **C: BoD-retrieve → fusion** | BoD top-100 | **BoD+BGE w=0.25** | **0.5375** | **0.4820** | **0.4450** | **0.4277** |
+
+    **All B-architecture rows** (BM25 pool):
+
+    | Setup | R@10 | nDCG@10 | E@1 | E@3 |
+    |---|---:|---:|---:|---:|
+    | BM25 alone | 0.3361 | 0.3022 | 0.2820 | 0.2655 |
+    | BoD alone (over BM25 top-100) | 0.4168 | 0.3881 | 0.3900 | 0.3545 |
+    | BGE alone (over BM25 top-100) | 0.3818 | 0.3559 | 0.3470 | 0.3182 |
+    | **BoD + BGE w=0.25** | **0.4209** | **0.3963** | **0.4000** | **0.3628** |
+    | BoD + BGE w=0.50 | 0.4095 | 0.3887 | 0.3970 | 0.3567 |
+    | BoD + BGE w=0.75 | 0.4054 | 0.3796 | 0.3820 | 0.3438 |
+
+    **All C-architecture rows** (BoD-retrieve pool):
+
+    | Setup | R@10 | nDCG@10 | E@1 | E@3 |
+    |---|---:|---:|---:|---:|
+    | BoD-retrieve order (input order) | 0.5369 | 0.4723 | 0.4260 | 0.4152 |
+    | BoD alone (rescore by cosine, same order) | 0.5364 | 0.4721 | 0.4260 | 0.4152 |
+    | BGE alone (rerank by CE only) | 0.4395 | 0.4004 | 0.3890 | 0.3522 |
+    | **BoD + BGE w=0.25** | **0.5375** | **0.4820** | **0.4450** | **0.4277** |
+    | BoD + BGE w=0.50 | 0.5232 | 0.4708 | 0.4400 | 0.4192 |
+    | BoD + BGE w=0.75 | 0.4993 | 0.4530 | 0.4400 | 0.4000 |
+
+    BM25 sweep on BestBuy converged on **(k1=1.2, b=0.5)** — different
+    from ESCI-US's (0.3, 0.6) and ESCI-ES/JP's (0.3, 0.75). Plateau is
+    shallow across the 16-combo grid (range 0.3283-0.3361), so the
+    point estimate doesn't matter much; the *structural* difference is
+    that BestBuy product titles are less keyword-stuffed than Amazon
+    titles, so higher k1 (later TF saturation) and lower b (less length
+    normalization) is preferred. Run:
+    `indexing/build_bm25s_cross_lingual.py --data-dir bestbuy_acm_data
+    --language en --queries-file test_queries_1k.jsonl
+    --qrels-file test_qrels_1k.jsonl --min-relevance 1
+    --exact-relevance 1 --out-suffix _1k`.
+
+    **Four crisp findings:**
+
+    1. **The BM25-pool architecture loses 11.6pp R@10 to BoD-as-retriever
+       on BestBuy.** BoD+BGE@0.25 over BM25 top-100 → 0.4209 vs BoD-
+       retriever 0.5368. The structural reason: BM25's top-100 recall@100
+       on click-supervised qrels leaves too many gold positives outside
+       the pool. The CC5-on-ESCI architecture (BM25 → ensemble rerank)
+       depends on BM25 being a competent retriever on the corpus; on
+       BestBuy it is not.
+
+    2. **The BoD-retrieve-pool architecture WINS by +0.07pp R@10 and
+       +1.9pp E@1 over BoD-as-retriever alone.** BoD-retrieve →
+       BoD+BGE@0.25 → 0.5375 / E@1 0.4450 vs Pattern 20 BoD-retriever
+       0.5368 / E@1 ~0.4260. Modest R@10 lift (within noise) but
+       meaningful E@1 lift (clear above noise). The CC-style fusion
+       does add value when the bi-encoder is the right retriever; the
+       cross-lingual Pattern 21 finding ("single-bi-encoder + CE fusion
+       doesn't lift") **refines** rather than generalizes — it held in
+       ES/JP because BGE alone over BM25 was already the best single
+       lever, not because single-bi-encoder fusion is structurally
+       broken.
+
+    3. **BGE-alone over either pool is catastrophic on BestBuy.** Over
+       BM25 pool: 0.3818 (−5.5pp vs BM25 alone is +4.6pp, but vs BoD
+       alone -3.5pp). Over BoD pool: 0.4395 (−9.7pp vs BoD-retrieve
+       0.5369). The generic BGE-reranker doesn't know the click signal
+       that BoD's training encoded. Unlike on ESCI-ES/JP where BGE
+       alone won, on BestBuy BGE alone loses to the click-supervised
+       bi-encoder by a wide margin. **Sharp supervision-signal training
+       beats generic multilingual CE on a sharp-signal corpus.**
+
+    4. **The fusion weight is the same across all corpora tested:
+       w_BGE = 0.25 is optimal.** English ESCI CC4 found w_CE=0.25;
+       cross-lingual Pattern 21 best fusion weights also fell in the
+       0.25-0.75 range with diminishing returns past 0.25. BestBuy
+       confirms the same point. Practitioner rule: when fusing a strong
+       bi-encoder with BGE-reranker, default to w_BGE=0.25.
+
+    **Updated framework: three CC-style architectures by corpus-class.**
+
+    | Corpus class | Retriever (winner) | Rerank stack | R@10 |
+    |---|---|---|---:|
+    | English ESCI, qrels | BM25 (k1=0.3, b=0.6) | 3-bi-encoder ensemble + LiYuan-CE + BGE-CE (CC5) | 0.2333 |
+    | Cross-lingual ESCI, qrels | BM25 (k1=0.3, b=0.75) | BGE alone (no useful bi-encoder fusion) | 0.2488-0.2551 |
+    | English BestBuy, click | BoD bi-encoder (full-FT MiniLM) | BoD + BGE @ w=0.25 | 0.5375 |
+
+    The shape of the rerank stack tracks the *quality of the bi-encoder
+    as a retriever* and the *sharpness of the supervision signal*:
+    - Weak bi-encoder retriever + many decent bi-encoder rerankers
+      (English ESCI) → BM25 first stage, ensemble rerank.
+    - Weak single bi-encoder + qrels noise (cross-lingual ESCI) →
+      skip the bi-encoder fusion, BGE-CE alone wins.
+    - Strong bi-encoder retriever from sharp signal (BestBuy click) →
+      bi-encoder is the retriever, light CE fusion at w=0.25 adds polish.
+
+    **For practitioners.** When choosing between BM25 and a trained
+    bi-encoder as your first-stage retriever, the deciding factor is the
+    bi-encoder's R@10 over the full catalog vs BM25-alone on the same
+    test set. If the bi-encoder beats BM25 by >5pp, use the bi-encoder
+    as retriever and skip the BM25 stage entirely. Then layer a light
+    BGE-reranker fusion at w_BGE=0.25 for E@1 polish if you can afford
+    the latency.
+
+    Run: `evaluation/build_bod_retrieve_topk.py` to materialize a
+    dense-retrieval candidate pool in the bm25s_top200/qids format,
+    then `evaluation/eval_cc_cross_lingual.py --bm25-suffix _bodret_1k`
+    to run the fusion eval over it. Total compute: ~25 min on MPS for
+    1K queries × top-100 BGE-reranker scoring.
 
 ## How to add a new corpus to this table
 

@@ -39,6 +39,13 @@ SWEEP_K1 = [0.3, 0.5, 0.9, 1.2]
 SWEEP_B = [0.3, 0.5, 0.6, 0.75]
 
 
+def tokenize_en(texts: list[str]):
+    import Stemmer
+
+    stemmer = Stemmer.Stemmer("english")
+    return bm25s.tokenize(texts, stopwords="en", stemmer=stemmer, show_progress=False)
+
+
 def tokenize_es(texts: list[str]):
     import Stemmer
 
@@ -61,11 +68,11 @@ def tokenize_jp(texts: list[str]):
     return tokens_list
 
 
-def eval_topk(top_k_pos: np.ndarray, eval_qids, qrels, pids_arr, k=K_EVAL):
+def eval_topk(top_k_pos: np.ndarray, eval_qids, qrels, pids_arr, k=K_EVAL, min_rel=2):
     pids_arr = np.asarray(pids_arr)
     recalls = []
     for qi, qid in enumerate(eval_qids):
-        pos_pids = {p for p, g in qrels[qid].items() if g >= 2}
+        pos_pids = {p for p, g in qrels[qid].items() if g >= min_rel}
         if not pos_pids:
             continue
         positions = top_k_pos[qi, :k]
@@ -78,12 +85,12 @@ def eval_topk(top_k_pos: np.ndarray, eval_qids, qrels, pids_arr, k=K_EVAL):
     return float(np.mean(recalls)) if recalls else 0.0
 
 
-def ndcg_at_k(top_k_pos: np.ndarray, eval_qids, qrels, pids_arr, k=K_EVAL):
+def ndcg_at_k(top_k_pos: np.ndarray, eval_qids, qrels, pids_arr, k=K_EVAL, min_rel=2, exact_rel=3):
     pids_arr = np.asarray(pids_arr)
     out = []
     for qi, qid in enumerate(eval_qids):
-        pos_e = {p for p, g in qrels[qid].items() if g >= 3}
-        pos_es = {p for p, g in qrels[qid].items() if g >= 2}
+        pos_e = {p for p, g in qrels[qid].items() if g >= exact_rel}
+        pos_es = {p for p, g in qrels[qid].items() if g >= min_rel}
         if not pos_es:
             continue
         positions = top_k_pos[qi, :k]
@@ -116,7 +123,36 @@ def build_index_and_retrieve(title_tokens, query_tokens, k1: float, b: float, to
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True, help="esci_es_data or esci_jp_data")
-    ap.add_argument("--language", choices=["es", "jp"], required=True)
+    ap.add_argument("--language", choices=["en", "es", "jp"], required=True)
+    ap.add_argument(
+        "--queries-file",
+        default="test_queries.jsonl",
+        help="filename inside data-dir for test queries",
+    )
+    ap.add_argument(
+        "--qrels-file",
+        default="test_qrels.jsonl",
+        help="filename inside data-dir for test qrels",
+    )
+    ap.add_argument(
+        "--out-suffix",
+        default="",
+        help="appended to bm25s_top200, bm25s_qids etc (e.g. '_1k') so multiple splits coexist",
+    )
+    ap.add_argument(
+        "--min-relevance",
+        type=int,
+        default=2,
+        help="qrels relevance threshold for 'relevant' (default 2 = ESCI E+S; "
+        "set to 1 for binary qrels like BestBuy)",
+    )
+    ap.add_argument(
+        "--exact-relevance",
+        type=int,
+        default=3,
+        help="qrels relevance threshold for 'exact match' (default 3 = ESCI E only; "
+        "set to 1 for binary qrels)",
+    )
     ap.add_argument("--top-k-eval", type=int, default=200)
     ap.add_argument("--top-k-sweep", type=int, default=100, help="top-K used in sweep eval")
     ap.add_argument("--skip-sweep", action="store_true", help="reuse winning k1/b if known")
@@ -136,24 +172,29 @@ def main():
     print(f"  {len(titles):,} titles", flush=True)
 
     qrels = defaultdict(dict)
-    with open(data / "test_qrels.jsonl") as f:
+    with open(data / args.qrels_file) as f:
         for line in f:
             r = json.loads(line)
             qrels[r["query_id"]][r["product_id"]] = r["relevance"]
     queries_all = {}
-    with open(data / "test_queries.jsonl") as f:
+    with open(data / args.queries_file) as f:
         for line in f:
             d = json.loads(line)
             queries_all[d["query_id"]] = d["query"]
     eval_qids = [
-        qid for qid in queries_all if qid in qrels and any(g >= 2 for g in qrels[qid].values())
+        qid
+        for qid in queries_all
+        if qid in qrels and any(g >= args.min_relevance for g in qrels[qid].values())
     ]
     queries = [queries_all[qid] for qid in eval_qids]
     print(f"  {len(eval_qids):,} eval queries", flush=True)
 
     print(f"\ntokenizing titles + queries ({args.language})...", flush=True)
     t0 = time.time()
-    if args.language == "es":
+    if args.language == "en":
+        title_tokens = tokenize_en(titles)
+        query_tokens = tokenize_en(queries)
+    elif args.language == "es":
         title_tokens = tokenize_es(titles)
         query_tokens = tokenize_es(queries)
     else:
@@ -181,8 +222,18 @@ def main():
                 _, top = build_index_and_retrieve(
                     title_tokens, query_tokens, k1, b, args.top_k_sweep
                 )
-                r10 = eval_topk(top, eval_qids, qrels, pids_arr, k=K_EVAL)
-                nd = ndcg_at_k(top, eval_qids, qrels, pids_arr, k=K_EVAL)
+                r10 = eval_topk(
+                    top, eval_qids, qrels, pids_arr, k=K_EVAL, min_rel=args.min_relevance
+                )
+                nd = ndcg_at_k(
+                    top,
+                    eval_qids,
+                    qrels,
+                    pids_arr,
+                    k=K_EVAL,
+                    min_rel=args.min_relevance,
+                    exact_rel=args.exact_relevance,
+                )
                 print(
                     f"  k1={k1}  b={b}  R@10={r10:.4f}  nDCG@10={nd:.4f}  ({time.time() - t1:.0f}s)",
                     flush=True,
@@ -191,9 +242,10 @@ def main():
         sweep_results.sort(key=lambda r: r["r10"], reverse=True)
         best_k1, best_b = sweep_results[0]["k1"], sweep_results[0]["b"]
         print(f"\nbest: k1={best_k1}  b={best_b}  R@10={sweep_results[0]['r10']:.4f}", flush=True)
-        with open(data / "bm25s_sweep.json", "w") as f:
+        sweep_path = data / f"bm25s_sweep{args.out_suffix}.json"
+        with open(sweep_path, "w") as f:
             json.dump(sweep_results, f, indent=2)
-        print(f"  saved sweep results to {data / 'bm25s_sweep.json'}", flush=True)
+        print(f"  saved sweep results to {sweep_path}", flush=True)
 
     print(f"\nbuilding final index with k1={best_k1}, b={best_b}...", flush=True)
     t0 = time.time()
@@ -209,17 +261,27 @@ def main():
             f,
         )
 
-    out_top_path = data / f"bm25s_top{args.top_k_eval}.npy"
+    out_top_path = data / f"bm25s_top{args.top_k_eval}{args.out_suffix}.npy"
     np.save(out_top_path, top_eval.astype(np.int64))
     print(f"  saved {out_top_path}: shape={top_eval.shape}", flush=True)
 
-    qids_path = data / "bm25s_qids.json"
+    qids_path = data / f"bm25s_qids{args.out_suffix}.json"
     with open(qids_path, "w") as f:
         json.dump(eval_qids, f)
     print(f"  saved {qids_path}", flush=True)
 
-    final_r10 = eval_topk(top_eval, eval_qids, qrels, pids_arr, k=K_EVAL)
-    final_ndcg = ndcg_at_k(top_eval, eval_qids, qrels, pids_arr, k=K_EVAL)
+    final_r10 = eval_topk(
+        top_eval, eval_qids, qrels, pids_arr, k=K_EVAL, min_rel=args.min_relevance
+    )
+    final_ndcg = ndcg_at_k(
+        top_eval,
+        eval_qids,
+        qrels,
+        pids_arr,
+        k=K_EVAL,
+        min_rel=args.min_relevance,
+        exact_rel=args.exact_relevance,
+    )
     print(
         f"\nfinal BM25-alone R@10={final_r10:.4f}  nDCG@10={final_ndcg:.4f}  (k={args.top_k_eval})",
         flush=True,
