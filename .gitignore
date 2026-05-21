@@ -13,6 +13,9 @@ __pycache__/
 .env.local
 *.key
 
+# Personal API spend ledger (private, never commit)
+.api_spend.jsonl
+
 # Data (hosted on HuggingFace, not in repo)
 combined_index/
 combined_index_*/
