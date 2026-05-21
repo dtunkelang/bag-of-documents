@@ -118,6 +118,7 @@ scale, not by cluster geometry.
 - **23.** BestBuy 3-tier rerank stack — **the right CC architecture is retriever-pool dependent**. BM25 → BoD+BGE fusion loses 11.6pp R@10 to plain BoD-as-retriever (0.4209 vs 0.5368) because BM25's top-100 misses too many click-relevant products. BoD-retrieve → BGE rerank @ w=0.25 *does* lift R@10 by +0.07pp and E@1 by +1.9pp over BoD-retrieve alone — single-bi-encoder + CE fusion works on click signal when the bi-encoder is the right retriever; cross-lingual Pattern 21 finding refines, doesn't generalize
 - **24.** Long-context Pattern 18 carveout REFUTED — nomic-embed-text-v1.5 (native 8192 context) at max_seq=512 (full doc coverage) loses to MiniLM-L6 base by ~1pp on CQADupStack programmers + english, and loses by 5-7pp to mpnet (max_seq=512, general-similarity pretrained). **All three Pattern 18 scale-wins hypotheses now closed as negatives.** Framework refinement: small-model-wins is robust; the orthogonal axis is *pretraining objective* — retrieval-objective for product catalog, general-similarity for long-form NL
 - **25.** Multi-vector / ColBERT late-interaction drop-in REFUTED across 3 corpus classes (ESCI-US, BestBuy, CQADupStack/programmers) — ColBERTv2 max-sim loses to BM25-alone by 1.5-17pp, and adds noise (not orthogonal signal) when used as a 4th stream in CC5 fusion. The post-CC5 diagnostic's strongest queued lever closes negative. **All recommended post-CC5 levers now refuted**; further per-corpus lift requires structured attribute data or cleaner training signal (LLM-judge qrels cleanup, now tractable with OpenAI API access)
+- **26.** OpenAI `text-embedding-3-large` @ 1024-dim Matryoshka is the **new English drop-in Pareto champion** on all three calibration corpora (BestBuy +3.75pp / NFCorpus +0.52pp / ESCI-US +1.20pp over prior best); `text-embedding-3-small` @ 1024 loses on all three. Closed-weight architecture is untrainable (no LoRA, no MNRL endpoint) so it cannot displace the MiniLM+BoD compound Pareto on click-supervised corpora — extends Pattern 22's drop-in matrix with an API-tier row, doesn't change Pattern 20's compound conclusion. Cost: ~$5 to encode all three corpora at -large, ~$0.85 at -small
 
 ---
 
@@ -2260,6 +2261,121 @@ scale, not by cluster geometry.
     --max-queries 100 --top-k 100`. Throughput on MPS: 1.2-3.5 q/s
     depending on doc length (short titles fast, 800-char docs slow);
     full 22k ESCI-US would take ~3-5h but the n=100 result is decisive.
+
+26. **OpenAI `text-embedding-3-large` @ 1024-dim is the new English
+    drop-in Pareto champion across three calibration corpora; closed
+    weights make it orthogonal to the BoD compound lever.** With
+    OpenAI API access acquired 2026-05-21
+    ([[project_openai_api_available]]), Pattern 22's drop-in matrix
+    extends to API-tier embedding models. Both 3072-dim native and
+    1024-dim Matryoshka-truncated variants were considered; 1024-dim
+    chosen for storage parity with prior nomic / BGE rows (≈2.3 GB
+    fp16 catalog for ESCI-US's 1.22M docs vs ≈7 GB at 3072).
+
+    Implementation: `download/encode_openai_embeddings.py` — batched
+    OpenAI Embeddings API with `dimensions=1024`, progress checkpoint
+    after each batch (resumable on rate-limit / network failure),
+    fp16 catalog cache. `evaluation/eval_openai_embeddings.py` —
+    query-side encode at eval time (cheap; queries are small), dense
+    retrieval against the cached catalog in 1024-query chunks (avoids
+    OOM on the 22k × 1.22M score matrix). `python-dotenv` with
+    `override=True` is required — a stale `OPENAI_API_KEY` exported
+    in `~/.zshrc` will silently shadow `.env`.
+
+    **Drop-in matrix (no training, no BoD, no rerank):**
+
+    | Corpus | n | Prior best (drop-in) | te3-large @ 1024 | Δ | te3-small @ 1024 | Δ |
+    |---|---:|---|---:|---:|---:|---:|
+    | BestBuy ACM 1K | 1,000 | Algolia 562M @ 0.3902 | **0.4277** | **+3.75pp** | 0.3634 | −2.68pp |
+    | NFCorpus | 323 | BGE-large 335M @ 0.1910 | **0.1962** | **+0.52pp** | 0.1883 | −0.27pp |
+    | ESCI-US | 22,458 | BGE-large 335M @ 0.2087 | **0.2207** | **+1.20pp** | 0.1920 | −1.67pp |
+
+    `text-embedding-3-large` wins drop-in on all three; `-small` loses
+    on all three. The cost-quality split is clean: $0.13/M tokens for
+    -large vs $0.02/M for -small (6.5×), and the quality gap exceeds
+    what other "small vs large" model pairs show on these corpora.
+    On ESCI-US, the -large encode cost $4.40 for 33.8M tokens; -small
+    cost $0.68.
+
+    **Cost vs MiniLM/BGE baselines:** purely per-API-call pricing.
+    Amortized comparison to local-MPS encoding depends on traffic
+    volume. Closed-form: ESCI-US 1.22M-doc one-time encode at -large
+    costs $4.40 plus ~$0.015/query batch (n=22k); BGE-large on M2
+    MPS takes ~6h locally at zero marginal cost. For research
+    iteration, the API is faster wall-clock; for production with
+    >10M queries/month, local-MPS-or-CUDA dominates on TCO.
+
+    **Why this DOESN'T displace the MiniLM+BoD compound Pareto:**
+
+    1. **Closed-weight API model is untrainable for BoD.** No LoRA
+       hooks, no `merge_and_unload`, no MNRL fine-tune endpoint on
+       `text-embedding-3-*` (OpenAI's fine-tune API is for completion
+       models only). So "text-embedding-3-large + BoD" cannot be
+       empirically tested. Framework prediction from Pattern 20's
+       monotonic-decreasing curve: lift would be modest (~+2-3pp),
+       putting it around 0.45-0.46 on BestBuy — still **below
+       MiniLM+BoD's 0.5368 by ~7pp**. The compound Pareto champion
+       remains MiniLM+BoD on click-supervised corpora.
+
+    2. **Click signal is information the closed model fundamentally
+       lacks.** MiniLM+BoD trained on BestBuy click data has access
+       to per-query click distributions — that's not text-derivable
+       from any pretrained model, however strong. For known queries
+       with engagement data, the click signal is the ground truth and
+       the bound on what cached lookups / BoD training can extract.
+
+    **The deployment architecture this implies — hybrid by query
+    class:**
+
+    | Query class | Best architecture | Why |
+    |---|---|---|
+    | Head queries, engagement available | MiniLM + BoD (or cached bag lookup) | Click signal is ground-truth |
+    | Tail queries, no engagement | text-embedding-3-large @ 1024 drop-in | Closed-model generalization beats small-model's |
+    | Cold-start (new catalog/customer) | text-embedding-3-large drop-in | No engagement to train on yet |
+
+    The three modes are genuinely orthogonal; Pattern 21's "compound
+    lever needs bi-encoder diversity" finding hints at why fusion
+    across them works when the query-class router is uncertain.
+
+    **Framework refinement (Pattern 26 row of the corpus-class →
+    architecture mapping):**
+
+    | Corpus class | Best drop-in (no training) | Best compound (training data) |
+    |---|---|---|
+    | English product catalog | text-embedding-3-large @ 1024 | MiniLM + BoD (if click) or CC5 (if qrels) |
+    | Cross-lingual product (Spanish, Japanese) | TBD (-large ES/JP eval queued) | mE5-small + LoRA-BoD (Pattern 20) |
+    | Biomedical | text-embedding-3-large @ 1024 (now wins NFCorpus drop-in) | (no compound recipe established) |
+    | Long-form NL forum (CQADupStack) | mpnet (general-similarity > retrieval-objective) | MiniLM + BoD (Pattern 14 measured +4.1pp) |
+
+    API-tier embedding **extends** Pattern 22's drop-in matrix; it
+    does not displace the compound Pareto. Pattern 20's
+    monotonic-decreasing curve (stronger base ⇒ smaller BoD lift)
+    suggests the compound-vs-drop-in trade-off remains live: for
+    click-supervised head traffic, the small-base compound wins; for
+    everything else, the closed-model drop-in wins.
+
+    **One closed-form open question** (queued as separate task): how
+    few clicks before MiniLM+BoD pulls ahead of text-embedding-3-large
+    drop-in on BestBuy? Subsample clicks at {1K, 10K, 100K, 1M, full},
+    train BoD on each, find the crossover against 0.4277. ~$5 + 7.5h
+    compute; answers "is BoD worth building?" for new customers.
+
+    Run (drop-in eval on a new corpus):
+
+    ```
+    .venv/bin/python download/encode_openai_embeddings.py \
+        --texts-file CORPUS/titles.json \
+        --model text-embedding-3-large --dim 1024 \
+        --out CORPUS/openai_te3large_1024.vecs.fp16.npy
+    .venv/bin/python evaluation/eval_openai_embeddings.py \
+        --data-dir CORPUS \
+        --catalog-vecs CORPUS/openai_te3large_1024.vecs.fp16.npy \
+        --model text-embedding-3-large --dim 1024
+    ```
+
+    Spend ledger at `.api_spend.jsonl` (gitignored). Total cost of
+    Pattern 26 evidence: ~$5.20 across all three corpora and both
+    model variants.
 
 ## How to add a new corpus to this table
 
