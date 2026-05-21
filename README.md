@@ -284,6 +284,67 @@ The largest single-corpus BoD lift in the project. Live at [huggingface.co/space
 - **SCHS** (Simple Cluster Hypothesis Score): how much closer in-bag pairs are to each other than random pairs. Computable on any positives-bearing corpus. Range [0, 1]; ≥ 0.50 is the calibrated GO band.
 - **HCHS** (Hard Cluster Hypothesis Score): how much closer in-bag pairs are to each other than to within-query labeled negatives. Stronger test; requires explicit hard negatives.
 
+## Deployment architectures: routing by query class
+
+Even with a strong general-purpose closed-weight model available (and they are very strong — e.g., `text-embedding-3-large` at 1024-dim Matryoshka now beats every open-weight drop-in on BestBuy, NFCorpus, and ESCI-US), the framework's measurements imply production deployments should *route by query class*, not pick one model. The three modes target structurally different traffic.
+
+### The three modes
+
+| Query class | Best architecture | Why |
+|---|---|---|
+| Head queries with engagement data | **MiniLM + BoD** (or cached BoD-bag lookup) | Click signal is ground-truth and is not text-derivable |
+| Tail queries with sparse / no engagement | **closed-weight drop-in** (e.g., `text-embedding-3-large` @ 1024) | Closed-model general retrieval is best-in-class when there's nothing customer-specific to train on |
+| Cold-start (new catalog, new customer, new language) | **closed-weight drop-in** | No engagement to train on yet |
+
+### Why closed-model bag pre-computation doesn't replace MiniLM + BoD on the head
+
+A tempting simplification: pre-compute bags for known head queries using a strong closed-weight model, cache the results, and skip the fine-tuned model entirely. The cache lookup is operationally simple and removes runtime model inference. This *works* for known queries — but does **not** match MiniLM + BoD when engagement data exists.
+
+The reason is informational, not architectural. For queries with click data, the click distribution **is** the ground truth: "what users wanted" is empirically defined by what got clicked. MiniLM + BoD trained on click data extracts that ground truth directly — bag construction uses real click distributions, and the bi-encoder is conditioned on the `(query → click-relevant docs)` mapping. A closed-weight model, however strong, was not trained on this customer's clickstream. Its top-K is general-retrieval quality; MiniLM + BoD's top-K is click-signal quality. On queries where engagement exists, the latter is strictly more informative.
+
+Measured on BestBuy ACM (1K test queries, 48,516 click-derived bags):
+
+| Setup | R@10 |
+|---|---:|
+| MiniLM + BoD (trained on clicks) | **0.5368** |
+| `text-embedding-3-large` @ 1024 drop-in | 0.4277 |
+| nomic-embed-text-v1.5 drop-in (137M open-weight) | 0.3892 |
+| Algolia drop-in (562M domain-specialized) | 0.3902 |
+
+A **+10.9pp gap** between the click-trained small model and the strongest closed-weight drop-in. No drop-in lifts this gap, regardless of model scale — they all lack access to the customer's click data.
+
+### Where closed-weight + drop-in wins
+
+- **Tail queries with no/sparse engagement.** By definition, no click signal exists for these. Bag construction has to fall back to general retrieval, and closed-weight general retrieval is currently best-in-class. The framework's drop-in Pareto curve (Patterns 18, 20, 22, 26) confirms this empirically across English product retrieval and biomedical text.
+- **Cold-start.** New customers, new catalogs, or new languages — same logic. Closed-model drop-in is the immediate-value option until engagement accumulates.
+- **Catalog refresh and new categories.** Engagement data lags new docs; closed-model handles them until clicks accrue.
+
+### The routing architecture
+
+Head and tail aren't competing — they're targeting structurally different traffic. The practical deployment is **simultaneous routing**:
+
+- Head queries → cached BoD-bag lookup or live MiniLM + BoD inference (cheaper, better signal)
+- Tail queries → closed-weight drop-in (better generalization on rare intents)
+- Both modes feed the same ranking pipeline
+
+Pattern 21's "compound lever needs bi-encoder diversity" finding supports this: the two modes are *orthogonal* because their underlying information sources are different (per-query click distributions vs general retrieval pretraining), so routing across them is structurally sound. Fusion is also plausible for ambiguous traffic, though we haven't measured it.
+
+### One way to think about closed-weight API embedding models in this framework
+
+Closed-weight API models like `text-embedding-3-large` don't change the upper bound on what's achievable when engagement is available — Pattern 20's monotonic-decreasing BoD-lift curve still applies, and MiniLM + BoD remains the compound Pareto champion on click-supervised data. What they change is the **floor**: when engagement isn't available (cold-start, tail), the available retrieval quality jumps substantially.
+
+In product terms: **API-tier closed models turn cold-start from a research problem ("what do we do without engagement data?") into a deployment configuration ("route those queries to the closed-model lane until engagement accumulates").**
+
+### Customer-tier decision rule (sketch; empirical crossover study queued)
+
+| Engagement volume | Recommended architecture |
+|---|---|
+| ≥ ~1M historical clicks per quarter | MiniLM + BoD on customer's data + closed-model fallback for tail |
+| < ~100K clicks | Closed-weight drop-in (`text-embedding-3-large` or `-small` depending on cost sensitivity) |
+| In between | Bag-construction quality is the binding lever; consider LLM-judged synthetic engagement augmentation to bootstrap |
+
+Where exactly the crossover lies is an open question we expect to answer empirically by subsampling BestBuy click data at progressive volumes and finding the point where MiniLM + BoD pulls ahead of `text-embedding-3-large`'s drop-in R@10 of 0.4277. That result will harden the rule above into a closed-form practitioner answer to "is BoD worth building for this customer?"
+
 ## Repository Layout
 
 | Directory | Contents |

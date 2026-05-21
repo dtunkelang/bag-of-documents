@@ -11,7 +11,9 @@ __pycache__/
 # Secrets (never commit)
 .env
 .env.local
+.env*
 *.key
+*~
 
 # Personal API spend ledger (private, never commit)
 .api_spend.jsonl

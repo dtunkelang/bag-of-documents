@@ -34,7 +34,9 @@ import time  # noqa: E402
 import numpy as np  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv()
+# override=True so .env always wins over stale shell exports
+# (a stray `export OPENAI_API_KEY=...` in ~/.zshrc would otherwise shadow .env)
+load_dotenv(override=True)
 
 from openai import OpenAI  # noqa: E402
 
