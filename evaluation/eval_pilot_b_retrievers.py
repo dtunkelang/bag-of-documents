@@ -248,23 +248,43 @@ def main():
             f"retriever {r['name']:>18s}  kind={r['kind']} model={r['model_id']} dim={r['dim']}",
             flush=True,
         )
-        catalog = np.load(r["vec_path"], mmap_mode="r")
-        if catalog.shape[0] != len(pids):
-            raise SystemExit(
-                f"{r['vec_path']}: catalog rows ({catalog.shape[0]}) != ids ({len(pids)})"
-            )
         t0 = time.time()
-        if r["kind"] == "st":
-            qv = encode_queries_st(queries, r["model_id"])
-        elif r["kind"] == "openai":
-            qv = encode_queries_openai(
-                queries, r["model_id"], r["dim"], f"pilot B re-eval {r['name']} {data.name}"
+        if r["kind"] == "bm25":
+            # vec_path is the titles JSON path; build index inline.
+            import bm25s
+            from Stemmer import Stemmer
+
+            titles_path = (
+                r["vec_path"] if Path(r["vec_path"]).is_absolute() else (data / r["vec_path"])
             )
+            with open(titles_path) as f_t:
+                titles = json.load(f_t)
+            if len(titles) != len(pids):
+                raise SystemExit(f"BM25: titles ({len(titles)}) != ids ({len(pids)})")
+            stemmer = Stemmer("english")
+            title_tok = bm25s.tokenize(titles, stopwords="en", stemmer=stemmer, show_progress=False)
+            idx_bm25 = bm25s.BM25(k1=1.5, b=0.75)
+            idx_bm25.index(title_tok, show_progress=False)
+            qtok = bm25s.tokenize(queries, stopwords="en", stemmer=stemmer, show_progress=False)
+            res_idx, _ = idx_bm25.retrieve(qtok, k=K_MAX, show_progress=False)
+            top_pos = np.asarray(res_idx, dtype=np.int64)
         else:
-            raise SystemExit(f"unknown retriever kind: {r['kind']}")
-        if qv.shape[1] != catalog.shape[1]:
-            raise SystemExit(f"qv dim {qv.shape[1]} != catalog dim {catalog.shape[1]}")
-        top_pos = retrieve_topk(qv, catalog, K_MAX)
+            catalog = np.load(r["vec_path"], mmap_mode="r")
+            if catalog.shape[0] != len(pids):
+                raise SystemExit(
+                    f"{r['vec_path']}: catalog rows ({catalog.shape[0]}) != ids ({len(pids)})"
+                )
+            if r["kind"] == "st":
+                qv = encode_queries_st(queries, r["model_id"])
+            elif r["kind"] == "openai":
+                qv = encode_queries_openai(
+                    queries, r["model_id"], r["dim"], f"pilot B re-eval {r['name']} {data.name}"
+                )
+            else:
+                raise SystemExit(f"unknown retriever kind: {r['kind']}")
+            if qv.shape[1] != catalog.shape[1]:
+                raise SystemExit(f"qv dim {qv.shape[1]} != catalog dim {catalog.shape[1]}")
+            top_pos = retrieve_topk(qv, catalog, K_MAX)
         retriever_topk[r["name"]] = top_pos
         print(
             f"  encoded+retrieved in {time.time() - t0:.1f}s  ({len(queries) / max(time.time() - t0, 1e-3):.0f} q/s)",

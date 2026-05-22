@@ -159,6 +159,13 @@ def main():
         default="candidate pool",
         help="ledger purpose tag for OpenAI query encoding records",
     )
+    ap.add_argument(
+        "--bm25",
+        action="store_true",
+        help="also include BM25 top-K (over titles.json) in the candidate pool",
+    )
+    ap.add_argument("--bm25-k1", type=float, default=1.5)
+    ap.add_argument("--bm25-b", type=float, default=0.75)
     args = ap.parse_args()
 
     data = Path(args.data_dir)
@@ -237,6 +244,24 @@ def main():
                 did = pids[int(idx)]
                 pool[qid].add(did)
                 pool_origins[qid][did].append(retriever_name)
+
+    if args.bm25:
+        print("\nretriever: bm25 (over titles.json)", flush=True)
+        import bm25s
+        from Stemmer import Stemmer
+
+        stemmer = Stemmer("english")
+        title_tok = bm25s.tokenize(titles, stopwords="en", stemmer=stemmer, show_progress=False)
+        idx_bm25 = bm25s.BM25(k1=args.bm25_k1, b=args.bm25_b)
+        idx_bm25.index(title_tok, show_progress=False)
+        qtok = bm25s.tokenize(queries, stopwords="en", stemmer=stemmer, show_progress=False)
+        res_idx, _ = idx_bm25.retrieve(qtok, k=args.k, show_progress=False)
+        print(f"  BM25 retrieved top-{args.k} for {len(queries):,} queries", flush=True)
+        for i, qid in enumerate(eval_qids):
+            for idx in res_idx[i]:
+                did = pids[int(idx)]
+                pool[qid].add(did)
+                pool_origins[qid][did].append("bm25")
 
     # Write output JSONL
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
