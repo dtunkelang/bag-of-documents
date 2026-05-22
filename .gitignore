@@ -45,6 +45,7 @@ hotpotqa_subset_data/
 dbpedia_entity_data/
 cqadupstack_*_data/
 webis_touche2020_data/
+jobs_data/
 logs/
 
 # HF Space artifacts (large binaries; uploaded to HF, not stored in git)
