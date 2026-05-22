@@ -166,6 +166,11 @@ def main():
     )
     ap.add_argument("--bm25-k1", type=float, default=1.5)
     ap.add_argument("--bm25-b", type=float, default=0.75)
+    ap.add_argument(
+        "--no-qrels-filter",
+        action="store_true",
+        help="skip qrels-based query filtering; include all queries from queries-file",
+    )
     args = ap.parse_args()
 
     data = Path(args.data_dir)
@@ -190,15 +195,21 @@ def main():
             d = json.loads(line)
             queries_all[d["query_id"]] = d["query"]
     qrels = defaultdict(dict)
-    with open(data / args.qrels_file) as f:
-        for line in f:
-            r = json.loads(line)
-            qrels[r["query_id"]][r["product_id"]] = r["relevance"]
-    eval_qids = sorted(
-        qid
-        for qid in queries_all
-        if qid in qrels and any(g >= args.min_relevance for g in qrels[qid].values())
-    )
+    if args.qrels_file and (data / args.qrels_file).exists() and not args.no_qrels_filter:
+        with open(data / args.qrels_file) as f:
+            for line in f:
+                r = json.loads(line)
+                if "relevance" not in r:
+                    continue
+                qrels[r["query_id"]][r["product_id"]] = r["relevance"]
+    if args.no_qrels_filter or not qrels:
+        eval_qids = sorted(queries_all)
+    else:
+        eval_qids = sorted(
+            qid
+            for qid in queries_all
+            if qid in qrels and any(g >= args.min_relevance for g in qrels[qid].values())
+        )
     queries = [queries_all[qid] for qid in eval_qids]
     print(f"  {len(eval_qids):,} eval queries (min_relevance={args.min_relevance})", flush=True)
 
