@@ -2353,6 +2353,30 @@ scale, not by cluster geometry.
 
     **Why this is consistent with Pattern 20's monotone-decreasing curve.** Stronger drop-in ⇒ smaller BoD lift. On ES, `te3-large`'s drop-in (0.2368) is already above mE5-small+BoD's compound (0.2169), so any hypothetical BoD lift on top of `te3-large` would only widen the gap. On JP, `te3-large` (0.2248) lands between mE5-small drop-in (0.2050) and mE5-small+BoD compound (0.2411) — there's still measurable headroom that BoD on a trainable multilingual base captures. The closed-model coverage gap from Latin → non-Latin is the underlying mechanism: bytes per token are higher in CJK, the encoder sees less effective context per character, and the supervised multilingual model has a script-specific advantage that scale alone cannot recover.
 
+    **te3-small Pareto note (added 2026-05-21).** `-small` is the cheap-API tier (6.5× cheaper than `-large` per token: $0.02/M vs $0.13/M). On the full five-corpus matrix it wins drop-in only on **ESCI-ES**, but the per-corpus deltas vs the prior best drop-in are tight enough that the cost ratio is the binding constraint, not the quality ratio:
+
+    | Corpus | Prior best drop-in | te3-small @ 1024 | Δ vs best | Δ vs te3-large |
+    |---|---:|---:|---:|---:|
+    | BestBuy ACM 1K | Algolia 562M @ 0.3902 | 0.3634 | −2.68pp | −6.43pp |
+    | NFCorpus | BGE-large 335M @ 0.1910 | 0.1883 | −0.27pp | −0.79pp |
+    | ESCI-US | BGE-large 335M @ 0.2087 | 0.1920 | −1.67pp | −2.87pp |
+    | **ESCI-ES** | bge-m3 568M @ 0.1887 | **0.2024** | **+1.37pp** | −3.44pp |
+    | ESCI-JP | mE5-small 118M @ 0.2050 | 0.1814 | −2.36pp | −4.34pp |
+
+    **Where `-small` is the right call:** cost-bounded API deployments on **cross-lingual Latin-script** catalogs without engagement or qrels data. ESCI-ES at $0.20 / 260K docs ≈ $0.77/M docs ties `mE5-small` drop-in (−0.26pp, within noise) while displacing every other open-weight multilingual model in the drop-in column without local-MPS encode wall-clock. It does **not** beat the `mE5-small + LoRA-BoD` compound on ES (0.2169) — `-small` loses there by −1.45pp, so for any deployment that has Spanish qrels the compound still wins.
+
+    **Where `-small` is the wrong call:** anywhere `-large` is affordable. The Δ vs `-large` column shows `-small` gives up 0.79–6.43pp R@10 across all five corpora, and the BestBuy gap (−6.43pp) is large enough that `-small` drops back below the Algolia 562M drop-in. CJK adds insult — JP token density is 1.5× the Latin average, so the per-doc cost ratio narrows AND the quality ratio widens.
+
+    Pricing per million catalog docs (observed, fp16/1024-dim):
+
+    | Corpus | tok/doc | te3-large $/M docs | te3-small $/M docs |
+    |---|---:|---:|---:|
+    | ESCI-US | 27.7 | $3.60 | $0.55 |
+    | ESCI-ES | 38.1 | $5.00 | $0.77 |
+    | ESCI-JP | 56.8 | $7.40 | $1.14 |
+
+    For a hypothetical 100M-doc catalog on Spanish, `-large` is $500 and `-small` is $77; on the matched n=3,844-query ES eval that buys +3.44pp R@10. Above some traffic threshold (likely 1B+ docs or hourly re-encode cadence), local-MPS bge-m3 dominates either API call on TCO.
+
     **Cost.** ES: $1.29 (-large) + $0.20 (-small). JP: $2.51 (-large) + $0.39 (-small) — JP large is 2× ES large despite only 1.30× the doc count, all from CJK token-density. Total cross-lingual extension spend: **$4.39**. Pattern 26 cumulative: **$9.59**.
 
     **Framework refinement (Pattern 26 row of the corpus-class →
