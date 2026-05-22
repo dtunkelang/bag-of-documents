@@ -67,6 +67,7 @@ trained_models/
 memory/
 .claude/
 evaluation/diagnose_*.tsv
+evaluation/llm_judge_outputs/
 
 # Logs and temp files
 *.log
