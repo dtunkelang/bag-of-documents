@@ -57,6 +57,7 @@ query_model/
 query_model_*/
 retrieval_model
 round1/
+trained_models/
 
 # Large index artifacts
 *.faiss

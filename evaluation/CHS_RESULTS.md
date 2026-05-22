@@ -2397,11 +2397,42 @@ scale, not by cluster geometry.
     click-supervised head traffic, the small-base compound wins; for
     everything else, the closed-model drop-in wins.
 
-    **One closed-form open question** (queued as separate task): how
-    few clicks before MiniLM+BoD pulls ahead of text-embedding-3-large
-    drop-in on BestBuy? Subsample clicks at {1K, 10K, 100K, 1M, full},
-    train BoD on each, find the crossover against 0.4277. ~$5 + 7.5h
-    compute; answers "is BoD worth building?" for new customers.
+    **Click-volume crossover (resolved 2026-05-22).** Closed-form answer to "how few clicks before MiniLM+BoD pulls ahead of text-embedding-3-large drop-in?" — subsampled BestBuy bags at 7 scales (random sample, deterministic seed=42, strict-subset construction: each smaller N is a subset of every larger N), trained MiniLM-L6-v2 + MNRL on each (same recipe as shipped `query_model_bestbuy_bod`: 10 epochs, batch=32, 5 triplets/bag), evaluated each against the 1K test query set:
+
+    | n bags | R@10 | Δ vs te3-large (0.4277) |
+    |---:|---:|---:|
+    | 500 | 0.3650 | −6.27pp |
+    | 1,000 | 0.3702 | −5.75pp |
+    | 2,000 | 0.3930 | −3.47pp |
+    | 5,000 | 0.4125 | −1.52pp |
+    | 7,500 | 0.4243 | −0.34pp |
+    | 10,000 | 0.4450 | +1.73pp |
+    | 25,000 | 0.4969 | +6.92pp |
+    | 48,516 (shipped) | 0.5368 | +10.91pp |
+
+    **Crossover ≈ 7,800 bags** (log-linear interpolation between 7.5K and 10K hits 0.4277 at log₂ N ≈ 12.93). At BestBuy's 6.64 docs/bag, that's **~52K bag-doc pairs** — the closest proxy for "distinct product clicks with engagement signal."
+
+    Per-doubling R@10 gain follows a recognisable S-curve:
+
+    - 500 → 1K: +0.52pp (noise floor; too few queries to differentiate)
+    - 1K → 2K: +2.28pp (signal kicks in)
+    - 2K → 5K (×2.5): +1.95pp (≈+1.50pp/doubling)
+    - 5K → 10K: +3.25pp (acceleration through the crossover)
+    - 10K → 25K (×2.5): +5.19pp (steepest; BoD signal compounding)
+    - 25K → 48K (≈×2): +3.99pp (diminishing but still substantial)
+
+    **Closed-form decision rule for "is BoD worth building?" (BestBuy-calibrated, click signal):**
+
+    | Engaged head queries | Decision |
+    |---|---|
+    | < 5K | Don't bother; `te3-large` drop-in wins by 1.5pp+ |
+    | 5K – 8K | Borderline; BoD breaks even at ~7,800 bags |
+    | 8K – 25K | Ship BoD; +2 to +7pp R@10 over drop-in |
+    | 25K+ | BoD compound is the dominant architecture (+7-11pp) |
+
+    **Caveat.** Random-uniform bag sampling treats all queries equally. Real click distributions are power-law — head queries have many more clicks than tail. A click-weighted study would likely **lower** the crossover (head bags carry more signal per bag), so 7,800 is the upper bound on the threshold for a new customer with the same query-distribution shape as BestBuy. For customers with flatter long tails, the threshold could be higher.
+
+    Cost: $0 (local MPS, ~4.5h wall-clock for 6 new trainings; full=48K reused from shipped `query_model_bestbuy_bod`). Pattern 26 cumulative spend remains $9.59.
 
     Run (drop-in eval on a new corpus):
 
