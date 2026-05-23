@@ -46,7 +46,9 @@ dbpedia_entity_data/
 cqadupstack_*_data/
 webis_touche2020_data/
 jobs_data/
+jobs_data_*/
 logs/
+scratch/
 
 # HF Space artifacts (large binaries; uploaded to HF, not stored in git)
 space_demo_bestbuy/query_model_bestbuy_bod/
