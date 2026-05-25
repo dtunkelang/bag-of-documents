@@ -79,22 +79,26 @@ def _encode_query(q: str) -> tuple[float, ...] | None:
     return tuple(float(x) for x in v.astype(np.float32))
 
 
+FACET_TAGS = {"genres": "g", "decade": "d", "type": "t", "has_bag": "hb"}
+
+
 def _filter_params(
     genres: list[str] | None,
     decade: str | None,
     typ: str | None,
     has_bag: bool | None,
 ) -> list[tuple[str, str]]:
+    """Build tagged fq params so the matching facet can {!ex=...} itself and still show siblings."""
     params: list[tuple[str, str]] = []
     if genres:
         for g in genres:
-            params.append(("fq", f'genres:"{g}"'))
+            params.append(("fq", f'{{!tag={FACET_TAGS["genres"]}}}genres:"{g}"'))
     if decade:
-        params.append(("fq", f'decade:"{decade}"'))
+        params.append(("fq", f'{{!tag={FACET_TAGS["decade"]}}}decade:"{decade}"'))
     if typ:
-        params.append(("fq", f'type:"{typ}"'))
+        params.append(("fq", f'{{!tag={FACET_TAGS["type"]}}}type:"{typ}"'))
     if has_bag is not None:
-        params.append(("fq", f"has_bag:{str(has_bag).lower()}"))
+        params.append(("fq", f"{{!tag={FACET_TAGS['has_bag']}}}has_bag:{str(has_bag).lower()}"))
     return params
 
 
@@ -126,7 +130,11 @@ def solr_bm25(
         params.append(("facet.limit", str(FACET_LIMIT)))
         params.append(("facet.mincount", "1"))
         for f in FACET_FIELDS:
-            params.append(("facet.field", f))
+            tag = FACET_TAGS.get(f)
+            if tag:
+                params.append(("facet.field", f"{{!ex={tag} key={f}}}{f}"))
+            else:
+                params.append(("facet.field", f))
     params.extend(filters)
     r = requests.get(f"{SOLR}/solr/{CORE}/select", params=params, timeout=30)
     r.raise_for_status()
