@@ -58,6 +58,7 @@ solr_movies_demo/solr_home/movies/conf/
 solr_movies_demo/solr.log*
 solr_movies_demo/solr_shim.log
 solr_movies_demo/solr_shim.pid
+solr_movies_demo/bge_vecs/
 movies_ingest_chain.out
 movies_ingest_chain.pid
 wikipedia_plots.pid
