@@ -47,8 +47,20 @@ cqadupstack_*_data/
 webis_touche2020_data/
 jobs_data/
 jobs_data_*/
+movies_data/
+unified_movies/
 logs/
 scratch/
+
+# Solr runtime artifacts (Lucene indexes, config overlays, runtime logs/pid)
+solr_movies_demo/solr_home/movies/data/
+solr_movies_demo/solr_home/movies/conf/
+solr_movies_demo/solr.log*
+solr_movies_demo/solr_shim.log
+solr_movies_demo/solr_shim.pid
+movies_ingest_chain.out
+movies_ingest_chain.pid
+wikipedia_plots.pid
 
 # HF Space artifacts (large binaries; uploaded to HF, not stored in git)
 space_demo_bestbuy/query_model_bestbuy_bod/
