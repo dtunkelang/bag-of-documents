@@ -32,7 +32,14 @@ FACET_LIMIT = 8
 BGE_MODEL = os.environ.get("BGE_MODEL", "BAAI/bge-small-en-v1.5")
 KNN_TOPK = int(os.environ.get("KNN_TOPK", "100"))
 BM25_TOPK = int(os.environ.get("BM25_TOPK", "100"))
-RRF_K = 60
+RRF_K = int(os.environ.get("RRF_K", "60"))
+W_BM25 = float(os.environ.get("W_BM25", "1.0"))
+W_KNN = float(os.environ.get("W_KNN", "2.0"))
+# Soft lane gating: when BM25 returns >= GATE_BM25_NOISE hits, the query is
+# probably a loose lexical match and KNN should be weighted further. The KNN
+# weight is multiplied by GATE_BOOST when BM25 hits exceed the threshold.
+GATE_BM25_NOISE = int(os.environ.get("GATE_BM25_NOISE", "5000"))
+GATE_BOOST = float(os.environ.get("GATE_BOOST", "1.5"))
 
 FL_FIELDS = (
     "id,title_display,year,type,genres,rating,votes,director_names,cast_names,lead,has_lead,has_bag"
@@ -162,8 +169,10 @@ def rrf_fuse(
     knn_docs: list[dict],
     rows: int,
     k: int = RRF_K,
+    w_bm25: float = W_BM25,
+    w_knn: float = W_KNN,
 ) -> list[dict]:
-    """RRF over two ranked lists; tags each surviving doc with its source lane(s)."""
+    """Weighted RRF over two ranked lists; tags each doc with its source lane(s)."""
     scores: dict[str, float] = {}
     sources: dict[str, set[str]] = {}
     by_id: dict[str, dict] = {}
@@ -171,14 +180,14 @@ def rrf_fuse(
         did = d.get("id")
         if not did:
             continue
-        scores[did] = scores.get(did, 0.0) + 1.0 / (k + rank + 1)
+        scores[did] = scores.get(did, 0.0) + w_bm25 / (k + rank + 1)
         sources.setdefault(did, set()).add("bm25")
         by_id.setdefault(did, d)
     for rank, d in enumerate(knn_docs):
         did = d.get("id")
         if not did:
             continue
-        scores[did] = scores.get(did, 0.0) + 1.0 / (k + rank + 1)
+        scores[did] = scores.get(did, 0.0) + w_knn / (k + rank + 1)
         sources.setdefault(did, set()).add("knn")
         by_id.setdefault(did, d)
     fused = sorted(scores.items(), key=lambda kv: -kv[1])[:rows]
@@ -219,13 +228,18 @@ def search(
         return out
     bm = solr_bm25(q, rows=BM25_TOPK, filters=filters, with_facets=True)
     kn = solr_knn(q, rows=KNN_TOPK, filters=filters)
-    fused = rrf_fuse(bm["docs"], kn["docs"], rows=rows)
+    w_knn = W_KNN
+    gated = bm["hits"] >= GATE_BM25_NOISE
+    if gated:
+        w_knn *= GATE_BOOST
+    fused = rrf_fuse(bm["docs"], kn["docs"], rows=rows, w_knn=w_knn)
     return {
         "hits": bm["hits"],
         "knn_hits": kn["hits"],
         "docs": fused,
         "facets": bm["facets"],
         "lane": "hybrid",
+        "fusion": {"w_bm25": W_BM25, "w_knn": w_knn, "gated": gated},
     }
 
 
