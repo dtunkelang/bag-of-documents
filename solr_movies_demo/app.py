@@ -8,6 +8,7 @@ encoder will go into the bge_vec slot in a later phase).
 
 import html
 import os
+from urllib.parse import urlencode
 
 import requests
 from fastapi import FastAPI, Query
@@ -136,26 +137,150 @@ def _render_doc(d: dict) -> str:
     """
 
 
-def _render_facets(facets: dict[str, list[tuple[str, int]]]) -> str:
+def _facet_url(
+    q: str,
+    genres: list[str],
+    decade: str,
+    typ: str,
+    has_bag: str,
+    *,
+    toggle: tuple[str, str] | None = None,
+    clear: str | None = None,
+) -> str:
+    """Build a `/?...` URL with one facet value toggled or cleared.
+
+    Multi-select: genres (list). Single-select: decade, type, has_bag.
+    """
+    g = list(genres)
+    d = decade
+    t = typ
+    h = has_bag
+    if clear == "genres":
+        g = []
+    elif clear == "decade":
+        d = ""
+    elif clear == "type":
+        t = ""
+    elif clear == "has_bag":
+        h = ""
+    if toggle is not None:
+        field, value = toggle
+        if field == "genres":
+            if value in g:
+                g = [x for x in g if x != value]
+            else:
+                g = g + [value]
+        elif field == "decade":
+            d = "" if d == value else value
+        elif field == "type":
+            t = "" if t == value else value
+        elif field == "has_bag":
+            h = "" if h == value else value
+    params: list[tuple[str, str]] = []
+    if q:
+        params.append(("q", q))
+    for gv in g:
+        params.append(("genres", gv))
+    if d:
+        params.append(("decade", d))
+    if t:
+        params.append(("type", t))
+    if h:
+        params.append(("has_bag", h))
+    return "/?" + urlencode(params) if params else "/"
+
+
+def _is_selected(
+    field: str,
+    value: str,
+    genres: list[str],
+    decade: str,
+    typ: str,
+    has_bag: str,
+) -> bool:
+    if field == "genres":
+        return value in genres
+    if field == "decade":
+        return value == decade
+    if field == "type":
+        return value == typ
+    if field == "has_bag":
+        return value == has_bag
+    return False
+
+
+def _render_facets(
+    facets: dict[str, list[tuple[str, int]]],
+    q: str,
+    genres: list[str],
+    decade: str,
+    typ: str,
+    has_bag: str,
+) -> str:
     blocks = []
+    active = {
+        "genres": bool(genres),
+        "decade": bool(decade),
+        "type": bool(typ),
+        "has_bag": bool(has_bag),
+    }
     for f in FACET_FIELDS:
         rows = facets.get(f) or []
         if not rows:
             continue
-        items = "".join(
-            f"<li>{html.escape(str(v))} <span class='n'>{n:,}</span></li>"
-            for v, n in rows
-            if str(v)
+        items_html = []
+        for v, n in rows:
+            sv = str(v)
+            if not sv:
+                continue
+            selected = _is_selected(f, sv, genres, decade, typ, has_bag)
+            href = _facet_url(q, genres, decade, typ, has_bag, toggle=(f, sv))
+            cls = " class='sel'" if selected else ""
+            mark = "✓ " if selected else ""
+            items_html.append(
+                f"<li><a href='{html.escape(href)}'{cls}>"
+                f"{mark}{html.escape(sv)} <span class='n'>{n:,}</span></a></li>"
+            )
+        clear_html = ""
+        if active[f]:
+            clear_href = _facet_url(q, genres, decade, typ, has_bag, clear=f)
+            clear_html = f" <a class='clear' href='{html.escape(clear_href)}'>clear</a>"
+        blocks.append(
+            f"<div class='facet'><h4>{html.escape(f)}{clear_html}</h4>"
+            f"<ul>{''.join(items_html)}</ul></div>"
         )
-        blocks.append(f"<div class='facet'><h4>{html.escape(f)}</h4><ul>{items}</ul></div>")
     return "\n".join(blocks)
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(q: str = ""):
-    out = solr_search(q, rows=20) if q else {"hits": 0, "docs": [], "facets": {}}
+def index(
+    q: str = "",
+    genres: list[str] = Query(default=[]),
+    decade: str = "",
+    typ: str = Query("", alias="type"),
+    has_bag: str = "",
+):
+    has_bag_filter: bool | None
+    if has_bag == "true":
+        has_bag_filter = True
+    elif has_bag == "false":
+        has_bag_filter = False
+    else:
+        has_bag_filter = None
+    out = (
+        solr_search(
+            q,
+            rows=20,
+            genres=genres or None,
+            decade=decade or None,
+            typ=typ or None,
+            has_bag=has_bag_filter,
+        )
+        if q
+        else {"hits": 0, "docs": [], "facets": {}}
+    )
     docs_html = "\n".join(_render_doc(d) for d in out["docs"])
-    facets_html = _render_facets(out["facets"])
+    facets_html = _render_facets(out["facets"], q, genres, decade, typ, has_bag)
     summary = f"<p class='summary'>{out['hits']:,} hits</p>" if q else ""
     page = f"""<!doctype html>
 <html><head>
@@ -180,8 +305,14 @@ def index(q: str = ""):
   .facet {{ margin-bottom: 18px; }}
   .facet h4 {{ margin: 0 0 6px; font-size: 13px; text-transform: uppercase; color: #888; }}
   .facet ul {{ list-style: none; padding: 0; margin: 0; font-size: 13px; }}
-  .facet li {{ display: flex; justify-content: space-between; padding: 2px 0; }}
+  .facet li {{ padding: 2px 0; }}
+  .facet li a {{ display: flex; justify-content: space-between; text-decoration: none; color: #2255aa; padding: 1px 4px; border-radius: 3px; }}
+  .facet li a:hover {{ background: #f0f4ff; }}
+  .facet li a.sel {{ background: #2255aa; color: #fff; font-weight: 600; }}
+  .facet li a.sel .n {{ color: #cfd9f2; }}
   .facet .n {{ color: #888; }}
+  .facet .clear {{ font-size: 11px; color: #c33; text-decoration: none; margin-left: 6px; text-transform: none; font-weight: normal; }}
+  .facet .clear:hover {{ text-decoration: underline; }}
 </style>
 </head>
 <body>
