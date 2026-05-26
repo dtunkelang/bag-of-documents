@@ -22,6 +22,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 ROOT = Path(".")
 META = ROOT / "unified_jobs/metadata.jsonl"
 SEEDS = ROOT / "unified_jobs/top500_slugs_labeled_v2.csv"
+# F8 overrides: hand-labeled high-impact slugs from the audit's low_margin tail.
+# Loaded as additional seeds, treated identically to top500 seeds.
+OVERRIDES = ROOT / "unified_jobs/slug_industry_overrides.csv"
 OUT_SLUG = ROOT / "unified_jobs/slug_industry_labels_tfidf.csv"
 OUT_DOC = ROOT / "unified_jobs/doc_industry_labels_tfidf.tsv"
 
@@ -194,7 +197,19 @@ def main() -> None:
                 continue
             if r["slug"] in slug_to_idx:
                 seed_label[r["slug"]] = r["industry"]
-    print(f"  {len(seed_label)} seed slugs available")
+    n_primary = len(seed_label)
+    print(f"  {n_primary} primary seed slugs available")
+    if OVERRIDES.exists():
+        n_added = 0
+        with OVERRIDES.open() as f:
+            for r in csv.DictReader(f):
+                if r["industry"] == "other":
+                    continue
+                if r["slug"] in slug_to_idx:
+                    seed_label[r["slug"]] = r["industry"]
+                    n_added += 1
+        print(f"  +{n_added} override seeds from {OVERRIDES.name}")
+        print(f"  {len(seed_label)} total seeds")
 
     seed_slugs = sorted(seed_label.keys())
     seed_idx = np.array([slug_to_idx[s] for s in seed_slugs])

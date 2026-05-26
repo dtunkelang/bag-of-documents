@@ -26,7 +26,10 @@ TOP_K_TITLES = 50
 MARGIN_HI = 0.05
 MARGIN_LO = 0.015
 SIM_FLOOR = 0.20
-ROUND1_CONFIDENT = {"seed", "rule", "tfidf_hi"}
+# F2: dropped tfidf_hi from round-1 confident set — round2 chains only off curated
+# {seed, rule} sources to prevent error compounding. tfidf_hi labels still survive
+# from round1 but no longer serve as round2 seeds. See unified_jobs/AUDIT_REPORT.md.
+ROUND1_CONFIDENT = {"seed", "rule"}
 
 
 def slug_tokens(slug: str) -> str:
@@ -123,7 +126,10 @@ def main() -> None:
         prop_margin = float(margin[i])
         top_seed_idx = int(per_class_argmax[i, best_ci[i]])
         top_seed = seed_slugs[top_seed_idx]
-        if prop_margin >= MARGIN_HI:
+        # F1: add SIM_FLOOR gate to round2_hi — previously only margin was checked,
+        # which let low-absolute-similarity matches through (e.g. grammarly@0.27 via
+        # twinspires with margin 0.08). Now both margin AND sim must clear.
+        if prop_margin >= MARGIN_HI and prop_sim >= SIM_FLOOR:
             method = "round2_hi"
         elif prop_margin >= MARGIN_LO and prop_sim >= SIM_FLOOR:
             method = "round2_med"

@@ -52,16 +52,28 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     bge = np.load(os.path.join(STAGE, "bge_catalog.vecs.fp16.npy"), mmap_mode="r")
     te3 = np.load(os.path.join(STAGE, "te3_catalog.vecs.fp16.npy"), mmap_mode="r")
 
+    import csv as _csv
+
+    industry_csv = os.path.join(STAGE, "slug_industry_labels_round2.csv")
+    slug_to_industry: dict[str, str] = {}
+    if os.path.exists(industry_csv):
+        with open(industry_csv) as f:
+            for r in _csv.DictReader(f):
+                slug_to_industry[r["slug"]] = r["industry"]
+        print(f"  loaded {len(slug_to_industry):,} slug -> industry labels", flush=True)
+
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):
             rec = json.loads(line)
             title_display = (rec.get("title") or titles[i].split("\n", 1)[0]).strip()
+            slug = rec.get("source_slug") or ""
             doc = {
                 "id": str(i),
                 "title": titles[i],  # full title + description for BM25
                 "title_display": title_display,
-                "employer": rec.get("source_slug") or "",
+                "employer": slug,
+                "industry": slug_to_industry.get(slug, "unclassified"),
                 "locations": rec.get("locations") or [],
                 "employment_type": rec.get("employment_type") or "",
                 "salary_currency": rec.get("salary_currency") or "",
