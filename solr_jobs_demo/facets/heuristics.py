@@ -400,10 +400,128 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
-def classify_role_family(title: str) -> str:
+# SEEK / Jobstreet category prefix `[Category: <Top> / <Sub>]` appears verbatim
+# at the start of ~15% of descriptions. It is structured taxonomy from the
+# source ATS and is far more reliable than title regex for ambiguous engineer /
+# coordinator / manager titles. Used in classify_role_family as an override
+# when the title hits the software_engineering catch-all or matches nothing.
+
+_CATEGORY_PREFIX = re.compile(r"^\s*\[Category:\s*([^\]]+)\]", re.IGNORECASE)
+
+_CATEGORY_TOP_TO_ROLE: dict[str, str] = {
+    "Accounting": "finance_accounting",
+    "Administration & Office Support": "operations_admin",
+    "Advertising, Arts & Media": "creative_content",
+    "Banking & Financial Services": "finance_accounting",
+    "Call Centre & Customer Service": "customer_success_support",
+    "CEO & General Management": "c_level",
+    "Community Services & Development": "nonprofit_social_services",
+    "Construction": "skilled_trades_construction",
+    "Consulting & Strategy": "consulting_strategy",
+    "Design & Architecture": "design_ux",
+    "Education & Training": "education_teaching",
+    # SEEK Engineering covers civil/mechanical/electrical/etc., never software.
+    # Default to trades; mechanical/electrical/etc. flip to manufacturing below.
+    "Engineering": "skilled_trades_construction",
+    "Farming, Animals & Conservation": "nonprofit_social_services",
+    "Government & Defence": "public_safety",
+    "Healthcare & Medical": "healthcare_clinical",
+    "Hospitality & Tourism": "food_service_hospitality",
+    "Human Resources & Recruitment": "hr_people_ops",
+    "Information & Communication Technology": "software_engineering",
+    "Insurance & Superannuation": "finance_accounting",
+    "Legal": "legal",
+    "Manufacturing, Transport & Logistics": "manufacturing_production",
+    "Marketing & Communications": "marketing",
+    "Mining, Resources & Energy": "manufacturing_production",
+    "Real Estate & Property": "operations_admin",
+    "Retail & Consumer Products": "retail",
+    "Sales": "sales",
+    "Science & Technology": "research_academic",
+    "Sport & Recreation": "education_teaching",
+    "Trades & Services": "skilled_trades_construction",
+}
+
+_CATEGORY_SUB_TO_ROLE: dict[str, str] = {
+    # Engineering — non-civil disciplines route to manufacturing/production
+    "Engineering / Mechanical Engineering": "manufacturing_production",
+    "Engineering / Electrical/Electronic Engineering": "manufacturing_production",
+    "Engineering / Process Engineering": "manufacturing_production",
+    "Engineering / Industrial Engineering": "manufacturing_production",
+    "Engineering / Chemical Engineering": "manufacturing_production",
+    "Engineering / Aerospace Engineering": "manufacturing_production",
+    "Engineering / Automotive Engineering": "manufacturing_production",
+    "Engineering / Systems Engineering": "manufacturing_production",
+    "Engineering / Materials Handling Engineering": "manufacturing_production",
+    "Engineering / Maintenance": "manufacturing_production",
+    "Engineering / Project Management": "project_program_management",
+    "Engineering / Management": "project_program_management",
+    # Construction — pm subcategories route to PM
+    "Construction / Project Management": "project_program_management",
+    "Construction / Contracts Management": "project_program_management",
+    # ICT subcategories
+    "Information & Communication Technology / Programme & Project Management": "project_program_management",
+    "Information & Communication Technology / Management": "project_program_management",
+    "Information & Communication Technology / Security": "security",
+    "Information & Communication Technology / Networks & Systems Administration": "devops_sre_infra",
+    "Information & Communication Technology / Help Desk & IT Support": "devops_sre_infra",
+    "Information & Communication Technology / Database Development & Administration": "data_engineering",
+    "Information & Communication Technology / Engineering - Network": "devops_sre_infra",
+    "Information & Communication Technology / Engineering - Hardware": "devops_sre_infra",
+    "Information & Communication Technology / Business/Systems Analysts": "data_science_ml",
+    "Information & Communication Technology / Consultants": "consulting_strategy",
+    "Information & Communication Technology / Sales - Pre & Post": "sales",
+    "Information & Communication Technology / Telecommunications": "devops_sre_infra",
+    # Design & Architecture — building Architecture, not software
+    "Design & Architecture / Architecture": "skilled_trades_construction",
+    # Healthcare — pharma sales / admin
+    "Healthcare & Medical / Sales": "sales",
+    "Healthcare & Medical / Pharmaceuticals & Medical Devices": "sales",
+    "Healthcare & Medical / Management": "healthcare_admin",
+    # MTL — pull logistics-flavored subcats out of manufacturing
+    "Manufacturing, Transport & Logistics / Warehousing, Storage & Distribution": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Couriers, Drivers & Postal Services": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Freight/Cargo Forwarding": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Import/Export & Customs": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Public Transport & Taxi Services": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Rail & Maritime Transport": "transportation_logistics",
+    "Manufacturing, Transport & Logistics / Road Transport": "transportation_logistics",
+    # Real Estate — sales subcats
+    "Real Estate & Property / Commercial Sales, Leasing & Property Mgmt": "sales",
+    "Real Estate & Property / Residential Sales": "sales",
+    "Real Estate & Property / Retail & Property Development": "sales",
+    # Advertising/Arts/Media — marketing-flavored subcats
+    "Advertising, Arts & Media / Media Strategy, Planning & Buying": "marketing",
+    "Advertising, Arts & Media / Agency Account Management": "marketing",
+}
+
+
+def _role_from_description_category(desc: str) -> str | None:
+    if not desc:
+        return None
+    m = _CATEGORY_PREFIX.match(desc)
+    if not m:
+        return None
+    full = m.group(1).strip()
+    if full in _CATEGORY_SUB_TO_ROLE:
+        return _CATEGORY_SUB_TO_ROLE[full]
+    top = full.split(" / ", 1)[0].strip()
+    return _CATEGORY_TOP_TO_ROLE.get(top)
+
+
+def classify_role_family(title: str, desc: str = "") -> str:
     for pat, family in ROLE_PATTERNS:
         if pat.search(title):
+            # software_engineering is the broad engineer\b/developer\b catch-all.
+            # Defer to the source-ATS category when the title is ambiguous.
+            if family == "software_engineering":
+                cat_family = _role_from_description_category(desc)
+                if cat_family and cat_family != "software_engineering":
+                    return cat_family
             return family
+    cat_family = _role_from_description_category(desc)
+    if cat_family:
+        return cat_family
     return "other"
 
 
@@ -866,7 +984,7 @@ def classify_record(rec: dict, now: datetime | None = None) -> dict:
     locations = rec.get("locations") or []
     country, state, city = parse_location(locations)
     return {
-        "role_family": classify_role_family(title),
+        "role_family": classify_role_family(title, desc),
         "seniority": classify_seniority(title),
         "remote_mode": classify_remote_mode(locations, desc, title),
         "location_country": country,
