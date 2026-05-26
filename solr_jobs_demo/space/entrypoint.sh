@@ -14,10 +14,13 @@ if [ ! -f "$SOLR_HOME/solr.xml" ]; then
   cp /opt/solr/server/solr/solr.xml "$SOLR_HOME/solr.xml"
 fi
 
-# Hydrate the 'jobs' core if it's not already on disk.
-if [ ! -d "$SOLR_HOME/jobs/data" ]; then
-  echo "[entrypoint] downloading solr index from $DATASET_REPO ..."
-  TARBALL=$(python3 - <<PY
+# Always re-hydrate the 'jobs' core from the dataset. The previous
+# `if [ ! -d $SOLR_HOME/jobs/data ]` guard skipped the download when the
+# data dir existed, which would silently serve a stale index if HF ever
+# changed /tmp from ephemeral to persistent across restarts.
+rm -rf "$SOLR_HOME/jobs"
+echo "[entrypoint] downloading solr index from $DATASET_REPO ..."
+TARBALL=$(python3 - <<PY
 from huggingface_hub import hf_hub_download
 print(hf_hub_download(
     repo_id="${DATASET_REPO}",
@@ -26,16 +29,15 @@ print(hf_hub_download(
 ))
 PY
 )
-  echo "[entrypoint] downloaded to $TARBALL"
-  echo "[entrypoint] extracting to $SOLR_HOME ..."
-  tar -xf "$TARBALL" -C "$SOLR_HOME"
-  echo "[entrypoint] extraction done."
+echo "[entrypoint] downloaded to $TARBALL"
+echo "[entrypoint] extracting to $SOLR_HOME ..."
+tar -xf "$TARBALL" -C "$SOLR_HOME"
+echo "[entrypoint] extraction done."
 
-  # Free ~2.7 GB: drop the tarball + its blob to keep /tmp from filling up.
-  BLOB=$(readlink -f "$TARBALL" || echo "$TARBALL")
-  rm -f "$TARBALL" "$BLOB"
-  echo "[entrypoint] removed cached tarball."
-fi
+# Free ~4 GB: drop the tarball + its blob to keep /tmp from filling up.
+BLOB=$(readlink -f "$TARBALL" || echo "$TARBALL")
+rm -f "$TARBALL" "$BLOB"
+echo "[entrypoint] removed cached tarball."
 
 echo "[entrypoint] starting Solr on 8983 ..."
 # No --force needed — we're already running as the solr user.

@@ -62,18 +62,29 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 slug_to_industry[r["slug"]] = r["industry"]
         print(f"  loaded {len(slug_to_industry):,} slug -> industry labels", flush=True)
 
+    # Per-doc industry override for staffing/employment-agency employers.
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(__file__))
+    from staffing_override import resolve_industry as _resolve_industry  # noqa: E402
+
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):
             rec = json.loads(line)
             title_display = (rec.get("title") or titles[i].split("\n", 1)[0]).strip()
             slug = rec.get("source_slug") or ""
+            fac = facets.get(i, {})
+            slug_ind = slug_to_industry.get(slug, "unclassified")
+            doc_industry = _resolve_industry(
+                slug, slug_ind, fac.get("role_family") or "", title_display
+            )
             doc = {
                 "id": str(i),
                 "title": titles[i],  # full title + description for BM25
                 "title_display": title_display,
                 "employer": slug,
-                "industry": slug_to_industry.get(slug, "unclassified"),
+                "industry": doc_industry,
                 "locations": rec.get("locations") or [],
                 "employment_type": rec.get("employment_type") or "",
                 "salary_currency": rec.get("salary_currency") or "",
@@ -90,7 +101,6 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 doc["salary_max"] = float(rec["salary_max"])
 
             # Layer in facets
-            fac = facets.get(i, {})
             for k in FACET_FIELDS:
                 v = fac.get(k)
                 if k == "tech_stack":
