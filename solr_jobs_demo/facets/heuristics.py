@@ -32,6 +32,25 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "healthcare_clinical",
     ),
+    # healthcare_clinical — specialty physicians and clinical coordinators
+    # the staffing-override audit found "Pediatric Neurologist", "General
+    # Dermatologist", "Stroke and Sepsis Coordinator" etc. falling through to
+    # "other". keep these patterns specific so they don't collide with
+    # non-clinical "coordinator" / "specialist" roles.
+    (
+        _ci(
+            r"\b(dermatologist|neurologist|cardiologist|oncologist|"
+            r"pediatrician|endocrinologist|rheumatologist|gastroenterologist|"
+            r"pulmonologist|hematologist|urologist|nephrologist|"
+            r"anesthesiologist|radiologist|ophthalmologist|hospitalist|"
+            r"speech[- ](language )?pathologist|SLP\b|audiologist|"
+            r"dietitian|nutritionist|"
+            r"(clinical|nursing|patient care|care|infection control|"
+            r"trauma|wound( care)?|stroke|sepsis|cardiac|oncology|"
+            r"perioperative|telemetry) coordinator)\b"
+        ),
+        "healthcare_clinical",
+    ),
     (
         _ci(
             r"\b(medical (lab|laboratory) technician|lab tech|MLT\b|"
@@ -83,6 +102,20 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"data analyst|business analyst|BI analyst|quantitative analyst|quant analyst)\b"
         ),
         "data_science_ml",
+    ),
+    # civil / construction engineering — must come before generic
+    # software_engineering, otherwise "engineer\b" catches "Highway Engineer",
+    # "Civil Engineer", etc. and routes them to software. routes to
+    # skilled_trades_construction (existing bucket).
+    (
+        _ci(
+            r"\b((civil|structural|geotechnical|transportation|highway|"
+            r"traffic|bridge|water resources|wastewater|environmental|"
+            r"mining|petroleum|construction|roadway|coastal|hydraulic|"
+            r"surveying|MEP|HVAC) engineer|"
+            r"civil EIT|structural EIT|construction inspector)\b"
+        ),
+        "skilled_trades_construction",
     ),
     # software engineering — broad, after specific eng specialties.
     # Also catches "Architect", "Engineering Manager/Director/VP" titles and
