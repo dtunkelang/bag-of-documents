@@ -7,6 +7,12 @@ distilled query has source_doc_id; a retriever hits if that doc is in top-K.
 Cascade(bm25 -> dense): BM25 top-N -> dense scores on that pool -> top-K.
 RRF(bm25, dense): fuse top-N ranks from both, score 1/(c+rank), take top-K.
 
+Dense source specs are repeatable. Two kinds:
+  Live encode:  vecs=...,model=<st_model_or_path>,name=<label>
+  Pre-encoded:  vecs=...,kind=preenc,query_vec_dirs=<dir1;dir2;...>,name=<label>
+    Each query_vec_dir must contain eval_queries_te3_1024.{ids.json,vecs.fp16.npy};
+    rows union across dirs by query string (matches eval_jobs_retrievers.py).
+
 Usage:
   .venv/bin/python evaluation/eval_jobs_hybrids.py \\
       --data-dir jobs_data \\
@@ -140,11 +146,40 @@ def hits_at_k(top, golds, k_list=(1, 5, 10)):
 
 
 def parse_dense(spec: str) -> dict:
-    """vecs=...,model=...,name=..."""
+    """vecs=...,name=...,[model=... | kind=preenc,query_vec_dirs=d1;d2;...]"""
     parts = dict(p.split("=", 1) for p in spec.split(","))
-    if "vecs" not in parts or "model" not in parts or "name" not in parts:
-        raise SystemExit(f"--dense missing vecs/model/name: {spec}")
+    if "vecs" not in parts or "name" not in parts:
+        raise SystemExit(f"--dense missing vecs/name: {spec}")
+    if parts.get("kind") == "preenc":
+        if "query_vec_dirs" not in parts:
+            raise SystemExit(f"--dense kind=preenc requires query_vec_dirs: {spec}")
+    elif "model" not in parts:
+        raise SystemExit(f"--dense missing model (or kind=preenc): {spec}")
     return parts
+
+
+def load_preenc_query_map(query_vec_dirs):
+    qmap = {}
+    for d in query_vec_dirs:
+        ids_path = Path(d) / "eval_queries_te3_1024.ids.json"
+        vec_path = Path(d) / "eval_queries_te3_1024.vecs.fp16.npy"
+        with open(ids_path) as f:
+            ids = json.load(f)
+        vecs = np.load(vec_path).astype(np.float32)
+        for q, v in zip(ids, vecs):
+            qmap[q] = v
+    return qmap
+
+
+def encode_queries_preenc(queries, query_vec_dirs):
+    qmap = load_preenc_query_map(query_vec_dirs)
+    miss = [q for q in queries if q not in qmap]
+    if miss:
+        raise SystemExit(f"preenc: {len(miss)} queries missing; first miss: {miss[0]!r}")
+    qv = np.stack([qmap[q] for q in queries], axis=0).astype(np.float32)
+    n = np.linalg.norm(qv, axis=1, keepdims=True)
+    n[n == 0] = 1.0
+    return qv / n
 
 
 def main():
@@ -190,9 +225,15 @@ def main():
         d = parse_dense(spec)
         name = d["name"]
         vp = Path(d["vecs"]) if os.path.isabs(d["vecs"]) else data / d["vecs"]
-        print(f"\nrunning dense '{name}' (model={d['model']})...", flush=True)
-        t0 = time.time()
-        qv = encode_queries_st(qtexts, d["model"], args.device)
+        if d.get("kind") == "preenc":
+            qvdirs = d["query_vec_dirs"].split(";")
+            print(f"\nrunning dense '{name}' (preenc dirs={qvdirs})...", flush=True)
+            t0 = time.time()
+            qv = encode_queries_preenc(qtexts, qvdirs)
+        else:
+            print(f"\nrunning dense '{name}' (model={d['model']})...", flush=True)
+            t0 = time.time()
+            qv = encode_queries_st(qtexts, d["model"], args.device)
         cat = load_norm_cat(vp)
         top_n, scores = dense_full_topn(qv, cat, args.bm25_n)
         elapsed = time.time() - t0
