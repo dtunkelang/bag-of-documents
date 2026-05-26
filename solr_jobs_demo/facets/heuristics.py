@@ -105,15 +105,37 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # civil / construction engineering — must come before generic
     # software_engineering, otherwise "engineer\b" catches "Highway Engineer",
-    # "Civil Engineer", etc. and routes them to software. routes to
-    # skilled_trades_construction (existing bucket).
+    # "Construction Project Engineer", "Civil Engineering Manager", etc. and
+    # routes them to software. routes to skilled_trades_construction.
+    #
+    # Generalised over four shapes (each title contains one of the
+    # construction-discipline tokens listed in _DISC below):
+    #   1. "<disc> [role-mod] engineer/engineering"      e.g. "Civil Project Engineer"
+    #   2. "<disc> engineering <mgmt-rank>"               e.g. "Highway Engineering Manager"
+    #   3. "engineer (...<disc>...)"                       e.g. "Project Engineer (Construction)"
+    #   4. legacy: civil/structural EIT, construction inspector
     (
         _ci(
-            r"\b((civil|structural|geotechnical|transportation|highway|"
+            # 1. discipline + optional role modifier + engineer|engineering
+            r"\b(civil|structural|geotechnical|transportation|highway|"
             r"traffic|bridge|water resources|wastewater|environmental|"
             r"mining|petroleum|construction|roadway|coastal|hydraulic|"
-            r"surveying|MEP|HVAC) engineer|"
-            r"civil EIT|structural EIT|construction inspector)\b"
+            r"surveying|MEP|HVAC|drainage|pavement|earthworks|railway|"
+            r"tunnel|dam|irrigation)"
+            r"( (project|design|field|site|technical|safety|quality|"
+            r"principal|senior|junior|lead|staff|chief|assistant|"
+            r"associate|supervising|consulting|review|inspection))?"
+            r" (engineer|engineering)\b|"
+            # 2. <disc> engineering <mgmt-rank>
+            r"\b(civil|structural|geotechnical|transportation|highway|"
+            r"construction|MEP|HVAC) engineering "
+            r"(manager|director|lead|supervisor|head|chief|principal)\b|"
+            # 3. engineer (...<disc>...) — discipline inside parens
+            r"\bengineer\b\s*\([^)]*\b(construction|civil|structural|"
+            r"highway|geotechnical|transportation|MEP|HVAC|"
+            r"environmental|hydraulic)[^)]*\)|"
+            # 4. legacy
+            r"\b(civil EIT|structural EIT|construction inspector)\b"
         ),
         "skilled_trades_construction",
     ),
