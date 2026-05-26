@@ -59,6 +59,22 @@ solr_movies_demo/solr.log*
 solr_movies_demo/solr_shim.log
 solr_movies_demo/solr_shim.pid
 solr_movies_demo/bge_vecs/
+solr_jobs_demo/solr_home/jobs/data/
+solr_jobs_demo/solr.log*
+solr_jobs_demo/solr_shim.log
+solr_jobs_demo/solr_shim.pid
+
+# unified_jobs/ — code and small reference labels tracked, large per-doc data on HF
+unified_jobs/titles.json
+unified_jobs/metadata.jsonl
+unified_jobs/source_index.json
+unified_jobs/doc_ids.json
+unified_jobs/doc_industry_labels*.tsv
+unified_jobs/te3_cache_canonical.json
+unified_jobs/*_te3_1024.ids.json
+
+# space_demo_jobs/_stage — local HF dataset staging cache (regenerable)
+space_demo_jobs/_stage/
 movies_ingest_chain.out
 movies_ingest_chain.pid
 wikipedia_plots.pid

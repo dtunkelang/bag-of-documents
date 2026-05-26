@@ -216,6 +216,7 @@ def _vec_str(vec: list[float]) -> str:
 FACET_FIELDS = (
     "role_family",
     "seniority",
+    "industry",
     "remote_mode",
     "location_country",
     "location_state",
@@ -295,7 +296,7 @@ def _hydrate(ids: list[int], with_facets: bool = False) -> dict[int, dict]:
     id_clause = " OR ".join(f'id:"{i}"' for i in ids)
     fl = (
         "id,title_display,employer,locations,employment_type,"
-        "salary_min,salary_max,salary_currency,department,posted_at,source_corpus"
+        "salary_min,salary_max,salary_currency,department,posted_at,source_corpus,industry"
     )
     if with_facets:
         fl += "," + ",".join(FACET_FIELDS)
@@ -331,6 +332,7 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
         "idx": idx,
         "source": hyd.get("source_corpus") or "",
         "employer": hyd.get("employer") or "",
+        "industry": hyd.get("industry") or "",
         "location": ", ".join(locs[:2]) if locs else "",
         "employment_type": hyd.get("employment_type") or "",
         "salary": _fmt_salary(hyd),
@@ -604,6 +606,7 @@ function shortSrc(s) { return s == null ? '' : (SRC_SHORT[s] || s); }
 function metaLine(r) {
   const parts = [];
   if (r.employer) parts.push(esc(r.employer));
+  if (r.industry && r.industry !== 'unclassified') parts.push(esc(facetValueLabel('industry', r.industry)));
   if (r.location) parts.push(esc(r.location));
   if (r.employment_type) parts.push(esc(r.employment_type));
   if (r.salary) parts.push(esc(r.salary));
@@ -655,13 +658,14 @@ function renderResults(div, items, ms) {
   }
 }
 const FACET_FIELDS = [
-  'role_family', 'seniority', 'remote_mode',
+  'role_family', 'seniority', 'industry', 'remote_mode',
   'location_country', 'location_state',
   'posted_bucket', 'salary_band_usd_annual', 'tech_stack',
 ];
 const FACET_LABELS = {
   role_family: 'Role family',
   seniority: 'Seniority',
+  industry: 'Industry',
   remote_mode: 'Remote mode',
   location_country: 'Country',
   location_state: 'US state',
@@ -675,6 +679,36 @@ const FACET_VALUE_LABELS = {
     past_30d: 'Past 30 days',
     past_90d: 'Past 90 days',
     older: 'Older than 90 days',
+  },
+  industry: {
+    tech_software_internet: 'Software / Internet',
+    tech_hardware_semiconductors: 'Hardware / Semiconductors',
+    finance_banking: 'Banking',
+    finance_fintech: 'Fintech',
+    finance_insurance: 'Insurance',
+    healthcare_provider: 'Healthcare provider',
+    healthcare_pharma_biotech: 'Pharma / Biotech',
+    healthcare_devices: 'Medical devices',
+    retail_ecommerce: 'Retail / E-commerce',
+    consumer_brands: 'Consumer brands',
+    media_entertainment: 'Media / Entertainment',
+    gaming: 'Gaming',
+    automotive: 'Automotive',
+    energy_utilities: 'Energy / Utilities',
+    public_sector_government: 'Government / Public sector',
+    defense_aerospace: 'Defense / Aerospace',
+    nonprofit: 'Nonprofit',
+    education_higher: 'Higher education',
+    education_k12: 'K-12 education',
+    consulting_professional_services: 'Consulting / Professional services',
+    legal_services: 'Legal',
+    real_estate_construction: 'Real estate / Construction',
+    agriculture_food_production: 'Agriculture / Food production',
+    manufacturing: 'Manufacturing',
+    telecommunications: 'Telecom',
+    transportation_logistics: 'Transportation / Logistics',
+    hospitality_food_service: 'Hospitality / Food service',
+    unclassified: 'Unclassified',
   },
 };
 function facetValueLabel(f, v) {
