@@ -7,7 +7,7 @@
 #   - PID 14717: LinkedIn 96k bge-small-en encode (CPU, caffeinated separately)
 #
 # Launch (note: don't double-caffeinate — wrap THIS script):
-#   nohup caffeinate -di ./overnight_queue.sh > logs/overnight_$(date +%Y%m%d_%H%M).log 2>&1 &
+#   nohup caffeinate -di scripts/overnight_queue.sh > logs/overnight_$(date +%Y%m%d_%H%M).log 2>&1 &
 #   disown
 
 set -uo pipefail   # no -e; we want to continue on per-step failures
@@ -51,7 +51,7 @@ if [ ! -f jobs_data_244k/bge_small_en_catalog.vecs.fp16.npy ]; then
 else
   ok "244k bge catalog present"
   echo "[$(ts)] re-launching jobs_a_chain.sh (steps 2-7 will skip; 8-10 run)..."
-  bash ./jobs_a_chain.sh && ok "chain swap + demo restart complete" || fail "chain swap"
+  bash scripts/jobs_a_chain.sh && ok "chain swap + demo restart complete" || fail "chain swap"
 fi
 
 # After this point, the corpus formerly at jobs_data_244k/ lives at jobs_data/.

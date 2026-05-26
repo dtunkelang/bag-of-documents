@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plan A chain: scale jobs corpus from 100K to ~192K.
 # Idempotent: each step is skipped if its output already exists.
-# Launch: nohup caffeinate -di ./jobs_a_chain.sh > logs/jobs_a_chain.log 2>&1 &
+# Launch: nohup caffeinate -di scripts/jobs_a_chain.sh > logs/jobs_a_chain.log 2>&1 &
 
 set -euo pipefail
 cd /Users/dtunkelang/bagofdocs
