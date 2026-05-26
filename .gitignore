@@ -75,6 +75,8 @@ unified_jobs/*_te3_1024.ids.json
 unified_jobs/slug_text_bag.csv
 unified_jobs/slug_industry_labels_bge.csv
 unified_jobs/slug_industry_overrides.csv.bak
+unified_jobs/tail2_unclassified_for_labeling_part*.csv
+unified_jobs/tail2_labels_part*.csv
 # regenerable from current Solr via solr_jobs_demo/facets/dump_facets_from_solr.py
 solr_jobs_demo/facets/facets.jsonl
 
