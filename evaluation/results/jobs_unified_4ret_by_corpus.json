@@ -1,0 +1,143 @@
+{
+  "data_dir": "unified_jobs",
+  "n_queries": 3311,
+  "k": 10,
+  "results": {
+    "bm25": {
+      "kind": "bm25",
+      "elapsed_s": 7.29,
+      "r_at_1": 0.3129,
+      "r_at_5": 0.4739,
+      "r_at_10": 0.5403,
+      "n": 3311,
+      "breakdown": {
+        "jobs_data": {
+          "n": 900,
+          "r_at_1": 0.2944,
+          "r_at_5": 0.4578,
+          "r_at_10": 0.5244
+        },
+        "jobs_data_linkedin": {
+          "n": 899,
+          "r_at_1": 0.4638,
+          "r_at_5": 0.6174,
+          "r_at_10": 0.6785
+        },
+        "jobs_data_jobstreet": {
+          "n": 894,
+          "r_at_1": 0.2159,
+          "r_at_5": 0.3378,
+          "r_at_10": 0.3993
+        },
+        "jobs_data_usajobs": {
+          "n": 618,
+          "r_at_1": 0.2605,
+          "r_at_5": 0.4854,
+          "r_at_10": 0.5663
+        }
+      }
+    },
+    "bge-small": {
+      "kind": "st",
+      "elapsed_s": 25.72,
+      "r_at_1": 0.3066,
+      "r_at_5": 0.4672,
+      "r_at_10": 0.5322,
+      "n": 3311,
+      "breakdown": {
+        "jobs_data": {
+          "n": 900,
+          "r_at_1": 0.2778,
+          "r_at_5": 0.4544,
+          "r_at_10": 0.5167
+        },
+        "jobs_data_linkedin": {
+          "n": 899,
+          "r_at_1": 0.4805,
+          "r_at_5": 0.6552,
+          "r_at_10": 0.7197
+        },
+        "jobs_data_jobstreet": {
+          "n": 894,
+          "r_at_1": 0.2192,
+          "r_at_5": 0.3557,
+          "r_at_10": 0.4172
+        },
+        "jobs_data_usajobs": {
+          "n": 618,
+          "r_at_1": 0.2217,
+          "r_at_5": 0.3738,
+          "r_at_10": 0.4482
+        }
+      }
+    },
+    "te3-large-1024": {
+      "kind": "preenc",
+      "elapsed_s": 36.77,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049,
+      "n": 3311,
+      "breakdown": {
+        "jobs_data": {
+          "n": 900,
+          "r_at_1": 0.43,
+          "r_at_5": 0.6189,
+          "r_at_10": 0.6867
+        },
+        "jobs_data_linkedin": {
+          "n": 899,
+          "r_at_1": 0.6307,
+          "r_at_5": 0.7964,
+          "r_at_10": 0.8576
+        },
+        "jobs_data_jobstreet": {
+          "n": 894,
+          "r_at_1": 0.3345,
+          "r_at_5": 0.5045,
+          "r_at_10": 0.5749
+        },
+        "jobs_data_usajobs": {
+          "n": 618,
+          "r_at_1": 0.3689,
+          "r_at_5": 0.6133,
+          "r_at_10": 0.6974
+        }
+      }
+    },
+    "bge-small-bod": {
+      "kind": "st",
+      "elapsed_s": 26.36,
+      "r_at_1": 0.1477,
+      "r_at_5": 0.2815,
+      "r_at_10": 0.3452,
+      "n": 3311,
+      "breakdown": {
+        "jobs_data": {
+          "n": 900,
+          "r_at_1": 0.12,
+          "r_at_5": 0.24,
+          "r_at_10": 0.3
+        },
+        "jobs_data_linkedin": {
+          "n": 899,
+          "r_at_1": 0.2492,
+          "r_at_5": 0.4283,
+          "r_at_10": 0.5028
+        },
+        "jobs_data_jobstreet": {
+          "n": 894,
+          "r_at_1": 0.1119,
+          "r_at_5": 0.2271,
+          "r_at_10": 0.2975
+        },
+        "jobs_data_usajobs": {
+          "n": 618,
+          "r_at_1": 0.0922,
+          "r_at_5": 0.2071,
+          "r_at_10": 0.2508
+        }
+      }
+    }
+  }
+}

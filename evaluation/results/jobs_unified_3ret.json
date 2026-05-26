@@ -1,0 +1,31 @@
+{
+  "data_dir": "unified_jobs",
+  "n_queries": 3311,
+  "k": 10,
+  "results": {
+    "bm25": {
+      "kind": "bm25",
+      "elapsed_s": 7.98,
+      "r_at_1": 0.3129,
+      "r_at_5": 0.4739,
+      "r_at_10": 0.5403,
+      "n": 3311
+    },
+    "bge-small": {
+      "kind": "st",
+      "elapsed_s": 85.05,
+      "r_at_1": 0.3066,
+      "r_at_5": 0.4672,
+      "r_at_10": 0.5322,
+      "n": 3311
+    },
+    "te3-large-1024": {
+      "kind": "preenc",
+      "elapsed_s": 34.83,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049,
+      "n": 3311
+    }
+  }
+}

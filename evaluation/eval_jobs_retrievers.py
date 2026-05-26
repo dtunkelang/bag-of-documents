@@ -10,6 +10,12 @@ Retrievers are specified by --retriever and ranked side-by-side:
   st:<vecs.npy>:<model_id>   -> sentence-transformers query encode + cosine
   openai:<vecs.npy>:<model>:<dim>
                               -> OpenAI embedding + cosine
+  preenc:<doc_vecs.npy>:<query_vec_dir>
+                              -> use pre-encoded query vectors. Reads
+                                 every eval_queries_te3_1024.{ids.json,vecs.fp16.npy}
+                                 under <query_vec_dir> (comma-separated, relative
+                                 to repo root) and unions them keyed by query
+                                 string. Skips API calls entirely.
 
 Usage:
   .venv/bin/python evaluation/eval_jobs_retrievers.py \\
@@ -79,6 +85,12 @@ def parse_retriever(spec: str) -> dict:
         r["vecs"] = rest[0]
         r["model"] = rest[1]
         r["dim"] = int(rest[2])
+        return r
+    if kind == "preenc":
+        if len(rest) < 2:
+            raise SystemExit(f"preenc requires doc_vecs:query_vec_dirs: {spec}")
+        r["vecs"] = rest[0]
+        r["query_vec_dirs"] = rest[1].split(",")
         return r
     raise SystemExit(f"unknown retriever kind: {kind}")
 
@@ -166,6 +178,46 @@ def openai_topk(queries, vecs_path: Path, model: str, dim: int, k: int):
     return np.array(out)
 
 
+def load_preenc_query_map(query_vec_dirs: list[str]) -> dict[str, np.ndarray]:
+    """Union pre-encoded query vectors from per-corpus dirs.
+
+    Each dir is expected to contain eval_queries_te3_1024.{ids.json,vecs.fp16.npy}
+    where ids.json is a list of query strings aligned with the vecs rows.
+    """
+    qmap: dict[str, np.ndarray] = {}
+    for d in query_vec_dirs:
+        ids_path = Path(d) / "eval_queries_te3_1024.ids.json"
+        vec_path = Path(d) / "eval_queries_te3_1024.vecs.fp16.npy"
+        with open(ids_path) as f:
+            ids = json.load(f)
+        vecs = np.load(vec_path).astype(np.float32)
+        for q, v in zip(ids, vecs):
+            qmap[q] = v
+    return qmap
+
+
+def preenc_topk(queries, vecs_path: Path, query_vec_dirs: list[str], k: int):
+    qmap = load_preenc_query_map(query_vec_dirs)
+    miss = [q for q in queries if q not in qmap]
+    if miss:
+        raise SystemExit(
+            f"preenc: {len(miss)} queries missing from pre-encoded cache; first miss: {miss[0]!r}"
+        )
+    qv = np.stack([qmap[q] for q in queries], axis=0).astype(np.float32)
+    qv = qv / np.maximum(np.linalg.norm(qv, axis=1, keepdims=True), 1e-12)
+    cat = np.load(vecs_path, mmap_mode="r").astype(np.float32)
+    n = np.linalg.norm(cat, axis=1, keepdims=True)
+    n[n == 0] = 1.0
+    cat = cat / n
+    scores = qv @ cat.T
+    top_idx = np.argpartition(-scores, kth=k, axis=1)[:, :k]
+    out = []
+    for r, idx in enumerate(top_idx):
+        order = idx[np.argsort(-scores[r, idx])]
+        out.append(order)
+    return np.array(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
@@ -179,6 +231,11 @@ def main():
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--output", default=None)
+    ap.add_argument(
+        "--breakdown-key",
+        default=None,
+        help="optional query-row field name; if present, also report per-bucket R@K",
+    )
     args = ap.parse_args()
 
     data = Path(args.data_dir)
@@ -223,13 +280,16 @@ def main():
         elif s["kind"] == "openai":
             vp = data / s["vecs"] if not os.path.isabs(s["vecs"]) else Path(s["vecs"])
             top = openai_topk(qtexts, vp, s["model"], s["dim"], args.k)
+        elif s["kind"] == "preenc":
+            vp = data / s["vecs"] if not os.path.isabs(s["vecs"]) else Path(s["vecs"])
+            top = preenc_topk(qtexts, vp, s["query_vec_dirs"], args.k)
         else:
             continue
         elapsed = time.time() - t0
 
-        # Hit-at-K metrics
+        # Hit-at-K metrics (overall + optional per-bucket)
         hits1 = hits5 = hits10 = 0
-        ranks = []
+        bucket_counts: dict[str, dict[str, int]] = {}
         for r, gi in enumerate(golds):
             if gi < 0:
                 continue
@@ -238,13 +298,22 @@ def main():
                 rank = row.index(gi) + 1
             except ValueError:
                 rank = None
-            ranks.append(rank)
             if rank == 1:
                 hits1 += 1
             if rank and rank <= 5:
                 hits5 += 1
             if rank and rank <= args.k:
                 hits10 += 1
+            if args.breakdown_key:
+                b = queries[r].get(args.breakdown_key, "_unknown")
+                bc = bucket_counts.setdefault(b, {"n": 0, "h1": 0, "h5": 0, "h10": 0})
+                bc["n"] += 1
+                if rank == 1:
+                    bc["h1"] += 1
+                if rank and rank <= 5:
+                    bc["h5"] += 1
+                if rank and rank <= args.k:
+                    bc["h10"] += 1
         n = n_gold_ok
         results[name] = {
             "kind": s["kind"],
@@ -254,6 +323,16 @@ def main():
             f"r_at_{args.k}": round(hits10 / n, 4),
             "n": n,
         }
+        if args.breakdown_key:
+            results[name]["breakdown"] = {
+                b: {
+                    "n": v["n"],
+                    "r_at_1": round(v["h1"] / v["n"], 4),
+                    "r_at_5": round(v["h5"] / v["n"], 4),
+                    f"r_at_{args.k}": round(v["h10"] / v["n"], 4),
+                }
+                for b, v in bucket_counts.items()
+            }
         print(
             f"  R@1={hits1 / n:.4f}  R@5={hits5 / n:.4f}  "
             f"R@{args.k}={hits10 / n:.4f}  ({elapsed:.1f}s)",
@@ -267,6 +346,20 @@ def main():
             f"R@{args.k}={r[f'r_at_{args.k}']:.4f}  ({r['elapsed_s']:.1f}s)",
             flush=True,
         )
+
+    if args.breakdown_key:
+        first_breakdown = next(iter(results.values())).get("breakdown")
+        if first_breakdown:
+            buckets = sorted(first_breakdown.keys())
+            print(f"\n=== per-{args.breakdown_key} R@{args.k} ===", flush=True)
+            header = f"  {'retriever':20s}  " + "  ".join(f"{b:>20s}" for b in buckets)
+            print(header, flush=True)
+            for name, r in results.items():
+                row_bits = []
+                for b in buckets:
+                    v = r["breakdown"][b]
+                    row_bits.append(f"{v[f'r_at_{args.k}'] * 100:>5.1f}% (n={v['n']:>4d})")
+                print(f"  {name:20s}  " + "  ".join(f"{x:>20s}" for x in row_bits), flush=True)
 
     if args.output:
         out = {
