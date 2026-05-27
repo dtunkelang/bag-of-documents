@@ -1,7 +1,7 @@
 """Dump the 9 facet fields from the current Solr index to facets.jsonl.
 
 Used to rebuild facets.jsonl after it was lost on disk but the values are still
-present in Solr (because they're stored). After this dump, push_docs_with_facets.py
+present in Solr (because they're stored). After this dump, push_docs.py
 can do a clean full re-push to restore title + vectors that atomic-update wiped.
 """
 
