@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Push 347.9k jobs (title + metadata + bge_vec + te3_vec) into the Solr 'jobs' core.
+"""Push 347.9k jobs (title + metadata + dense_vec[e5-small] + te3_vec) into the Solr 'jobs' core.
 
 Solr id = integer position in the catalog (0..347899). Lets the existing demo UI
-keep using `idx` for click-through.
+keep using `idx` for click-through. The Solr field is named `bge_vec` for schema
+backwards-compat but holds intfloat/e5-small-v2 vectors (also 384-dim).
 """
 
 import json
@@ -25,10 +26,10 @@ def stream_docs() -> Iterator[dict]:
         titles = json.load(f)
     with open(os.path.join(STAGE, "source_index.json")) as f:
         sources = json.load(f)["sources"]
-    bge = np.load(os.path.join(STAGE, "bge_catalog.vecs.fp16.npy"), mmap_mode="r")
+    dense = np.load(os.path.join(STAGE, "e5_small_catalog.vecs.fp16.npy"), mmap_mode="r")
     te3 = np.load(os.path.join(STAGE, "te3_catalog.vecs.fp16.npy"), mmap_mode="r")
-    assert len(titles) == len(sources) == bge.shape[0] == te3.shape[0], (
-        f"length mismatch: titles={len(titles)} sources={len(sources)} bge={bge.shape[0]} te3={te3.shape[0]}"
+    assert len(titles) == len(sources) == dense.shape[0] == te3.shape[0], (
+        f"length mismatch: titles={len(titles)} sources={len(sources)} dense={dense.shape[0]} te3={te3.shape[0]}"
     )
 
     # slug -> industry label from round-2 propagation (slug_industry_labels_round2.csv)
@@ -63,7 +64,7 @@ def stream_docs() -> Iterator[dict]:
                 "posted_at": rec.get("posted_at") or "",
                 "source_corpus": sources[i],
                 "description": rec.get("description") or "",
-                "bge_vec": bge[i].astype(np.float32).tolist(),
+                "bge_vec": dense[i].astype(np.float32).tolist(),
                 "te3_vec": te3[i].astype(np.float32).tolist(),
             }
             if rec.get("salary_min") is not None:

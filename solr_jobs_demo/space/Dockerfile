@@ -26,11 +26,11 @@ RUN mkdir -p /tmp/hf_cache/hub /tmp/hf_cache/sentence-transformers /tmp/solr_hom
 COPY requirements.txt /opt/app/requirements.txt
 RUN python3 -m pip install --break-system-packages -r /opt/app/requirements.txt
 
-# Pre-download the bge model into /tmp/hf_cache (now that HF_HOME is set above).
+# Pre-download the dense encoder model into /tmp/hf_cache (now that HF_HOME is set above).
 # Run as solr so file ownership matches the runtime user.
 USER solr
 RUN python3 -c "from sentence_transformers import SentenceTransformer; \
-                SentenceTransformer('BAAI/bge-small-en-v1.5')"
+                SentenceTransformer('intfloat/e5-small-v2')"
 USER root
 
 # App + entrypoint.
