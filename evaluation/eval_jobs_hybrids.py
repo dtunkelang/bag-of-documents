@@ -70,10 +70,12 @@ def bm25_topn(queries, idx, stemmer, n):
     return np.asarray(out_idx), np.asarray(out_scores)
 
 
-def encode_queries_st(queries, model_id, device):
+def encode_queries_st(queries, model_id, device, query_prefix=""):
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(model_id, device=device)
+    if query_prefix:
+        queries = [query_prefix + q for q in queries]
     qv = model.encode(
         queries,
         normalize_embeddings=True,
@@ -146,7 +148,7 @@ def hits_at_k(top, golds, k_list=(1, 5, 10)):
 
 
 def parse_dense(spec: str) -> dict:
-    """vecs=...,name=...,[model=... | kind=preenc,query_vec_dirs=d1;d2;...]"""
+    """vecs=...,name=...,[model=...,query_prefix=... | kind=preenc,query_vec_dirs=d1;d2;...]"""
     parts = dict(p.split("=", 1) for p in spec.split(","))
     if "vecs" not in parts or "name" not in parts:
         raise SystemExit(f"--dense missing vecs/name: {spec}")
@@ -231,9 +233,10 @@ def main():
             t0 = time.time()
             qv = encode_queries_preenc(qtexts, qvdirs)
         else:
-            print(f"\nrunning dense '{name}' (model={d['model']})...", flush=True)
+            qp = d.get("query_prefix", "")
+            print(f"\nrunning dense '{name}' (model={d['model']} prefix={qp!r})...", flush=True)
             t0 = time.time()
-            qv = encode_queries_st(qtexts, d["model"], args.device)
+            qv = encode_queries_st(qtexts, d["model"], args.device, query_prefix=qp)
         cat = load_norm_cat(vp)
         top_n, scores = dense_full_topn(qv, cat, args.bm25_n)
         elapsed = time.time() - t0
