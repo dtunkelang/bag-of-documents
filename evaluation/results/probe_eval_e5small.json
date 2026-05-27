@@ -1,0 +1,658 @@
+{
+  "n_queries": 102,
+  "retrievers": [
+    "bge_base",
+    "bm25",
+    "e5_base",
+    "e5_small",
+    "te3_large_1024"
+  ],
+  "overall": {
+    "bge_base": {
+      "H@1_strict": 71.57,
+      "H@1_lenient": 96.08,
+      "H@5_strict": 93.14,
+      "H@5_lenient": 99.02,
+      "H@10_strict": 93.14,
+      "H@10_lenient": 99.02
+    },
+    "bm25": {
+      "H@1_strict": 57.84,
+      "H@1_lenient": 83.33,
+      "H@5_strict": 81.37,
+      "H@5_lenient": 96.08,
+      "H@10_strict": 85.29,
+      "H@10_lenient": 98.04
+    },
+    "e5_base": {
+      "H@1_strict": 77.45,
+      "H@1_lenient": 96.08,
+      "H@5_strict": 92.16,
+      "H@5_lenient": 99.02,
+      "H@10_strict": 94.12,
+      "H@10_lenient": 100.0
+    },
+    "e5_small": {
+      "H@1_strict": 64.71,
+      "H@1_lenient": 75.49,
+      "H@5_strict": 86.27,
+      "H@5_lenient": 94.12,
+      "H@10_strict": 92.16,
+      "H@10_lenient": 98.04
+    },
+    "te3_large_1024": {
+      "H@1_strict": 70.59,
+      "H@1_lenient": 95.1,
+      "H@5_strict": 94.12,
+      "H@5_lenient": 99.02,
+      "H@10_strict": 96.08,
+      "H@10_lenient": 99.02
+    }
+  },
+  "per_archetype": {
+    "ambiguous": {
+      "bge_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 83.33,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 66.67,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "domain_role": {
+      "bge_base": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 37.5,
+        "H@1_lenient": 75.0,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 75.0,
+        "H@1_lenient": 87.5,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 87.5,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 87.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "generic_title": {
+      "bge_base": {
+        "H@1_strict": 80.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 70.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 90.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 90.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "geo_conditioned": {
+      "bge_base": {
+        "H@1_strict": 40.0,
+        "H@1_lenient": 90.0,
+        "H@5_strict": 90.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 90.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 40.0,
+        "H@1_lenient": 60.0,
+        "H@5_strict": 60.0,
+        "H@5_lenient": 90.0,
+        "H@10_strict": 70.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 50.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 80.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 90.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 50.0,
+        "H@1_lenient": 70.0,
+        "H@5_strict": 90.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 90.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 30.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 90.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 90.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "jobstreet_vocab": {
+      "bge_base": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 66.67,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 66.67,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 83.33,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "long_nl": {
+      "bge_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 16.67,
+        "H@1_lenient": 66.67,
+        "H@5_strict": 33.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 33.33,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 33.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 66.67,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 50.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      }
+    },
+    "misspelled_casual": {
+      "bge_base": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 16.67,
+        "H@1_lenient": 66.67,
+        "H@5_strict": 66.67,
+        "H@5_lenient": 83.33,
+        "H@10_strict": 66.67,
+        "H@10_lenient": 83.33
+      },
+      "e5_base": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 0.0,
+        "H@1_lenient": 33.33,
+        "H@5_strict": 33.33,
+        "H@5_lenient": 66.67,
+        "H@10_strict": 66.67,
+        "H@10_lenient": 83.33
+      },
+      "te3_large_1024": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "negation": {
+      "bge_base": {
+        "H@1_strict": 25.0,
+        "H@1_lenient": 50.0,
+        "H@5_strict": 50.0,
+        "H@5_lenient": 75.0,
+        "H@10_strict": 50.0,
+        "H@10_lenient": 75.0
+      },
+      "bm25": {
+        "H@1_strict": 0.0,
+        "H@1_lenient": 0.0,
+        "H@5_strict": 0.0,
+        "H@5_lenient": 50.0,
+        "H@10_strict": 50.0,
+        "H@10_lenient": 75.0
+      },
+      "e5_base": {
+        "H@1_strict": 25.0,
+        "H@1_lenient": 25.0,
+        "H@5_strict": 75.0,
+        "H@5_lenient": 75.0,
+        "H@10_strict": 75.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 25.0,
+        "H@1_lenient": 25.0,
+        "H@5_strict": 25.0,
+        "H@5_lenient": 50.0,
+        "H@10_strict": 50.0,
+        "H@10_lenient": 75.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 0.0,
+        "H@1_lenient": 0.0,
+        "H@5_strict": 50.0,
+        "H@5_lenient": 75.0,
+        "H@10_strict": 75.0,
+        "H@10_lenient": 75.0
+      }
+    },
+    "seniority_modified": {
+      "bge_base": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 75.0,
+        "H@1_lenient": 87.5,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 75.0,
+        "H@1_lenient": 75.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 50.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "skill_only": {
+      "bge_base": {
+        "H@1_strict": 75.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 87.5,
+        "H@1_lenient": 87.5,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 75.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 62.5,
+        "H@5_strict": 75.0,
+        "H@5_lenient": 87.5,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 87.5,
+        "H@1_lenient": 87.5,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "skill_stack": {
+      "bge_base": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 62.5,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 37.5,
+        "H@1_lenient": 87.5,
+        "H@5_strict": 87.5,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 50.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 75.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 87.5,
+        "H@10_lenient": 100.0
+      }
+    },
+    "specific_title": {
+      "bge_base": {
+        "H@1_strict": 90.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 80.0,
+        "H@1_lenient": 90.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 90.0,
+        "H@1_lenient": 90.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 70.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "tail_rare": {
+      "bge_base": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 100.0,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    },
+    "usajobs_vocab": {
+      "bge_base": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 83.33,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "bm25": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "e5_base": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 83.33,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 83.33,
+        "H@10_lenient": 100.0
+      },
+      "e5_small": {
+        "H@1_strict": 66.67,
+        "H@1_lenient": 66.67,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      },
+      "te3_large_1024": {
+        "H@1_strict": 83.33,
+        "H@1_lenient": 100.0,
+        "H@5_strict": 100.0,
+        "H@5_lenient": 100.0,
+        "H@10_strict": 100.0,
+        "H@10_lenient": 100.0
+      }
+    }
+  },
+  "archetype_counts": {
+    "ambiguous": 6,
+    "domain_role": 8,
+    "generic_title": 10,
+    "geo_conditioned": 10,
+    "jobstreet_vocab": 6,
+    "long_nl": 6,
+    "misspelled_casual": 6,
+    "negation": 4,
+    "seniority_modified": 8,
+    "skill_only": 8,
+    "skill_stack": 8,
+    "specific_title": 10,
+    "tail_rare": 6,
+    "usajobs_vocab": 6
+  }
+}

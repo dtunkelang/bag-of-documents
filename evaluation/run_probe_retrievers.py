@@ -73,6 +73,16 @@ def main():
     )
     ap.add_argument("--bge-base-model", default="BAAI/bge-base-en-v1.5")
     ap.add_argument("--bge-base-prefix", default="")
+    ap.add_argument(
+        "--e5-small-catalog", default=None, help="If set, also run e5-small over the probe set."
+    )
+    ap.add_argument("--e5-small-model", default="intfloat/e5-small-v2")
+    ap.add_argument("--e5-small-prefix", default="query: ")
+    ap.add_argument(
+        "--bge-small-catalog", default=None, help="If set, also run bge-small over the probe set."
+    )
+    ap.add_argument("--bge-small-model", default="BAAI/bge-small-en-v1.5")
+    ap.add_argument("--bge-small-prefix", default="")
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--output", required=True)
@@ -142,6 +152,54 @@ def main():
             "doc_ids": [doc_ids[int(x)] for x in top[qi].tolist()],
         }
     print(f"  e5_base done in {time.time() - t0:.1f}s", flush=True)
+
+    # --- e5-small (st, optional) ---
+    if args.e5_small_catalog:
+        print("\n=== e5_small ===", flush=True)
+        t0 = time.time()
+        e5s_cat = (
+            data / args.e5_small_catalog
+            if not os.path.isabs(args.e5_small_catalog)
+            else Path(args.e5_small_catalog)
+        )
+        top = st_topk_with_argsort(
+            qtexts,
+            e5s_cat,
+            args.e5_small_model,
+            args.k,
+            device=args.device,
+            query_prefix=args.e5_small_prefix,
+        )
+        for qi, q in enumerate(queries):
+            out_rows[q["query_id"]]["retrievers"]["e5_small"] = {
+                "doc_indices": [int(x) for x in top[qi].tolist()],
+                "doc_ids": [doc_ids[int(x)] for x in top[qi].tolist()],
+            }
+        print(f"  e5_small done in {time.time() - t0:.1f}s", flush=True)
+
+    # --- bge-small (st, optional) ---
+    if args.bge_small_catalog:
+        print("\n=== bge_small ===", flush=True)
+        t0 = time.time()
+        bges_cat = (
+            data / args.bge_small_catalog
+            if not os.path.isabs(args.bge_small_catalog)
+            else Path(args.bge_small_catalog)
+        )
+        top = st_topk_with_argsort(
+            qtexts,
+            bges_cat,
+            args.bge_small_model,
+            args.k,
+            device=args.device,
+            query_prefix=args.bge_small_prefix,
+        )
+        for qi, q in enumerate(queries):
+            out_rows[q["query_id"]]["retrievers"]["bge_small"] = {
+                "doc_indices": [int(x) for x in top[qi].tolist()],
+                "doc_ids": [doc_ids[int(x)] for x in top[qi].tolist()],
+            }
+        print(f"  bge_small done in {time.time() - t0:.1f}s", flush=True)
 
     # --- bge-base (st, optional) ---
     if args.bge_base_catalog:

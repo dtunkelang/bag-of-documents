@@ -1,0 +1,278 @@
+{
+  "models": {
+    "e5_small": {
+      "n": 102,
+      "h1_strict": 0.8431,
+      "h5_strict": 0.9118,
+      "h10_strict": 0.9314,
+      "h1_lenient": 0.951,
+      "h5_lenient": 0.9706,
+      "h10_lenient": 0.9804,
+      "per_archetype": {
+        "generic_title": {
+          "n": 10,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "specific_title": {
+          "n": 10,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "skill_only": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "skill_stack": {
+          "n": 8,
+          "h1_strict": 0.75,
+          "h5_strict": 0.875,
+          "h10_strict": 0.875,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "geo_conditioned": {
+          "n": 10,
+          "h1_strict": 0.7,
+          "h5_strict": 0.8,
+          "h10_strict": 0.8,
+          "h1_lenient": 0.9,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "domain_role": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "seniority_modified": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "usajobs_vocab": {
+          "n": 6,
+          "h1_strict": 0.6667,
+          "h5_strict": 0.8333,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "jobstreet_vocab": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "ambiguous": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "misspelled_casual": {
+          "n": 6,
+          "h1_strict": 0.8333,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "long_nl": {
+          "n": 6,
+          "h1_strict": 0.3333,
+          "h5_strict": 0.6667,
+          "h10_strict": 0.8333,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "negation": {
+          "n": 4,
+          "h1_strict": 0.0,
+          "h5_strict": 0.25,
+          "h10_strict": 0.25,
+          "h1_lenient": 0.0,
+          "h5_lenient": 0.25,
+          "h10_lenient": 0.5
+        },
+        "tail_rare": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        }
+      }
+    },
+    "e5_base": {
+      "n": 102,
+      "h1_strict": 0.8529,
+      "h5_strict": 0.9118,
+      "h10_strict": 0.9314,
+      "h1_lenient": 0.951,
+      "h5_lenient": 0.9804,
+      "h10_lenient": 0.9804,
+      "per_archetype": {
+        "generic_title": {
+          "n": 10,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "specific_title": {
+          "n": 10,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "skill_only": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "skill_stack": {
+          "n": 8,
+          "h1_strict": 0.75,
+          "h5_strict": 0.875,
+          "h10_strict": 0.875,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "geo_conditioned": {
+          "n": 10,
+          "h1_strict": 0.6,
+          "h5_strict": 0.8,
+          "h10_strict": 0.8,
+          "h1_lenient": 0.9,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "domain_role": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "seniority_modified": {
+          "n": 8,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "usajobs_vocab": {
+          "n": 6,
+          "h1_strict": 0.6667,
+          "h5_strict": 0.8333,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "jobstreet_vocab": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "ambiguous": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "misspelled_casual": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "long_nl": {
+          "n": 6,
+          "h1_strict": 0.5,
+          "h5_strict": 0.6667,
+          "h10_strict": 0.8333,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        },
+        "negation": {
+          "n": 4,
+          "h1_strict": 0.0,
+          "h5_strict": 0.25,
+          "h10_strict": 0.25,
+          "h1_lenient": 0.0,
+          "h5_lenient": 0.5,
+          "h10_lenient": 0.5
+        },
+        "tail_rare": {
+          "n": 6,
+          "h1_strict": 1.0,
+          "h5_strict": 1.0,
+          "h10_strict": 1.0,
+          "h1_lenient": 1.0,
+          "h5_lenient": 1.0,
+          "h10_lenient": 1.0
+        }
+      }
+    }
+  }
+}

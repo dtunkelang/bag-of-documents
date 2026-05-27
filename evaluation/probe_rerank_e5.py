@@ -103,7 +103,24 @@ def main():
     ap.add_argument("--device", default="mps")
     ap.add_argument("--batch-size-base", type=int, default=64)
     ap.add_argument("--batch-size-large", type=int, default=16)
+    ap.add_argument(
+        "--models",
+        default="e5_base,e5_large",
+        help="comma-separated list from {e5_small, e5_base, e5_large}",
+    )
     args = ap.parse_args()
+
+    model_registry = {
+        "e5_small": ("intfloat/e5-small-v2", args.batch_size_base),
+        "e5_base": ("intfloat/e5-base-v2", args.batch_size_base),
+        "e5_large": ("intfloat/e5-large-v2", args.batch_size_large),
+    }
+    model_specs = []
+    for name in [s.strip() for s in args.models.split(",") if s.strip()]:
+        if name not in model_registry:
+            raise SystemExit(f"unknown model {name!r}; pick from {sorted(model_registry)}")
+        hf_id, bs = model_registry[name]
+        model_specs.append((name, hf_id, bs))
 
     cands = load_candidates(Path(args.candidates))
     labels = load_labels(Path(args.labels))
@@ -141,10 +158,7 @@ def main():
 
     out = {"models": {}}
 
-    for model_name, hf_id, bs in [
-        ("e5_base", "intfloat/e5-base-v2", args.batch_size_base),
-        ("e5_large", "intfloat/e5-large-v2", args.batch_size_large),
-    ]:
+    for model_name, hf_id, bs in model_specs:
         print(f"\n=== {model_name} ({hf_id}) ===", flush=True)
         t0 = time.time()
         m = SentenceTransformer(hf_id, device=args.device)
