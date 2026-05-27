@@ -407,6 +407,11 @@ def search_default(
 
 POSTED_BUCKET_ORDER = ["past_7d", "past_30d", "past_90d", "older"]
 
+FACET_TAIL_VALUES = {
+    "role_family": {"other"},
+    "industry": {"unclassified"},
+}
+
 
 def compute_facets(
     query: str,
@@ -414,13 +419,15 @@ def compute_facets(
     pool: int = 200,
     no_te3: bool = False,
 ) -> dict[str, list[tuple[str, int]]]:
-    """Aggregate facet counts over the top-`pool` RRF-fused docs (with filters
-    applied at retrieval). Returns {field: [(value, count), ...]}."""
+    """Aggregate facet values over the top-`pool` RRF-fused docs (with filters
+    applied at retrieval), weighted by 1/(rank+1) so values at the head of the
+    result list dominate ordering. Returns {field: [(value, weight), ...]}."""
     items = _fused_topk(query, pool, filters, pool, no_te3=no_te3)
     ids = [i for i, _ in items]
     hyd = _hydrate(ids, with_facets=True)
-    counts: dict[str, dict[str, int]] = {f: defaultdict(int) for f in FACET_FIELDS}
-    for i in ids:
+    weights: dict[str, dict[str, float]] = {f: defaultdict(float) for f in FACET_FIELDS}
+    for rank, (i, _s) in enumerate(items):
+        w = 1.0 / (rank + 1)
         d = hyd.get(i, {})
         for f in FACET_FIELDS:
             v = d.get(f)
@@ -428,16 +435,17 @@ def compute_facets(
                 continue
             if isinstance(v, list):
                 for vv in v:
-                    counts[f][vv] += 1
+                    weights[f][vv] += w
             else:
-                counts[f][v] += 1
-    out: dict[str, list[tuple[str, int]]] = {}
+                weights[f][v] += w
+    out: dict[str, list[tuple[str, float]]] = {}
     for f in FACET_FIELDS:
         if f == "posted_bucket":
-            present = counts[f]
+            present = weights[f]
             out[f] = [(b, present[b]) for b in POSTED_BUCKET_ORDER if b in present]
         else:
-            out[f] = sorted(counts[f].items(), key=lambda x: -x[1])
+            tail = FACET_TAIL_VALUES.get(f, set())
+            out[f] = sorted(weights[f].items(), key=lambda x: (x[0] in tail, -x[1]))
     return out
 
 

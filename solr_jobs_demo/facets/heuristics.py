@@ -34,6 +34,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"(residential|substance abuse|mental health|behavioral health) counselor|"
             r"(psychiatric|mental health|behavioral health|clinical) "
             r"(clinician|specialist|therapist|supervisor)|"
+            r"clinical (applications|systems|informatics|data|trials|nurse) "
+            r"(specialist|coordinator|manager|analyst|associate)|"
             r"(veterinary|veterinarian) (assistant|technician|nurse)|"
             r"triage (nurse|specialist|supervisor|coordinator|associate)|"
             r"kinesiotherapist|kinesiologist|"
@@ -79,7 +81,7 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(medical (biller|coder|coding|billing|scheduler|records)|"
-            r"hospital administrat|patient services coordinator|patient access|"
+            r"hospital administrat|patient services (coordinator|representative|rep)|patient access|"
             r"claims (handler|administrator|adjuster|representative|examiner|"
             r"analyst|specialist|processor|coordinator|manager)|"
             r"medical claims|"
@@ -106,7 +108,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(DevOps|SRE\b|site reliability|platform engineer|infrastructure engineer|"
             r"cloud engineer|systems engineer|sysadmin|systems? administrator|"
-            r"network engineer|kubernetes engineer|reliability engineer)\b"
+            r"network engineer|kubernetes engineer|reliability engineer|"
+            r"member of technical staff[ \-,]+\w*\s*(infrastructure|infra|platform|reliability))\b"
         ),
         "devops_sre_infra",
     ),
@@ -146,14 +149,14 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"traffic|bridge|water resources|wastewater|environmental|"
             r"mining|petroleum|construction|roadway|coastal|hydraulic|"
             r"surveying|MEP|HVAC|drainage|pavement|earthworks|railway|"
-            r"tunnel|dam|irrigation)"
+            r"tunnel|dam|irrigation|mechanical|manufacturing|industrial)"
             r"( (project|design|field|site|technical|safety|quality|"
             r"principal|senior|junior|lead|staff|chief|assistant|"
             r"associate|supervising|consulting|review|inspection))?"
-            r" (engineer|engineering)\b|"
+            r" (engineer|engineering)( intern)?\b|"
             # 2. <disc> engineering <mgmt-rank>
             r"\b(civil|structural|geotechnical|transportation|highway|"
-            r"construction|MEP|HVAC) engineering "
+            r"construction|MEP|HVAC|mechanical|manufacturing|industrial) engineering "
             r"(manager|director|lead|supervisor|head|chief|principal)\b|"
             # 3. engineer (...<disc>...) — discipline inside parens
             r"\bengineer\b\s*\([^)]*\b(construction|civil|structural|"
@@ -427,7 +430,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"dispatcher|warehouse|forklift|material handler|"
             r"logistics|supply chain|fleet manager|freight|"
             r"(airport )?ramp agent|airline operations|"
-            r"baggage handler|ground crew)\b"
+            r"baggage handler|ground crew|"
+            r"shipping (and|&) receiving|shipping/receiving)\b"
         ),
         "transportation_logistics",
     ),
@@ -533,6 +537,7 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(operations manager|operations analyst|operations associate|"
             r"operations (lead|leader|director|coordinator|specialist|strategy)|"
+            r"(VP|vice president) of operations|"
             r"senior associate,?\s+operations|"
             r"executive assistant|administrative assistant|admin assistant|"
             r"administrative (specialist|coordinator|associate)|"
@@ -677,7 +682,26 @@ def _role_from_description_category(desc: str) -> str | None:
     return _CATEGORY_TOP_TO_ROLE.get(top)
 
 
+# Collapse rank/scope modifiers like "general/district/regional/assistant/..."
+# when they sit between an industry-anchor and manager/supervisor/director/etc.
+# Lets a single pattern (e.g. "restaurant manager") catch the wide family
+# "restaurant <modifier> manager" instead of enumerating each variant.
+_ROLE_MODIFIERS_RX = re.compile(
+    r"\b((general|district|area|regional|national|global|"
+    r"senior|junior|lead|principal|associate|assistant|deputy|chief|"
+    r"staff|head|group|"
+    r"vice president|VP|executive)\s+)+"
+    r"(?=(manager|supervisor|director|coordinator|lead)\b)",
+    re.IGNORECASE,
+)
+
+
+def _strip_role_modifiers(title: str) -> str:
+    return _ROLE_MODIFIERS_RX.sub("", title)
+
+
 def classify_role_family(title: str, desc: str = "") -> str:
+    title = _strip_role_modifiers(title)
     for pat, family in ROLE_PATTERNS:
         if pat.search(title):
             # software_engineering is the broad engineer\b/developer\b catch-all.
