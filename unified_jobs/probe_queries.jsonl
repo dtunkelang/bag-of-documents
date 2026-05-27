@@ -1,0 +1,102 @@
+{"query_id": "probe_gt_001", "query": "software engineer", "archetype": "generic_title"}
+{"query_id": "probe_gt_002", "query": "accountant", "archetype": "generic_title"}
+{"query_id": "probe_gt_003", "query": "registered nurse", "archetype": "generic_title"}
+{"query_id": "probe_gt_004", "query": "project manager", "archetype": "generic_title"}
+{"query_id": "probe_gt_005", "query": "sales representative", "archetype": "generic_title"}
+{"query_id": "probe_gt_006", "query": "administrative assistant", "archetype": "generic_title"}
+{"query_id": "probe_gt_007", "query": "marketing manager", "archetype": "generic_title"}
+{"query_id": "probe_gt_008", "query": "mechanical engineer", "archetype": "generic_title"}
+{"query_id": "probe_gt_009", "query": "customer service representative", "archetype": "generic_title"}
+{"query_id": "probe_gt_010", "query": "financial analyst", "archetype": "generic_title"}
+{"query_id": "probe_st_001", "query": "site reliability engineer", "archetype": "specific_title"}
+{"query_id": "probe_st_002", "query": "principal product manager", "archetype": "specific_title"}
+{"query_id": "probe_st_003", "query": "ux researcher", "archetype": "specific_title"}
+{"query_id": "probe_st_004", "query": "staff machine learning engineer", "archetype": "specific_title"}
+{"query_id": "probe_st_005", "query": "chief of staff", "archetype": "specific_title"}
+{"query_id": "probe_st_006", "query": "treasury operations analyst", "archetype": "specific_title"}
+{"query_id": "probe_st_007", "query": "clinical research coordinator", "archetype": "specific_title"}
+{"query_id": "probe_st_008", "query": "supply chain planner", "archetype": "specific_title"}
+{"query_id": "probe_st_009", "query": "enterprise account executive", "archetype": "specific_title"}
+{"query_id": "probe_st_010", "query": "security operations engineer", "archetype": "specific_title"}
+{"query_id": "probe_sk_001", "query": "python", "archetype": "skill_only"}
+{"query_id": "probe_sk_002", "query": "kubernetes", "archetype": "skill_only"}
+{"query_id": "probe_sk_003", "query": "tableau", "archetype": "skill_only"}
+{"query_id": "probe_sk_004", "query": "salesforce", "archetype": "skill_only"}
+{"query_id": "probe_sk_005", "query": "react", "archetype": "skill_only"}
+{"query_id": "probe_sk_006", "query": "snowflake", "archetype": "skill_only"}
+{"query_id": "probe_sk_007", "query": "terraform", "archetype": "skill_only"}
+{"query_id": "probe_sk_008", "query": "excel", "archetype": "skill_only"}
+{"query_id": "probe_ss_001", "query": "react typescript node", "archetype": "skill_stack"}
+{"query_id": "probe_ss_002", "query": "python pandas sql", "archetype": "skill_stack"}
+{"query_id": "probe_ss_003", "query": "aws docker kubernetes", "archetype": "skill_stack"}
+{"query_id": "probe_ss_004", "query": "java spring boot", "archetype": "skill_stack"}
+{"query_id": "probe_ss_005", "query": "go grpc kafka", "archetype": "skill_stack"}
+{"query_id": "probe_ss_006", "query": "spark scala databricks", "archetype": "skill_stack"}
+{"query_id": "probe_ss_007", "query": "swift ios xcode", "archetype": "skill_stack"}
+{"query_id": "probe_ss_008", "query": "powerbi dax sql", "archetype": "skill_stack"}
+{"query_id": "probe_geo_001", "query": "data scientist new york", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_002", "query": "software engineer san francisco", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_003", "query": "engineer washington dc", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_004", "query": "nurse philippines", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_005", "query": "accountant malaysia", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_006", "query": "analyst chicago", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_007", "query": "product manager london", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_008", "query": "backend engineer austin", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_009", "query": "consultant remote canada", "archetype": "geo_conditioned"}
+{"query_id": "probe_geo_010", "query": "customer support agent manila", "archetype": "geo_conditioned"}
+{"query_id": "probe_dr_001", "query": "fintech engineer", "archetype": "domain_role"}
+{"query_id": "probe_dr_002", "query": "healthcare data analyst", "archetype": "domain_role"}
+{"query_id": "probe_dr_003", "query": "edtech product manager", "archetype": "domain_role"}
+{"query_id": "probe_dr_004", "query": "biotech research scientist", "archetype": "domain_role"}
+{"query_id": "probe_dr_005", "query": "cybersecurity consultant", "archetype": "domain_role"}
+{"query_id": "probe_dr_006", "query": "climate tech project manager", "archetype": "domain_role"}
+{"query_id": "probe_dr_007", "query": "defense industry mechanical engineer", "archetype": "domain_role"}
+{"query_id": "probe_dr_008", "query": "hospitality general manager", "archetype": "domain_role"}
+{"query_id": "probe_sen_001", "query": "senior backend engineer", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_002", "query": "entry level analyst", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_003", "query": "principal scientist", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_004", "query": "junior accountant", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_005", "query": "lead data engineer", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_006", "query": "staff software engineer", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_007", "query": "vp of engineering", "archetype": "seniority_modified"}
+{"query_id": "probe_sen_008", "query": "software engineering intern", "archetype": "seniority_modified"}
+{"query_id": "probe_usa_001", "query": "GS-13 program analyst", "archetype": "usajobs_vocab"}
+{"query_id": "probe_usa_002", "query": "veteran preference clerk", "archetype": "usajobs_vocab"}
+{"query_id": "probe_usa_003", "query": "federal contracting officer", "archetype": "usajobs_vocab"}
+{"query_id": "probe_usa_004", "query": "air force civilian engineer", "archetype": "usajobs_vocab"}
+{"query_id": "probe_usa_005", "query": "IRS revenue agent", "archetype": "usajobs_vocab"}
+{"query_id": "probe_usa_006", "query": "VA medical support assistant", "archetype": "usajobs_vocab"}
+{"query_id": "probe_js_001", "query": "mandarin customer service", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_js_002", "query": "sdn bhd accounting executive", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_js_003", "query": "malaysia logistics coordinator", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_js_004", "query": "philippines bpo agent", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_js_005", "query": "fresh graduate sales executive", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_js_006", "query": "assistant manager retail kuala lumpur", "archetype": "jobstreet_vocab"}
+{"query_id": "probe_amb_001", "query": "python", "archetype": "ambiguous"}
+{"query_id": "probe_amb_002", "query": "java", "archetype": "ambiguous"}
+{"query_id": "probe_amb_003", "query": "manager", "archetype": "ambiguous"}
+{"query_id": "probe_amb_004", "query": "ruby", "archetype": "ambiguous"}
+{"query_id": "probe_amb_005", "query": "actuary", "archetype": "ambiguous"}
+{"query_id": "probe_amb_006", "query": "analyst", "archetype": "ambiguous"}
+{"query_id": "probe_mis_001", "query": "data sciencist", "archetype": "misspelled_casual"}
+{"query_id": "probe_mis_002", "query": "softwre eng", "archetype": "misspelled_casual"}
+{"query_id": "probe_mis_003", "query": "rn jobs", "archetype": "misspelled_casual"}
+{"query_id": "probe_mis_004", "query": "accountnt", "archetype": "misspelled_casual"}
+{"query_id": "probe_mis_005", "query": "nurse practioner", "archetype": "misspelled_casual"}
+{"query_id": "probe_mis_006", "query": "mechnical engineer", "archetype": "misspelled_casual"}
+{"query_id": "probe_long_001", "query": "remote senior data scientist healthcare 5 years experience", "archetype": "long_nl"}
+{"query_id": "probe_long_002", "query": "looking for entry level marketing roles in austin texas", "archetype": "long_nl"}
+{"query_id": "probe_long_003", "query": "experienced project manager with PMP certification", "archetype": "long_nl"}
+{"query_id": "probe_long_004", "query": "part time accountant evenings only", "archetype": "long_nl"}
+{"query_id": "probe_long_005", "query": "data analyst willing to relocate to bay area", "archetype": "long_nl"}
+{"query_id": "probe_long_006", "query": "software engineer 3 years react remote startup", "archetype": "long_nl"}
+{"query_id": "probe_neg_001", "query": "engineer not python", "archetype": "negation"}
+{"query_id": "probe_neg_002", "query": "manager no travel", "archetype": "negation"}
+{"query_id": "probe_neg_003", "query": "developer non remote", "archetype": "negation"}
+{"query_id": "probe_neg_004", "query": "nurse no nights", "archetype": "negation"}
+{"query_id": "probe_tail_001", "query": "robotics perception engineer lidar", "archetype": "tail_rare"}
+{"query_id": "probe_tail_002", "query": "FedRAMP compliance analyst", "archetype": "tail_rare"}
+{"query_id": "probe_tail_003", "query": "HSM cryptography engineer", "archetype": "tail_rare"}
+{"query_id": "probe_tail_004", "query": "offshore wind turbine technician", "archetype": "tail_rare"}
+{"query_id": "probe_tail_005", "query": "forensic accountant cryptocurrency", "archetype": "tail_rare"}
+{"query_id": "probe_tail_006", "query": "veterinary radiology technician", "archetype": "tail_rare"}
