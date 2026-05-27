@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """One-shot full re-push: original fields (title, vectors, metadata) + the
 9 facet fields from facets.jsonl. Replaces atomic_update_facets.py which
-wiped the unstored title field.
+wiped the unstored title field. The dense vec field (`bge_vec` for schema
+backwards-compat) now carries e5-small-v2 vectors.
 """
 
 import json
@@ -49,7 +50,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
         titles = json.load(f)
     with open(os.path.join(STAGE, "source_index.json")) as f:
         sources = json.load(f)["sources"]
-    bge = np.load(os.path.join(STAGE, "bge_catalog.vecs.fp16.npy"), mmap_mode="r")
+    dense = np.load(os.path.join(STAGE, "e5_small_catalog.vecs.fp16.npy"), mmap_mode="r")
     te3 = np.load(os.path.join(STAGE, "te3_catalog.vecs.fp16.npy"), mmap_mode="r")
 
     import csv as _csv
@@ -92,7 +93,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "posted_at": rec.get("posted_at") or "",
                 "source_corpus": sources[i],
                 "description": rec.get("description") or "",
-                "bge_vec": bge[i].astype(np.float32).tolist(),
+                "bge_vec": dense[i].astype(np.float32).tolist(),
                 "te3_vec": te3[i].astype(np.float32).tolist(),
             }
             if rec.get("salary_min") is not None:
