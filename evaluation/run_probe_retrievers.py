@@ -68,6 +68,11 @@ def main():
     ap.add_argument("--e5-catalog", default="e5_base_catalog.vecs.fp16.npy")
     ap.add_argument("--e5-model", default="intfloat/e5-base-v2")
     ap.add_argument("--e5-prefix", default="query: ")
+    ap.add_argument(
+        "--bge-base-catalog", default=None, help="If set, also run bge-base over the probe set."
+    )
+    ap.add_argument("--bge-base-model", default="BAAI/bge-base-en-v1.5")
+    ap.add_argument("--bge-base-prefix", default="")
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--device", default="mps")
     ap.add_argument("--output", required=True)
@@ -137,6 +142,30 @@ def main():
             "doc_ids": [doc_ids[int(x)] for x in top[qi].tolist()],
         }
     print(f"  e5_base done in {time.time() - t0:.1f}s", flush=True)
+
+    # --- bge-base (st, optional) ---
+    if args.bge_base_catalog:
+        print("\n=== bge_base ===", flush=True)
+        t0 = time.time()
+        bge_cat = (
+            data / args.bge_base_catalog
+            if not os.path.isabs(args.bge_base_catalog)
+            else Path(args.bge_base_catalog)
+        )
+        top = st_topk_with_argsort(
+            qtexts,
+            bge_cat,
+            args.bge_base_model,
+            args.k,
+            device=args.device,
+            query_prefix=args.bge_base_prefix,
+        )
+        for qi, q in enumerate(queries):
+            out_rows[q["query_id"]]["retrievers"]["bge_base"] = {
+                "doc_indices": [int(x) for x in top[qi].tolist()],
+                "doc_ids": [doc_ids[int(x)] for x in top[qi].tolist()],
+            }
+        print(f"  bge_base done in {time.time() - t0:.1f}s", flush=True)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
