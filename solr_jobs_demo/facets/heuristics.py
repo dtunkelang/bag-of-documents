@@ -24,10 +24,22 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(registered nurse|RN|LPN|LVN|CNA|nurse practitioner|NP|"
+            r"licensed practical nurse|licensed vocational nurse|"
             r"physician|MD\b|doctor|surgeon|pharmacist|dentist|veterinarian|"
             r"psychiatrist|psychologist|therapist|physical therapist|PT\b|"
             r"occupational therapist|OT\b|respiratory therapist|"
             r"nursing assistant|nurse aide|midwife|EMT|paramedic|"
+            r"med(?:ication)? aide|sterile processing|"
+            r"home care|personal care aide|caregiver|caretaker|"
+            r"(residential|substance abuse|mental health|behavioral health) counselor|"
+            r"(psychiatric|mental health|behavioral health|clinical) "
+            r"(clinician|specialist|therapist|supervisor)|"
+            r"(veterinary|veterinarian) (assistant|technician|nurse)|"
+            r"triage (nurse|specialist|supervisor|coordinator|associate)|"
+            r"kinesiotherapist|kinesiologist|"
+            r"patient (intake|care) (associate|specialist|coordinator|assistant)|"
+            r"clinical (research )?coordinator|"
+            r"prosthodontist|periodontist|orthodontist|endodontist|"
             r"radiologic technologist|sonographer|phlebotomist)\b"
         ),
         "healthcare_clinical",
@@ -53,16 +65,26 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     (
         _ci(
-            r"\b(medical (lab|laboratory) technician|lab tech|MLT\b|"
+            r"\b(medical (lab|laboratory) (technician|scientist)|"
+            r"MLS\b|MLT\b|lab tech|"
             r"radiology tech|imaging tech|ultrasound tech|pharmacy tech|"
-            r"dental hygienist|dental assistant|medical assistant)\b"
+            r"dental hygienist|dental assistant|medical assistant|"
+            r"patient transport|EKG tech|EEG tech|"
+            r"(CT|MRI|x[- ]ray|cardiac|surgical|imaging|ultrasound|"
+            r"cath lab|nuclear medicine|mammography|polysomnographic) "
+            r"technologist)\b"
         ),
         "healthcare_allied",
     ),
     (
         _ci(
             r"\b(medical (biller|coder|coding|billing|scheduler|records)|"
-            r"hospital administrat|patient services coordinator|patient access)\b"
+            r"hospital administrat|patient services coordinator|patient access|"
+            r"claims (handler|administrator|adjuster|representative|examiner|"
+            r"analyst|specialist|processor|coordinator|manager)|"
+            r"medical claims|"
+            r"patient (navigator|advocate|liaison|coordinator|representative)|"
+            r"practice (assistant|manager|coordinator|administrator))\b"
         ),
         "healthcare_admin",
     ),
@@ -71,7 +93,10 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(security engineer|security analyst|security architect|"
             r"infosec|cybersecurity|cyber security|penetration tester|pentester|"
-            r"SOC analyst|threat (analyst|intel|hunt)|incident response|"
+            r"SOC analyst|threat (analyst|intel(?:ligence)?|hunt(?:ing)?)|incident response|"
+            r"information security|"
+            r"(security|cybersecurity|infosec) (network|director|manager|VP|head|lead)|"
+            r"network security|"
             r"application security|appsec|GRC)\b"
         ),
         "security",
@@ -80,7 +105,7 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(DevOps|SRE\b|site reliability|platform engineer|infrastructure engineer|"
-            r"cloud engineer|systems engineer|sysadmin|system administrator|"
+            r"cloud engineer|systems engineer|sysadmin|systems? administrator|"
             r"network engineer|kubernetes engineer|reliability engineer)\b"
         ),
         "devops_sre_infra",
@@ -145,8 +170,10 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(software engineer|software developer|SDE\b|SWE\b|"
-            r"backend engineer|back[- ]end|frontend engineer|front[- ]end|"
-            r"full[- ]stack|web developer|mobile developer|iOS developer|"
+            r"backend engineer|back[- ]end|\bbackend\b|"
+            r"frontend engineer|front[- ]end|\bfrontend\b|"
+            r"full[- ]stack|\bfullstack\b|"
+            r"web developer|mobile developer|iOS developer|"
             r"android developer|game developer|firmware engineer|embedded engineer|"
             r"QA engineer|test engineer|SDET|automation engineer|"
             r"engineering (manager|director|lead|head)|head of engineering|"
@@ -154,6 +181,15 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"software (architect|engineering)|solutions architect|"
             r"technical architect|principal architect|enterprise architect|"
             r"cloud architect|systems? architect|"
+            r"SAP (technical|developer|engineer|architect|basis|HCM|ABAP|"
+            r"IT (director|manager|consultant|lead))|"
+            r"Salesforce (admin|administrator|developer|engineer|consultant|architect)|"
+            r"Oracle (CPQ|EBS|cloud|consultant|developer|architect|engineer|admin)|"
+            r"systems analyst|"
+            r"IT (infrastructure|operations) (manager|director|head|lead|VP)|"
+            r"(early career|new grad) (engineer|architecture|developer|opportunities)|"
+            r"(android|iOS|mobile|web|game|firmware|embedded|backend|frontend) "
+            r"(team\s+lead|tech\s+lead|lead)|"
             r"developer\b|"
             r"engineer\b)\b"
         ),
@@ -172,7 +208,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(product manager|PM\b|product owner|group product manager|GPM|"
-            r"chief product officer|CPO\b)\b"
+            r"chief product officer|CPO\b|"
+            r"product lead|growth lead|head of product)\b"
         ),
         "product_management",
     ),
@@ -189,7 +226,24 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(marketing|growth|brand|SEO|SEM|content marketing|"
             r"social media manager|community manager|PR\b|public relations|"
-            r"copywriter|demand gen|email marketing|product marketing|PMM\b)\b"
+            r"copywriter|demand gen|email marketing|product marketing|PMM\b|"
+            r"(earned|paid|owned) media|user acquisition|"
+            r"analyst relations|influencer (marketing|relations|manager|director|strategist)|"
+            r"head of (brand|marketing|growth|acquisition|content|communications)|"
+            r"creative director,?\s+marketing|"
+            r"social & influencer|social and influencer|"
+            r"programmatic (lead|manager|director|specialist|trader|analyst|"
+            r"planner|coordinator|associate)|"
+            r"paid (search|media|social) (lead|manager|director|specialist|"
+            r"analyst|coordinator|planner|associate)|"
+            r"demand generation|"
+            r"\bcommunications? (specialist|manager|director|lead|coordinator|"
+            r"associate|consultant)|"
+            r"digital accessibility|"
+            r"field marketing|"
+            r"(field|partner|channel) enablement|"
+            r"(VP|director|manager|head),?\s+communications|"
+            r"(VP|director|manager),?\s+(?:public )?(?:affairs|marketing|brand))\b"
         ),
         "marketing",
     ),
@@ -198,14 +252,30 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(account executive|AE\b|accounts executive|"
             r"sales (rep|representative|development|"
-            r"manager|director|engineer|specialist|strategy|consultant|associate)|"
+            r"manager|director|engineer|specialist|strategy|consultant|associate|"
+            r"assistant|supervisor|operations|coordinator|lead)|"
             r"SDR\b|BDR\b|business development|biz dev|"
             r"inside sales|outside sales|sales associate|territory manager|"
-            r"market development|partnerships (manager|director)|"
+            r"market development|"
+            r"partnerships?\s+(manager|director|lead|principal|associate)|"
+            r"senior director,?\s+partnerships|director,?\s+partnerships|"
+            r"VP,?\s+partnerships|head of partnerships|"
+            r"account (supervisor|coordinator)|"
+            r"client (development|solutions|partner|relationship|engagement) "
+            r"(associate|manager|director|lead|specialist)?|"
+            r"client solutions director|"
             r"pre[- ]sales|presales|"
             r"VP,?\s+(.+\s+)?sales|director,?\s+(.+\s+)?sales|"
             r"manager,?\s+(.+\s+)?sales|head of sales|"
-            r"head of (revenue|growth)|VP (of )?revenue)\b"
+            r"head of (revenue|growth|business development|enterprise|customer)|"
+            r"alliances? (manager|director|VP|lead|head|partner)|"
+            r"(director|VP|head|manager),?\s+alliances|"
+            r"(VIP|key account)\s+relationship\s+(manager|director|specialist|lead)|"
+            r"account development (manager|director|VP|lead|associate)|"
+            r"VP,?\s+account director|"
+            r"sales executive (senior )?director|"
+            r"district (partner|partnership) (specialist|manager|director)|"
+            r"VP (of )?revenue)\b"
         ),
         "sales",
     ),
@@ -232,10 +302,38 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"bookkeeper|"
             r"financial analyst|FP&A|financial planning|treasury|"
             r"tax(?: associate| analyst| director| manager)?|"
-            r"investment banking|portfolio manager|underwriter|"
+            r"investment (banking|analyst|associate|banker|principal|director|manager)|"
+            r"portfolio manager|underwriter|"
             r"equity research|deductions specialist|"
             r"corporate finance|head of (corporate )?finance|"
             r"banca product|bancassurance|"
+            r"credit (analyst|manager|officer|risk)|"
+            r"billing (clerk|specialist|coordinator|assistant)|"
+            r"payroll (specialist|coordinator|clerk|assistant|"
+            r"manager|consultant|administrator|analyst|director)|"
+            r"branch banking|"
+            r"risk (management )?(principal|director|VP|head)|"
+            r"trade surveillance|"
+            r"head of commercial compliance|"
+            r"\bteller\b|fraud (insights|analyst|specialist|investigator|"
+            r"operations|manager|director)|"
+            r"SIU investigator|"
+            r"internal controls|"
+            r"(member|client) (banker|relationship specialist|relationship banker)|"
+            r"private equity|hedge fund|"
+            r"(finance|accounting|banking|payroll|treasury) (internship|intern)|"
+            r"(commercial|loan|closing) (specialist|coordinator|officer)|"
+            r"(bedbanks|originations?)\s+(analyst|director|manager|VP|head)|"
+            r"director,?\s+origination|"
+            r"budget (analyst|manager|director|specialist)|"
+            r"trust (assurance|fund|operations) (analyst|manager|director|officer|specialist)|"
+            r"collection(?:s)? (analyst|specialist|representative|coordinator|"
+            r"manager|director|associate)|"
+            r"balance sheet (manager|director|management|VP)|"
+            r"pricing (analyst|manager|director|specialist|strategist|coordinator)|"
+            r"retirement plan (specialist|manager|director|consultant|advisor)|"
+            r"risk (?:and|&) compliance|"
+            r"alternative distribution|"
             r"chief financial officer|CFO\b)\b"
         ),
         "finance_accounting",
@@ -244,7 +342,13 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(attorney|lawyer|paralegal|legal counsel|compliance officer|"
-            r"general counsel|associate attorney|law clerk)\b"
+            r"general counsel|associate attorney|law clerk|"
+            r"(employment|tax|corporate|patent|trademark|trade|regulatory|"
+            r"commercial|labor|privacy|litigation|securities|IP) counsel|"
+            r"(appellate|litigation|patent|trademark|antitrust|securities|"
+            r"corporate|tax|employment|immigration|family law|criminal|"
+            r"intellectual property) (section|department|practice|group|"
+            r"division|director|head|manager|partner|associate))\b"
         ),
         "legal",
     ),
@@ -257,7 +361,15 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"people partner|people & culture|talent manager|sourcer|HR generalist|"
             r"compensation analyst|benefits|"
             r"learning and development|L&D\b|training specialist|"
+            r"training (facilitator|coordinator|director|manager|lead|"
+            r"specialist|consultant|developer)|"
+            r"(technical|sales|customer|leadership) training|"
             r"performance management|"
+            r"talent (business partner|business management|"
+            r"development manager|operations|community|pool|"
+            r"acquisition partner|management consultant)|"
+            r"collective bargaining|labor relations|"
+            r"(global )?head of (people|HR|talent|culture)|"
             r"chief people officer|CPO\b people|CHRO\b)\b"
         ),
         "hr_people_ops",
@@ -267,7 +379,12 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(teacher|tutor|instructor|professor|lecturer|"
             r"adjunct|teaching assistant|TA\b|education coordinator|"
-            r"curriculum designer|principal of (?:education|school))\b"
+            r"curriculum designer|curriculum (coordinator|developer|"
+            r"director|specialist|manager)|"
+            r"instructional designer|"
+            r"principal of (?:education|school)|"
+            r"(assistant|vice|school) principal|head of school|"
+            r"head teacher|head of education)\b"
         ),
         "education_teaching",
     ),
@@ -275,7 +392,14 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(postdoc|postdoctoral|research associate|research scientist|"
-            r"PhD candidate|research fellow|lab manager)\b"
+            r"PhD candidate|research fellow|lab manager|"
+            r"(staff|principal|senior|chief|junior|quantum|materials|"
+            r"computational|aerospace|biomedical|climate|earth|atmospheric|"
+            r"physical|life|forensic|defense|nuclear|space|environmental) "
+            r"(scientist|researcher)|"
+            r"principal investigator|"
+            r"ML research resident|research resident|"
+            r"(machine learning|deep learning|NLP|computer vision) researcher)\b"
         ),
         "research_academic",
     ),
@@ -285,7 +409,14 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"\b(electrician|plumber|HVAC|carpenter|welder|machinist|"
             r"mechanic|technician|millwright|pipefitter|sheet metal|"
             r"construction worker|laborer|foreman|superintendent|"
-            r"site supervisor|estimator|construction manager)\b"
+            r"site supervisor|estimator|construction manager|"
+            r"(QC|safety|civil|aviation|building|construction|site|"
+            r"field|environmental|FDA|maintenance) inspector|"
+            r"cladder|fabricator|"
+            r"(?<!data\s)installer|(?<!cable\s)tradesperson|tradesman|"
+            r"maintenance (planner|coordinator|technician|supervisor|"
+            r"specialist|mechanic|manager|engineer)|"
+            r"data center construction)\b"
         ),
         "skilled_trades_construction",
     ),
@@ -294,7 +425,9 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(driver|truck driver|CDL|delivery driver|courier|"
             r"dispatcher|warehouse|forklift|material handler|"
-            r"logistics|supply chain|fleet manager|freight)\b"
+            r"logistics|supply chain|fleet manager|freight|"
+            r"(airport )?ramp agent|airline operations|"
+            r"baggage handler|ground crew)\b"
         ),
         "transportation_logistics",
     ),
@@ -304,7 +437,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"\b(chef|sous chef|line cook|prep cook|baker|bartender|"
             r"server|waiter|waitress|host(?:ess)?|barista|"
             r"hotel|housekeep|concierge|front desk|hospitality|"
-            r"restaurant manager|catering)\b"
+            r"restaurant manager|catering|food service worker|"
+            r"food service (associate|manager|director|supervisor))\b"
         ),
         "food_service_hospitality",
     ),
@@ -322,7 +456,16 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(writer|editor|journalist|content creator|copywriter(?! marketing)|"
             r"illustrator|graphic designer|video editor|videographer|"
-            r"photographer|animator|art director|creative director)\b"
+            r"photographer|animator|art director|creative director|"
+            r"(motion|apparel|fashion|textile|industrial|integrated|game|3D|"
+            r"fabric|jewelry|footwear|costume) designer|"
+            r"(audio|video|content|digital|creative|executive|associate|line|"
+            r"senior|junior|staff|news|radio|podcast|broadcast|film|TV|"
+            r"music|game) producer|"
+            r"(character|concept|3D|2D|game|texture|VFX|"
+            r"environment|technical|lighting|matte|storyboard) artist|"
+            r"managing editor|"
+            r"editorial (specialist|coordinator|director|manager|associate|QC))\b"
         ),
         "creative_content",
     ),
@@ -331,7 +474,18 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(machine operator|production (worker|associate|technician)|"
             r"assembly|assembler|manufacturing engineer|process engineer|"
-            r"quality (engineer|inspector|technician)|industrial engineer)\b"
+            r"quality (engineer|inspector|technician|lead|supervisor|"
+            r"coordinator|specialist|manager)|FSQA|food safety quality|"
+            r"quality control (manager|director|inspector|technician|specialist)|"
+            r"continuous improvement (coordinator|specialist|engineer|"
+            r"manager|lead)|industrial engineer|"
+            r"(CMM|CNC|PLC) (programmer|operator|technician|machinist)|"
+            r"quality and food safety|food safety (and|&)? quality|"
+            r"quality associate|"
+            r"(section|line|shift|production) leader|"
+            r"front load section|"
+            r"food production worker|"
+            r"operateur|opérateur\.?(?:trice)? de machine)\b"
         ),
         "manufacturing_production",
     ),
@@ -340,7 +494,12 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         _ci(
             r"\b(police officer|deputy sheriff|firefighter|"
             r"corrections officer|security officer|security guard|"
-            r"loss prevention officer|park ranger|safety officer)\b"
+            r"loss prevention officer|park ranger|safety officer|"
+            r"border patrol|TSA|customs (and )?(border|immigration)|"
+            r"immigration (officer|agent|inspector)|"
+            r"federal (agent|investigator)|"
+            r"firearm.* examiner|toolmark|forensic (examiner|specialist|analyst)|"
+            r"aviation safety|FAA inspector)\b"
         ),
         "public_safety",
     ),
@@ -359,7 +518,13 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"\b(management consultant|strategy consultant|"
             r"associate consultant|partner, consulting|"
             r"director of strategy|head of strategy|strategist|"
-            r"strategic (planning|advisor)|chief of staff)\b"
+            r"strategic (planning|advisor|sourcing|partnerships|"
+            r"initiatives|operations|alliance|advisor)|"
+            r"(enterprise|solution|implementation|business) consultant|"
+            r"corporate strategy (manager|director|associate|senior associate|"
+            r"principal|lead)|"
+            r"market intelligence|strategy & market|"
+            r"chief of staff)\b"
         ),
         "consulting_strategy",
     ),
@@ -367,13 +532,16 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(operations manager|operations analyst|operations associate|"
-            r"operations (lead|leader|director|coordinator|specialist)|"
+            r"operations (lead|leader|director|coordinator|specialist|strategy)|"
+            r"senior associate,?\s+operations|"
             r"executive assistant|administrative assistant|admin assistant|"
+            r"administrative (specialist|coordinator|associate)|"
+            r"office (support|clerk|administrator)|"
             r"personal assistant|receptionist|secretary|"
             r"office manager|office coordinator|business operations|biz ops|"
             r"fleet (manager|administrator)|"
             r"procurement|sourcing manager|buyer\b|category manager|"
-            r"facilities (manager|coordinator)|"
+            r"facilities (manager|coordinator|specialist|engineer|project)|"
             r"program assistant|program coordinator|"
             r"asset management|portfolio (administration|administrator)|"
             r"grants (manager|administrator)|"
