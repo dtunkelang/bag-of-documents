@@ -1,0 +1,87 @@
+{
+  "data_dir": "/Users/dtunkelang/bagofdocs/unified_jobs",
+  "n_queries": 3311,
+  "k": 10,
+  "results": {
+    "bm25": {
+      "kind": "bm25",
+      "elapsed_s": 7.32,
+      "r_at_1": 0.3129,
+      "r_at_5": 0.4739,
+      "r_at_10": 0.5403,
+      "n": 3311,
+      "breakdown": {
+        "_unknown": {
+          "n": 3311,
+          "r_at_1": 0.3129,
+          "r_at_5": 0.4739,
+          "r_at_10": 0.5403
+        }
+      }
+    },
+    "te3_large_1024": {
+      "kind": "preenc",
+      "elapsed_s": 19.11,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049,
+      "n": 3311,
+      "breakdown": {
+        "_unknown": {
+          "n": 3311,
+          "r_at_1": 0.4473,
+          "r_at_5": 0.6352,
+          "r_at_10": 0.7049
+        }
+      }
+    },
+    "bge_small": {
+      "kind": "st",
+      "elapsed_s": 31.5,
+      "r_at_1": 0.3066,
+      "r_at_5": 0.4672,
+      "r_at_10": 0.5322,
+      "n": 3311,
+      "breakdown": {
+        "_unknown": {
+          "n": 3311,
+          "r_at_1": 0.3066,
+          "r_at_5": 0.4672,
+          "r_at_10": 0.5322
+        }
+      }
+    },
+    "bge_bod": {
+      "kind": "st",
+      "elapsed_s": 19.12,
+      "r_at_1": 0.1477,
+      "r_at_5": 0.2815,
+      "r_at_10": 0.3452,
+      "n": 3311,
+      "breakdown": {
+        "_unknown": {
+          "n": 3311,
+          "r_at_1": 0.1477,
+          "r_at_5": 0.2815,
+          "r_at_10": 0.3452
+        }
+      }
+    },
+    "bge_base": {
+      "kind": "st",
+      "elapsed_s": 27.14,
+      "r_at_1": 0.3105,
+      "r_at_5": 0.4772,
+      "r_at_10": 0.5506,
+      "n": 3311,
+      "breakdown": {
+        "_unknown": {
+          "n": 3311,
+          "r_at_1": 0.3105,
+          "r_at_5": 0.4772,
+          "r_at_10": 0.5506
+        }
+      }
+    }
+  }
+}

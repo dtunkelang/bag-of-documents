@@ -43,6 +43,11 @@ def main():
     ap.add_argument(
         "--doc-prefix", default="", help="optional prefix prepended to each doc (e.g., 'passage: ')"
     )
+    ap.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="enable for models with custom architectures (e.g., gte-v1.5, nomic-embed)",
+    )
     args = ap.parse_args()
 
     from sentence_transformers import SentenceTransformer
@@ -58,7 +63,10 @@ def main():
 
     print(f"loading {args.model} on {args.device}...", flush=True)
     t0 = time.time()
-    model = SentenceTransformer(args.model, device=args.device)
+    st_kwargs = {"device": args.device}
+    if args.trust_remote_code:
+        st_kwargs["trust_remote_code"] = True
+    model = SentenceTransformer(args.model, **st_kwargs)
     if args.max_seq_length > 0:
         model.max_seq_length = args.max_seq_length
     dim = model.get_sentence_embedding_dimension()

@@ -119,10 +119,23 @@ def bm25_topk(queries, idx, stemmer, k):
     return out_idx  # (n, k) row-array of doc indices
 
 
-def st_topk(queries, vecs_path: Path, model_id: str, k: int, device: str = "mps"):
+def st_topk(
+    queries,
+    vecs_path: Path,
+    model_id: str,
+    k: int,
+    device: str = "mps",
+    query_prefix: str = "",
+    trust_remote_code: bool = False,
+):
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(model_id, device=device)
+    st_kwargs = {"device": device}
+    if trust_remote_code:
+        st_kwargs["trust_remote_code"] = True
+    model = SentenceTransformer(model_id, **st_kwargs)
+    if query_prefix:
+        queries = [query_prefix + q for q in queries]
     qv = model.encode(
         queries,
         normalize_embeddings=True,
@@ -138,8 +151,18 @@ def st_topk(queries, vecs_path: Path, model_id: str, k: int, device: str = "mps"
     return np.argpartition(-scores, kth=k, axis=1)[:, :k], scores
 
 
-def st_topk_with_argsort(queries, vecs_path: Path, model_id: str, k: int, device: str = "mps"):
-    top_idx, scores = st_topk(queries, vecs_path, model_id, k, device)
+def st_topk_with_argsort(
+    queries,
+    vecs_path: Path,
+    model_id: str,
+    k: int,
+    device: str = "mps",
+    query_prefix: str = "",
+    trust_remote_code: bool = False,
+):
+    top_idx, scores = st_topk(
+        queries, vecs_path, model_id, k, device, query_prefix, trust_remote_code
+    )
     # sort within top-k by score desc
     out = []
     for r, idx in enumerate(top_idx):
@@ -236,7 +259,24 @@ def main():
         default=None,
         help="optional query-row field name; if present, also report per-bucket R@K",
     )
+    ap.add_argument(
+        "--query-prefix",
+        action="append",
+        default=[],
+        help="per-retriever query prefix, format name=PREFIX (e.g. e5_base='query: '); repeatable",
+    )
+    ap.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="pass trust_remote_code=True to SentenceTransformer for custom-arch models",
+    )
     args = ap.parse_args()
+    query_prefix_map: dict[str, str] = {}
+    for spec in args.query_prefix:
+        if "=" not in spec:
+            raise SystemExit(f"--query-prefix must be name=PREFIX: {spec}")
+        name, _, prefix = spec.partition("=")
+        query_prefix_map[name] = prefix
 
     data = Path(args.data_dir)
     titles = load_titles(data / "titles.json")
@@ -276,7 +316,10 @@ def main():
             top = bm25_topk(qtexts, bm25_idx, bm25_stem, args.k)
         elif s["kind"] == "st":
             vp = data / s["vecs"] if not os.path.isabs(s["vecs"]) else Path(s["vecs"])
-            top = st_topk_with_argsort(qtexts, vp, s["model_id"], args.k, args.device)
+            qp = query_prefix_map.get(name, "")
+            top = st_topk_with_argsort(
+                qtexts, vp, s["model_id"], args.k, args.device, qp, args.trust_remote_code
+            )
         elif s["kind"] == "openai":
             vp = data / s["vecs"] if not os.path.isabs(s["vecs"]) else Path(s["vecs"])
             top = openai_topk(qtexts, vp, s["model"], s["dim"], args.k)
