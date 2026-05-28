@@ -1,0 +1,207 @@
+{
+  "data_dir": "unified_jobs",
+  "n_queries": 3311,
+  "name": "te3_large_1024",
+  "catalog_vecs": "unified_jobs/te3_catalog.vecs.fp16.npy",
+  "residualize": "q_perp",
+  "results": [
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.0,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 8.52,
+      "n": 3311,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.1,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 22.71,
+      "n": 3311,
+      "r_at_1": 0.4322,
+      "r_at_5": 0.6318,
+      "r_at_10": 0.6901
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.2,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 22.38,
+      "n": 3311,
+      "r_at_1": 0.3993,
+      "r_at_5": 0.6195,
+      "r_at_10": 0.6771
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.3,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 21.53,
+      "n": 3311,
+      "r_at_1": 0.3537,
+      "r_at_5": 0.6001,
+      "r_at_10": 0.6614
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.5,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 21.45,
+      "n": 3311,
+      "r_at_1": 0.161,
+      "r_at_5": 0.4947,
+      "r_at_10": 0.5935
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.7,
+      "k_prf": 5,
+      "residualize": "q_perp",
+      "elapsed_s": 20.74,
+      "n": 3311,
+      "r_at_1": 0.0519,
+      "r_at_5": 0.3038,
+      "r_at_10": 0.4219
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.0,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 7.9,
+      "n": 3311,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.1,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 18.2,
+      "n": 3311,
+      "r_at_1": 0.4283,
+      "r_at_5": 0.6158,
+      "r_at_10": 0.6916
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.2,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 18.67,
+      "n": 3311,
+      "r_at_1": 0.3899,
+      "r_at_5": 0.5835,
+      "r_at_10": 0.6702
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.3,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 16.7,
+      "n": 3311,
+      "r_at_1": 0.3286,
+      "r_at_5": 0.5319,
+      "r_at_10": 0.6336
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.5,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 15.04,
+      "n": 3311,
+      "r_at_1": 0.116,
+      "r_at_5": 0.3374,
+      "r_at_10": 0.4754
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.7,
+      "k_prf": 10,
+      "residualize": "q_perp",
+      "elapsed_s": 14.73,
+      "n": 3311,
+      "r_at_1": 0.0239,
+      "r_at_5": 0.1265,
+      "r_at_10": 0.2214
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.0,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 7.79,
+      "n": 3311,
+      "r_at_1": 0.4473,
+      "r_at_5": 0.6352,
+      "r_at_10": 0.7049
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.1,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 15.93,
+      "n": 3311,
+      "r_at_1": 0.4283,
+      "r_at_5": 0.6137,
+      "r_at_10": 0.6847
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.2,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 15.5,
+      "n": 3311,
+      "r_at_1": 0.3839,
+      "r_at_5": 0.5687,
+      "r_at_10": 0.6515
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.3,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 15.18,
+      "n": 3311,
+      "r_at_1": 0.3105,
+      "r_at_5": 0.4959,
+      "r_at_10": 0.5883
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.5,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 15.25,
+      "n": 3311,
+      "r_at_1": 0.087,
+      "r_at_5": 0.2362,
+      "r_at_10": 0.3452
+    },
+    {
+      "name": "te3_large_1024",
+      "lambda": 0.7,
+      "k_prf": 20,
+      "residualize": "q_perp",
+      "elapsed_s": 16.28,
+      "n": 3311,
+      "r_at_1": 0.0097,
+      "r_at_5": 0.058,
+      "r_at_10": 0.1045
+    }
+  ]
+}

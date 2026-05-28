@@ -4,7 +4,14 @@
 Tests whether blending the query with the mean of its top-k initial-pass
 documents materially improves R@K. Standard one-pass PRF:
 
-    q' = (1 - lambda) * q + lambda * mean(top_k_prf docs)   (normalized)
+    q' = (1 - lambda) * q + lambda * c                       (then normalized)
+
+where c is the top-k centroid, optionally residualized via --residualize:
+    none        : c = centroid                                (plain Rocchio)
+    q_perp      : c = centroid - (centroid . q) * q           (drop the q-parallel
+                                                               component before blend)
+    corpus_mean : c = centroid - mean(catalog)                (drop generic
+                                                               popular-doc directions)
 
 then re-score the full catalog with q'. lambda=0 reproduces the base retriever.
 
@@ -120,23 +127,41 @@ def rocchio_topk(
     k_eval: int,
     k_prf: int,
     lam: float,
+    residualize: str = "none",
+    corpus_mean: np.ndarray | None = None,
 ) -> np.ndarray:
     """Two-pass PRF. First pass: top-k_prf for centroid. Second pass: re-score full
-    catalog with blended query. Batched to keep score-matrix memory bounded."""
+    catalog with blended query. Batched to keep score-matrix memory bounded.
+
+    residualize:
+      * "none"        — standard Rocchio: q' = (1-lam)*q + lam*centroid
+      * "q_perp"      — drop the component of centroid parallel to q before blending,
+                        so PRF can only move q in directions it doesn't already hold
+      * "corpus_mean" — subtract the global catalog mean from centroid before blending,
+                        cancelling generic popular-doc directions
+    """
     if lam == 0.0:
         return _topk_in_batches(qv_norm, cat_norm, k_eval)
+    if residualize == "corpus_mean" and corpus_mean is None:
+        raise ValueError("residualize=corpus_mean requires corpus_mean")
 
     n_q = qv_norm.shape[0]
     out = np.empty((n_q, k_eval), dtype=np.int64)
     for s in range(0, n_q, QUERY_BATCH):
         e = min(s + QUERY_BATCH, n_q)
-        sc1 = qv_norm[s:e] @ cat_norm.T
+        q_batch = qv_norm[s:e]
+        sc1 = q_batch @ cat_norm.T
         top_prf = np.argpartition(-sc1, kth=k_prf, axis=1)[:, :k_prf]
         centroids = np.stack(
             [cat_norm[top_prf[r]].mean(axis=0) for r in range(top_prf.shape[0])], axis=0
         )
         centroids = normalize_rows(centroids)
-        q_adapted = normalize_rows((1.0 - lam) * qv_norm[s:e] + lam * centroids)
+        if residualize == "q_perp":
+            proj = np.sum(centroids * q_batch, axis=1, keepdims=True)
+            centroids = normalize_rows(centroids - proj * q_batch)
+        elif residualize == "corpus_mean":
+            centroids = normalize_rows(centroids - corpus_mean)
+        q_adapted = normalize_rows((1.0 - lam) * q_batch + lam * centroids)
         sc2 = q_adapted @ cat_norm.T
         idx = np.argpartition(-sc2, kth=k_eval, axis=1)[:, :k_eval]
         for r in range(idx.shape[0]):
@@ -183,6 +208,12 @@ def main():
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--top-k-prf", type=int, default=10)
     ap.add_argument("--lambdas", default="0.0,0.1,0.2,0.3,0.5,0.7")
+    ap.add_argument(
+        "--residualize",
+        default="none",
+        choices=["none", "q_perp", "corpus_mean"],
+        help="PRF centroid residualization mode; see rocchio_topk docstring",
+    )
     ap.add_argument(
         "--sweep",
         action="store_true",
@@ -231,17 +262,34 @@ def main():
     lambdas = [float(x) for x in args.lambdas.split(",")]
     k_prfs = [5, 10, 20] if args.sweep else [args.top_k_prf]
 
+    corpus_mean = None
+    if args.residualize == "corpus_mean":
+        t_cm = time.time()
+        corpus_mean = cat_norm.mean(axis=0, keepdims=True).astype(np.float32)
+        print(f"corpus mean computed in {time.time() - t_cm:.1f}s", flush=True)
+
+    print(f"residualize mode: {args.residualize}", flush=True)
+
     results = []
     for k_prf in k_prfs:
         for lam in lambdas:
             t1 = time.time()
-            top = rocchio_topk(qv, cat_norm, args.k, k_prf, lam)
+            top = rocchio_topk(
+                qv,
+                cat_norm,
+                args.k,
+                k_prf,
+                lam,
+                residualize=args.residualize,
+                corpus_mean=corpus_mean,
+            )
             m = hit_metrics(top, golds, args.k)
             elapsed = time.time() - t1
             row = {
                 "name": args.name,
                 "lambda": lam,
                 "k_prf": k_prf,
+                "residualize": args.residualize,
                 "elapsed_s": round(elapsed, 2),
                 **m,
             }
@@ -258,6 +306,7 @@ def main():
         "n_queries": len(queries),
         "name": args.name,
         "catalog_vecs": str(vec_path),
+        "residualize": args.residualize,
         "results": results,
     }
     if args.output:
