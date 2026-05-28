@@ -193,6 +193,7 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"(early career|new grad) (engineer|architecture|developer|opportunities)|"
             r"(android|iOS|mobile|web|game|firmware|embedded|backend|frontend) "
             r"(team\s+lead|tech\s+lead|lead)|"
+            r"member of technical staff|"
             r"developer\b|"
             r"engineer\b)\b"
         ),
@@ -419,6 +420,8 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"(?<!data\s)installer|(?<!cable\s)tradesperson|tradesman|"
             r"maintenance (planner|coordinator|technician|supervisor|"
             r"specialist|mechanic|manager|engineer)|"
+            r"tool (and|&) die maker|"
+            r"utility systems repairer(?:[ \-]+operator(?:\s+helper)?)?|"
             r"data center construction)\b"
         ),
         "skilled_trades_construction",
