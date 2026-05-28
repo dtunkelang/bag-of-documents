@@ -1,0 +1,16 @@
+{
+  "base_model": "intfloat/e5-base-v2",
+  "query_prefix": "query: ",
+  "n_train_pairs": 35367,
+  "n_eval": 3311,
+  "epochs": 20,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "metrics": {
+    "n": 3311,
+    "r_at_1": 0.2162,
+    "r_at_5": 0.3799,
+    "r_at_10": 0.4618
+  },
+  "te3_baseline_r_at_10": 0.7049
+}
