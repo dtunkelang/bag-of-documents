@@ -90,6 +90,8 @@ solr_jobs_demo/facets/facets.jsonl
 
 # space_demo_jobs/_stage — local HF dataset staging cache (regenerable)
 space_demo_jobs/_stage/
+# space_demo_resume/_stage — local HF dataset staging cache (regenerable)
+space_demo_resume/_stage/
 movies_ingest_chain.out
 movies_ingest_chain.pid
 wikipedia_plots.pid
