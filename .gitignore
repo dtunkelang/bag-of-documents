@@ -83,6 +83,8 @@ unified_jobs/tail_v1_fix/
 unified_jobs/tail_v1_tech_review.csv
 unified_jobs/slug_industry_labels_nn_margin_*.csv
 unified_jobs/*.progress.json
+# resume->job demo caches, rebuild via precompute_resume_match.py
+unified_jobs/resume_match_cache/
 # regenerable from current Solr via solr_jobs_demo/facets/dump_facets_from_solr.py
 solr_jobs_demo/facets/facets.jsonl
 
