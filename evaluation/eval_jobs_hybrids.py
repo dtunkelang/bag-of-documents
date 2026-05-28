@@ -117,14 +117,18 @@ def cascade_topk(bm25_top_n, dense_scores, k):
 
 def rrf_topk(top_n_a, top_n_b, k, c=RRF_C):
     """RRF over two ranked id arrays."""
-    n_q = top_n_a.shape[0]
-    out = np.empty((n_q, k), dtype=top_n_a.dtype)
+    return rrf_topk_multi([top_n_a, top_n_b], k, c=c)
+
+
+def rrf_topk_multi(top_ns, k, c=RRF_C):
+    """RRF over N ranked id arrays, each shape (n_q, n_per_query)."""
+    n_q = top_ns[0].shape[0]
+    out = np.empty((n_q, k), dtype=top_ns[0].dtype)
     for r in range(n_q):
-        rank_score = {}
-        for rank, did in enumerate(top_n_a[r]):
-            rank_score[int(did)] = rank_score.get(int(did), 0.0) + 1.0 / (c + rank + 1)
-        for rank, did in enumerate(top_n_b[r]):
-            rank_score[int(did)] = rank_score.get(int(did), 0.0) + 1.0 / (c + rank + 1)
+        rank_score: dict[int, float] = {}
+        for top_n in top_ns:
+            for rank, did in enumerate(top_n[r]):
+                rank_score[int(did)] = rank_score.get(int(did), 0.0) + 1.0 / (c + rank + 1)
         ranked = sorted(rank_score.items(), key=lambda x: -x[1])
         out[r] = [d for d, _ in ranked[:k]]
     return out
@@ -193,6 +197,13 @@ def main():
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--output", default=None)
+    ap.add_argument(
+        "--rrf-combo",
+        action="append",
+        default=[],
+        help="repeatable; comma-separated retriever names to RRF-fuse, e.g. bm25,e5_small,te3. "
+        "Reserved name 'bm25' refers to BM25; other names must match --dense ...,name=X.",
+    )
     args = ap.parse_args()
 
     data = Path(args.data_dir)
@@ -266,6 +277,27 @@ def main():
         out[f"rrf_bm25_{name}"] = hits_at_k(rrf_top, golds)[0]
         m = out[f"rrf_bm25_{name}"]
         print(f"  rrf_bm25_{name:12s} R@1={m[1]:.4f}  R@5={m[5]:.4f}  R@10={m[10]:.4f}")
+
+    name_to_top_n = {"bm25": bm25_top_n}
+    for name, dr in dense_results.items():
+        name_to_top_n[name] = dr["top_n"]
+
+    for combo_spec in args.rrf_combo:
+        names = [n.strip() for n in combo_spec.split(",") if n.strip()]
+        if len(names) < 2:
+            raise SystemExit(f"--rrf-combo needs >=2 names: {combo_spec!r}")
+        missing = [n for n in names if n not in name_to_top_n]
+        if missing:
+            raise SystemExit(
+                f"--rrf-combo {combo_spec!r}: unknown names {missing}; "
+                f"available: {sorted(name_to_top_n)}"
+            )
+        combo_top_ns = [name_to_top_n[n] for n in names]
+        combo_top = rrf_topk_multi(combo_top_ns, args.k)
+        key = "rrf_" + "_".join(names)
+        out[key] = hits_at_k(combo_top, golds)[0]
+        m = out[key]
+        print(f"  {key:30s} R@1={m[1]:.4f}  R@5={m[5]:.4f}  R@10={m[10]:.4f}")
 
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
