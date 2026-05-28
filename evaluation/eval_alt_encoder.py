@@ -100,6 +100,13 @@ def main():
     ap.add_argument("--queries", default="test_queries.jsonl")
     ap.add_argument("--qrels", default="test_qrels.jsonl")
     ap.add_argument("--min-relevance", type=int, default=1)
+    ap.add_argument(
+        "--exact-relevance",
+        type=int,
+        default=3,
+        help="relevance threshold counted as Exact for the head-of-list E@1 metric "
+        "(ESCI: 3=Exact). Independent of --min-relevance.",
+    )
     ap.add_argument("--model", required=True)
     ap.add_argument("--query-prefix", default="")
     ap.add_argument(
@@ -152,13 +159,16 @@ def main():
             d = json.loads(line)
             queries_by_qid[d["query_id"]] = d["query"]
     pos = defaultdict(set)
+    exact_pos = defaultdict(set)  # relevance >= --exact-relevance, for head-of-list E@1
     with open(data / args.qrels) as f:
         for line in f:
             r = json.loads(line)
-            if r["relevance"] < args.min_relevance:
-                continue
             did = r.get("product_id") or r.get("doc_id")
             if did not in pid_to_idx:
+                continue
+            if r["relevance"] >= args.exact_relevance:
+                exact_pos[r["query_id"]].add(pid_to_idx[did])
+            if r["relevance"] < args.min_relevance:
                 continue
             pos[r["query_id"]].add(pid_to_idx[did])
     qids = sorted(queries_by_qid)
@@ -201,12 +211,17 @@ def main():
     print("\nbatched retrieval...", flush=True)
     BATCH_Q = 200
     per_q = []
+    e1_hits = []  # head-of-list: is top-1 an Exact-relevant doc?
     for qs in range(0, len(qids), BATCH_Q):
         qe = min(qs + BATCH_Q, len(qids))
         sim = query_vecs[qs:qe] @ catalog_vecs.T
         top_k = np.argpartition(-sim, args.k, axis=1)[:, : args.k]
+        top_1 = np.argmax(sim, axis=1)
         for j in range(qe - qs):
             qid = qids[qs + j]
+            ex = exact_pos.get(qid, set())
+            if ex:
+                e1_hits.append(1.0 if int(top_1[j]) in ex else 0.0)
             g = pos.get(qid, set())
             if not g:
                 continue
@@ -215,6 +230,12 @@ def main():
 
     alt_r = float(np.mean([h / g for _, g, h in per_q]))
     print(f"\n{args.model} R@{args.k}: {alt_r:.4f}  (n={len(per_q):,})", flush=True)
+    if e1_hits:
+        print(
+            f"{args.model} E@1: {float(np.mean(e1_hits)):.4f}  "
+            f"(top-1 is relevance>={args.exact_relevance}; n={len(e1_hits):,})",
+            flush=True,
+        )
 
     if args.baseline_per_query:
         bl_path = data / args.baseline_per_query
