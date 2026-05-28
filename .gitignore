@@ -79,6 +79,8 @@ unified_jobs/tail2_unclassified_for_labeling_part*.csv
 unified_jobs/tail2_labels_part*.csv
 unified_jobs/tail3_labels/
 unified_jobs/tail3_compact.csv
+unified_jobs/tail_v1_fix/
+unified_jobs/tail_v1_tech_review.csv
 unified_jobs/slug_industry_labels_nn_margin_*.csv
 unified_jobs/*.progress.json
 # regenerable from current Solr via solr_jobs_demo/facets/dump_facets_from_solr.py
