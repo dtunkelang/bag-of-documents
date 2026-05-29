@@ -677,9 +677,6 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .related { margin-bottom: 14px; }
 .related .rel-h { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 7px; }
 .related .rel-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.suggested { margin-top: 16px; }
-.sug-h { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 7px; }
-.sug-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .sug { background: #eef4fb; color: #0a5fbf; border: 1px solid #cfe0f5; border-radius: 14px; padding: 4px 12px; font-size: 0.86em; cursor: pointer; }
 .sug:hover { background: #dde9f8; }
 .sug .sug-n { color: #7aa3d0; font-size: 0.82em; margin-left: 4px; }
@@ -982,24 +979,31 @@ async function runSearch() {
   loadRelated(q);
 }
 
-// ===== related searches (narrow/lateral role moves for the current query) =====
-async function loadRelated(q) {
+// ===== suggested-searches slot at the top of the results panel =====
+// Shared by query-context related searches AND profile-derived suggestions — they
+// never co-exist (a profile match overwrites this slot), so one renderer serves both.
+function renderRelated(label, items) {
+  // items: [{q, n}] — q is the search to run, n the result count shown on the chip.
   const el = document.getElementById('related');
-  el.innerHTML = '';
-  if (!q) return;
-  let d;
-  try { d = await fetch(`/api/related_searches?q=${encodeURIComponent(q)}`).then(r => r.json()); }
-  catch (e) { return; }
-  const sugs = (d && d.suggestions) || [];
-  if (!sugs.length) return;
-  el.innerHTML = '<div class="rel-h">Related searches</div><div class="rel-chips">'
-    + sugs.map(s => `<span class="sug" data-q="${esc(s.display)}">${esc(s.display)}`
-        + `<span class="sug-n">${s.count.toLocaleString()}</span></span>`).join('')
+  if (!items || !items.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="rel-h">${esc(label)}</div><div class="rel-chips">`
+    + items.map(s => `<span class="sug" data-q="${esc(s.q)}">${esc(s.q)}`
+        + `<span class="sug-n">${(s.n || 0).toLocaleString()}</span></span>`).join('')
     + '</div>';
   el.querySelectorAll('.sug').forEach(c => c.addEventListener('click', () => {
     input.value = c.dataset.q;
     runSearch();
   }));
+}
+// related searches = narrow/lateral role moves for the current query
+async function loadRelated(q) {
+  document.getElementById('related').innerHTML = '';
+  if (!q) return;
+  let d;
+  try { d = await fetch(`/api/related_searches?q=${encodeURIComponent(q)}`).then(r => r.json()); }
+  catch (e) { return; }
+  const sugs = (d && d.suggestions) || [];
+  renderRelated('Related searches', sugs.map(s => ({ q: s.display, n: s.count })));
 }
 
 // ===== personalized keyword search (re-rank the query by the held profile) =====
@@ -1041,19 +1045,6 @@ function togglePzHard() {
 }
 document.getElementById('pz-on').addEventListener('change', () => { togglePzHard(); if (input.value.trim()) runSearch(); });
 document.getElementById('pz-hard').addEventListener('change', () => { if (input.value.trim()) runSearch(); });
-function renderSuggestions(sugs) {
-  const el = document.getElementById('suggested');
-  if (!el) return;
-  if (!sugs || !sugs.length) { el.innerHTML = ''; return; }
-  el.innerHTML = '<div class="sug-h">Suggested searches from your profile</div>'
-    + '<div class="sug-chips">' + sugs.map(s =>
-        `<span class="sug" data-q="${esc(s.text)}">${esc(s.text)}<span class="sug-n">${s.n.toLocaleString()}</span></span>`
-      ).join('') + '</div>';
-  el.querySelectorAll('.sug').forEach(c => c.addEventListener('click', () => {
-    input.value = c.dataset.q;
-    runSearch();   // honours the personalize checkbox as the user set it
-  }));
-}
 
 // ===== "find jobs for yourself": profile -> jobs, cosine vs 3-axis filter =====
 function badge(name, ax) {
@@ -1083,6 +1074,7 @@ function matchJobRow(j) {
   return row;
 }
 function clearMatch() {
+  document.getElementById('related').innerHTML = '';
   document.getElementById('results').innerHTML =
     '<div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div>';
 }
@@ -1119,15 +1111,17 @@ function renderMatch(d) {
         <div class="note">${note} &middot; best-cosine survivor first${d.filtered_count === 0 ? ' (none qualified &mdash; cosine top-1 fallback)' : ''}</div>
         <div id="flt-list"></div>
       </div>
-    </div>
-    <div id="suggested" class="suggested"></div>`;
+    </div>`;
   const cosList = box.querySelector('#cos-list');
   (d.cosine || []).forEach(j => cosList.appendChild(matchJobRow(j)));
   if (!d.cosine || !d.cosine.length) cosList.innerHTML = '<div class="empty">none</div>';
   const fltList = box.querySelector('#flt-list');
   const fl = (d.filtered && d.filtered.length) ? d.filtered : (d.cosine || []).slice(0, 1);
   fl.forEach(j => fltList.appendChild(matchJobRow(j)));
-  renderSuggestions(d.suggestions);
+  // Profile suggestions go in the top related-searches slot (above the match panels),
+  // overwriting any query-related searches so only one set ever shows.
+  renderRelated('Suggested searches from your profile',
+    (d.suggestions || []).map(s => ({ q: s.text, n: s.n })));
 }
 async function matchOwn() {
   const text = document.getElementById('own-text').value.trim();
