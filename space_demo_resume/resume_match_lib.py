@@ -506,21 +506,23 @@ def axis_status(r, j):
     r_creds = set(r["creds"])
     j_gates = set(j["cred_gates"])
 
-    # seniority — don't hard-filter on a mere default guess (free-text resume with
-    # no seniority signal); only enforce the gap when the level is known.
+    # seniority — hard-filter ONLY under-qualification (a junior genuinely can't fill a
+    # senior role). Over-qualification is mostly title inflation plus a question of the
+    # candidate's interest, neither of which is readable from a resume: a "Head of" at a
+    # 1-person shop may be a director / first-line manager at a larger company. So let it
+    # pass, lean on cosine, and flag it as a soft note only. Also skip a mere default
+    # guess (free-text resume with no seniority signal).
     sen_known = r.get("seniority_known", True)
-    sen_gap = abs(r["seniority"] - j["sen"])
-    sen_ok = (not sen_known) or sen_gap < 2
-    if sen_ok:
-        sen_reason = ""
-    elif r["seniority"] > j["sen"]:
-        sen_reason = (
-            f"overqualified ({SENIORITY_LABELS[r['seniority']]} vs {SENIORITY_LABELS[j['sen']]})"
-        )
-    else:
+    under_gap = j["sen"] - r["seniority"]  # > 0 means the candidate is BELOW the job
+    sen_ok = (not sen_known) or under_gap < 2
+    if not sen_ok:
         sen_reason = (
             f"underqualified ({SENIORITY_LABELS[r['seniority']]} vs {SENIORITY_LABELS[j['sen']]})"
         )
+    elif sen_known and r["seniority"] - j["sen"] >= 2:
+        sen_reason = f"may be overqualified ({SENIORITY_LABELS[r['seniority']]} vs {SENIORITY_LABELS[j['sen']]})"
+    else:
+        sen_reason = ""
 
     # location
     loc_ok = j["remote"] or bool(r_loc & j_loc)
