@@ -261,6 +261,21 @@ def _topk_bm25(
     return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
 
 
+def _count_bm25(query: str, filters: dict[str, str] | None = None) -> int:
+    """numFound for a BM25 title query — used to validate suggested searches against
+    the live index (rows=0, no encode, so it's cheap to run for several candidates)."""
+    params: list[tuple[str, str]] = [
+        ("q", "{!edismax qf=title v=$user_q}"),
+        ("user_q", query),
+        ("rows", "0"),
+    ]
+    for clause in _filter_clauses(filters or {}):
+        params.append(("fq", clause))
+    r = requests.get(f"{SOLR}/solr/{CORE}/select", params=params, timeout=10)
+    r.raise_for_status()
+    return int(r.json()["response"]["numFound"])
+
+
 def _topk_knn(
     field: str, qv: list[float], k: int, filters: dict[str, str] | None = None
 ) -> list[tuple[int, float]]:
@@ -355,6 +370,18 @@ def _fused_topk(
 EMPLOYER_DOMINANCE = float(os.environ.get("EMPLOYER_DOMINANCE", "0.30"))
 
 
+def _dominant_employers(items: list[tuple[int, float]], hyd: dict[int, dict]) -> set[str]:
+    """Employers whose share of the fused pool >= EMPLOYER_DOMINANCE — these are exempt
+    from the per-employer cap (employer-coupled query intent, e.g. 'amazon jobs')."""
+    counts: dict[str, int] = defaultdict(int)
+    for idx, _ in items:
+        emp = (hyd.get(idx, {}).get("employer") or "").strip().lower()
+        if emp:
+            counts[emp] += 1
+    total = sum(counts.values())
+    return {e for e, n in counts.items() if total and n / total >= EMPLOYER_DOMINANCE}
+
+
 def search_default(
     query: str,
     k: int = 10,
@@ -371,13 +398,7 @@ def search_default(
     ids = [i for i, _ in items]
     hyd = _hydrate(ids)
     if cap > 0:
-        emp_counts: dict[str, int] = defaultdict(int)
-        for idx, _ in items:
-            emp = (hyd.get(idx, {}).get("employer") or "").strip().lower()
-            if emp:
-                emp_counts[emp] += 1
-        total = sum(emp_counts.values())
-        exempt = {e for e, n in emp_counts.items() if total and n / total >= EMPLOYER_DOMINANCE}
+        exempt = _dominant_employers(items, hyd)
         kept: list[tuple[int, float]] = []
         seen: dict[str, int] = {}
         for idx, score in items:
@@ -393,6 +414,86 @@ def search_default(
     else:
         items = items[:k]
     return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
+
+
+# ===== personalized search (keyword query re-ranked by an uploaded profile) =====
+
+PROF_RERANK_POOL = int(os.environ.get("PROF_RERANK_POOL", "1000"))
+PROF_WEIGHT = float(os.environ.get("PROF_WEIGHT", "1.0"))
+
+
+def _personalized_topk(
+    query: str,
+    qv_profile: list[float],
+    k: int,
+    filters: dict[str, str] | None = None,
+    pool: int = RRF_POOL,
+    prof_weight: float = PROF_WEIGHT,
+    prof_pool: int = PROF_RERANK_POOL,
+) -> tuple[list[tuple[int, float]], dict[int, float]]:
+    """RRF(BM25, e5-small) for the query, then a third profile-KNN lane that only
+    *boosts* docs the query already retrieved (gated to the query candidate set, so
+    the keyword intent still defines what's eligible). Returns (ranked, prof_cos) where
+    prof_cos maps idx -> profile cosine for any doc in the profile's top-`prof_pool`."""
+    contrib: dict[int, float] = defaultdict(float)
+    for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
+        contrib[idx] += 1.0 / (RRF_K + rank)
+    for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
+        contrib[idx] += 1.0 / (RRF_K + rank)
+    prof_hits = _topk_knn("e5_vec", qv_profile, prof_pool, filters)
+    prof_cos = {idx: cos for idx, cos in prof_hits}
+    for rank, (idx, _) in enumerate(prof_hits, 1):
+        if idx in contrib:  # boost only query candidates; don't inject off-query jobs
+            contrib[idx] += prof_weight * (1.0 / (RRF_K + rank))
+    ranked = sorted(contrib.items(), key=lambda x: -x[1])[:k]
+    return ranked, prof_cos
+
+
+def _make_result_personalized(
+    rank: int, score: float, idx: int, d: dict, st: dict, cos: float | None
+) -> dict:
+    res = _make_result(rank, score, idx, d)
+    res["cosine"] = round(float(cos), 4) if cos is not None else None
+    res["axes"] = st  # {sen,loc,gate: {ok,reason}, all: bool} for ✓/✗ badges
+    return res
+
+
+def search_personalized(
+    query: str,
+    r: dict,
+    qv_profile: list[float],
+    k: int = 10,
+    filters: dict[str, str] | None = None,
+    hard_filter: bool = False,
+) -> list[dict]:
+    """Keyword search re-ranked by profile fit. Soft by default (profile-KNN RRF
+    boost + per-result 3-axis badges); when hard_filter is set, drop results the
+    candidate doesn't qualify for (under-seniority / location / years-degree-cred
+    gates), mirroring the profile lane's filtered panel."""
+    cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
+    ranked, prof_cos = _personalized_topk(query, qv_profile, RRF_POOL, filters)
+    ids = [i for i, _ in ranked]
+    hyd = _hydrate_for_match(ids)
+    exempt = _dominant_employers(ranked, hyd) if cap > 0 else set()
+    rows: list[dict] = []
+    seen: dict[str, int] = {}
+    for idx, score in ranked:
+        d = hyd.get(idx)
+        if not d:
+            continue
+        jf = _job_feats_from_solr(d)
+        st = L.axis_status(r, jf)
+        if hard_filter and not st["all"]:
+            continue
+        emp = (d.get("employer") or "").strip().lower()
+        if cap > 0 and emp and emp not in exempt and seen.get(emp, 0) >= cap:
+            continue
+        rows.append(_make_result_personalized(len(rows) + 1, score, idx, d, st, prof_cos.get(idx)))
+        if emp:
+            seen[emp] = seen.get(emp, 0) + 1
+        if len(rows) >= k:
+            break
+    return rows
 
 
 POSTED_BUCKET_ORDER = ["past_7d", "past_30d", "past_90d", "older"]
@@ -562,6 +663,16 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .cos-num { color: #555; font-variant-numeric: tabular-nums; font-size: 0.8em; float: right; }
 .jobdetail { margin-top: 7px; padding: 9px 11px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.84em; line-height: 1.4; max-height: 320px; overflow-y: auto; }
 .jobdetail.loading { color: #888; font-style: italic; }
+.suggested { margin-top: 16px; }
+.sug-h { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 7px; }
+.sug-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sug { background: #eef4fb; color: #0a5fbf; border: 1px solid #cfe0f5; border-radius: 14px; padding: 4px 12px; font-size: 0.86em; cursor: pointer; }
+.sug:hover { background: #dde9f8; }
+.sug .sug-n { color: #7aa3d0; font-size: 0.82em; margin-left: 4px; }
+#personalize-row { margin: 4px 0 12px; font-size: 0.88em; color: #444; }
+#personalize-row label { cursor: pointer; }
+#personalize-row .pz-name { color: #888; margin-left: 6px; }
+.fit { display: inline-block; font-size: 0.72em; padding: 1px 7px; border-radius: 9px; margin-right: 5px; background: #eef0fb; color: #3a45a0; border: 1px solid #cfd3f0; }
 </style></head>
 <body>
 <h1>__PAGE_TITLE__</h1>
@@ -585,6 +696,11 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
   </div>
   <button onclick="runSearch()">Search</button>
 </div>
+<div id="personalize-row" style="display:none">
+  <label><input type="checkbox" id="pz-on"> &#10024; Personalize results to my profile</label>
+  <label id="pz-hard-wrap" style="display:none; margin-left:16px"><input type="checkbox" id="pz-hard"> only jobs I qualify for (3-axis filter)</label>
+  <span class="pz-name" id="pz-name"></span>
+</div>
 <div id="badge-row"></div>
 <div id="active-filters" class="active-filters"></div>
 <div class="layout">
@@ -599,6 +715,7 @@ const suggestBox = document.getElementById('suggest');
 let suggestItems = [];
 let suggestActive = -1;
 let suggestTimer = null;
+let profile = null;   // parsed profile {r, qv} from /api/match_profile; client-held, re-sent to personalize
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function closeSuggest() { suggestBox.style.display = 'none'; suggestActive = -1; }
@@ -698,7 +815,12 @@ function renderResults(div, items, ms) {
   items.forEach(r => {
     const row = document.createElement('div');
     row.className = 'result';
-    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}</span>`;
+    let fit = '';
+    if (r.axes) {
+      const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
+      fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}</div>`;
+    }
+    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${fit}</span>`;
     if (r.idx != null && r.idx >= 0) {
       const titleCell = row.querySelector('.r-title');
       row.addEventListener('click', () => toggleDetail(r.idx, titleCell));
@@ -825,6 +947,7 @@ async function runSearch() {
   const q = input.value.trim();
   if (!q) return;
   closeSuggest();
+  if (profile && document.getElementById('pz-on').checked) { return runPersonalized(q); }
   const div = document.getElementById('results');
   const badgeRow = document.getElementById('badge-row');
   badgeRow.innerHTML = '';
@@ -841,6 +964,58 @@ async function runSearch() {
   }
   renderResults(div, searchRes.results, searchRes.ms);
   renderFacets(facetRes.facets);
+}
+
+// ===== personalized keyword search (re-rank the query by the held profile) =====
+async function runPersonalized(q) {
+  const div = document.getElementById('results');
+  const badgeRow = document.getElementById('badge-row');
+  badgeRow.innerHTML = '';
+  div.innerHTML = '<div class="empty">personalizing to your profile…</div>';
+  renderActiveFilters();
+  const hard = document.getElementById('pz-hard').checked;
+  const body = { q, k: 10, hard_filter: hard, filters: activeFilters, profile };
+  const [searchRes, facetRes] = await Promise.all([
+    fetch('/api/search_personalized', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then(r => r.json()),
+    fetch(`/api/facets?q=${encodeURIComponent(q)}${buildFilterQS()}`).then(r => r.json()),
+  ]);
+  if (searchRes.error) { div.innerHTML = '<div class="empty">' + esc(searchRes.error) + '</div>'; return; }
+  badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
+  if (!searchRes.results || !searchRes.results.length) {
+    div.innerHTML = hard
+      ? '<div class="empty">no jobs match this query that you also qualify for — untick the 3-axis filter to see near-misses</div>'
+      : '<div class="empty">no results</div>';
+  } else {
+    renderResults(div, searchRes.results, searchRes.ms);
+  }
+  renderFacets(facetRes.facets);
+}
+function showPersonalize(name) {
+  document.getElementById('personalize-row').style.display = 'block';
+  document.getElementById('pz-name').textContent =
+    (name && name !== '(your profile)') ? '— using ' + name + "'s profile" : '— using your profile';
+}
+function togglePzHard() {
+  const on = document.getElementById('pz-on').checked;
+  document.getElementById('pz-hard-wrap').style.display = on ? 'inline' : 'none';
+  if (!on) document.getElementById('pz-hard').checked = false;
+}
+document.getElementById('pz-on').addEventListener('change', () => { togglePzHard(); if (input.value.trim()) runSearch(); });
+document.getElementById('pz-hard').addEventListener('change', () => { if (input.value.trim()) runSearch(); });
+function renderSuggestions(sugs) {
+  const el = document.getElementById('suggested');
+  if (!el) return;
+  if (!sugs || !sugs.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="sug-h">Suggested searches from your profile</div>'
+    + '<div class="sug-chips">' + sugs.map(s =>
+        `<span class="sug" data-q="${esc(s.text)}">${esc(s.text)}<span class="sug-n">${s.n.toLocaleString()}</span></span>`
+      ).join('') + '</div>';
+  el.querySelectorAll('.sug').forEach(c => c.addEventListener('click', () => {
+    input.value = c.dataset.q;
+    runSearch();   // honours the personalize checkbox as the user set it
+  }));
 }
 
 // ===== "find jobs for yourself": profile -> jobs, cosine vs 3-axis filter =====
@@ -907,13 +1082,15 @@ function renderMatch(d) {
         <div class="note">${note} &middot; best-cosine survivor first${d.filtered_count === 0 ? ' (none qualified &mdash; cosine top-1 fallback)' : ''}</div>
         <div id="flt-list"></div>
       </div>
-    </div>`;
+    </div>
+    <div id="suggested" class="suggested"></div>`;
   const cosList = box.querySelector('#cos-list');
   (d.cosine || []).forEach(j => cosList.appendChild(matchJobRow(j)));
   if (!d.cosine || !d.cosine.length) cosList.innerHTML = '<div class="empty">none</div>';
   const fltList = box.querySelector('#flt-list');
   const fl = (d.filtered && d.filtered.length) ? d.filtered : (d.cosine || []).slice(0, 1);
   fl.forEach(j => fltList.appendChild(matchJobRow(j)));
+  renderSuggestions(d.suggestions);
 }
 async function matchOwn() {
   const text = document.getElementById('own-text').value.trim();
@@ -937,6 +1114,8 @@ async function matchOwn() {
     }
     status.textContent = '';
     renderMatch(d);
+    profile = d.profile || null;
+    if (profile) showPersonalize(d.resume && d.resume.name);
   } catch (e) { status.textContent = 'failed: ' + e; }
 }
 document.getElementById('own-go').addEventListener('click', matchOwn);
@@ -952,7 +1131,8 @@ def index():
         "198,085 postings (OpenApply + USAJobs) · "
         "RRF(BM25 + e5-small) via Solr 10 · "
         "click a result for the full description · "
-        "or paste your profile above to find jobs for yourself (3-axis constraint filter)"
+        "or paste your profile above to find jobs for yourself (3-axis constraint filter), "
+        "get suggested searches, and personalize keyword results"
     )
     return HTML_PAGE.replace("__PAGE_TITLE__", title).replace("__PAGE_SUBTITLE__", subtitle)
 
@@ -1128,7 +1308,7 @@ PROFILE_TOP_N = 10
 # Solr stores everything job_features() needs; seniority is derived from the title.
 _PROFILE_FL = (
     "id,title_display,description,locations,remote_mode,employer,"
-    "posted_at,source_corpus,industry,employment_type,"
+    "posted_at,source_corpus,industry,employment_type,department,"
     "salary_min,salary_max,salary_currency"
 )
 
@@ -1234,6 +1414,52 @@ def _pdf_to_text(raw: bytes) -> str:
     return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
+_SENIORITY_PREFIX = re.compile(
+    r"^(senior|sr\.?|junior|jr\.?|lead|principal|staff|chief|head of|vp(?: of)?|"
+    r"vice president(?: of)?|director(?: of)?|associate)\s+",
+    re.I,
+)
+_TITLE_AT = re.compile(
+    r"\s+(?:at|@|[-|–—,]).*$", re.I
+)  # drop "Engineer at Google" / "Engineer | ..."
+_ASPIRATIONAL = re.compile(r"\b(aspiring|seeking|looking for|recent grad)", re.I)
+
+
+def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
+    """Deterministic query suggestions from the parsed profile, validated against the
+    live index. Sources (most-specific first): the recent role title, a seniority-
+    broadened variant, earlier role titles, and the headline when it reads like a role.
+    Each candidate is kept only if BM25 returns at least one job, and tagged with that
+    count so the UI can show how many postings it would surface."""
+    cands: list[str] = []
+    for t in L.role_titles(blob)[:3]:
+        t = _TITLE_AT.sub("", t).strip(" -|,")
+        if t:
+            cands.append(t)
+            broad = _SENIORITY_PREFIX.sub("", t).strip()
+            if broad and broad.lower() != t.lower():
+                cands.append(broad)
+    hl = (r.get("headline") or "").strip()
+    if hl and 2 <= len(hl) <= 60 and not _ASPIRATIONAL.search(hl) and not L._looks_like_name(hl):
+        cands.append(_TITLE_AT.sub("", hl).strip(" -|,"))
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in cands:
+        k = c.lower()
+        if not c or k in seen or not _is_clean(k):
+            continue
+        seen.add(k)
+        try:
+            n = _count_bm25(c)
+        except Exception:
+            continue
+        if n > 0:
+            out.append({"text": c, "n": n})
+        if len(out) >= limit:
+            break
+    return out
+
+
 @app.post("/api/match_profile")
 async def api_match_profile(
     text: str = Form(""),
@@ -1263,7 +1489,44 @@ async def api_match_profile(
     # headline / skills sidebar — query_text isolates that, and BM25 is deliberately NOT
     # used here so the rest of the document can't dilute the most-recent-role emphasis.
     qv = _dense_qv(L.query_text(blob))
-    return JSONResponse(_run_profile_match(r, qv))
+    out = _run_profile_match(r, qv)
+    # suggested searches (#1) + the parsed profile the client holds and re-sends to
+    # personalize subsequent keyword searches (#2). Nothing is persisted server-side.
+    out["suggestions"] = _suggest_queries(blob, r)
+    out["profile"] = {"r": r, "qv": qv}
+    return JSONResponse(out)
+
+
+@app.post("/api/search_personalized")
+async def api_search_personalized(request: Request):
+    """Keyword search re-ranked by a client-held profile (from /api/match_profile).
+    Stateless: the profile (features + e5 vector) is sent in the body each call."""
+    body = await request.json()
+    q = (body.get("q") or "").strip()
+    if not q:
+        return JSONResponse({"error": "empty query"}, status_code=400)
+    prof = body.get("profile") or {}
+    r, qv = prof.get("r"), prof.get("qv")
+    if not r or not qv:
+        return JSONResponse({"error": "no profile loaded"}, status_code=400)
+    raw_filters = body.get("filters") or {}
+    filters = {f: str(raw_filters.get(f) or "").strip() for f in FACET_FIELDS if raw_filters.get(f)}
+    k = int(body.get("k") or 10)
+    hard = bool(body.get("hard_filter"))
+    t0 = time.time()
+    res = search_personalized(q, r, qv, k, filters, hard)
+    ms = int((time.time() - t0) * 1000)
+    return JSONResponse(
+        {
+            "query": q,
+            "retriever": "rrf_bm25_e5+profile",
+            "served_with": SERVING_MODE + " + profile re-rank",
+            "filters": filters,
+            "hard_filter": hard,
+            "results": res,
+            "ms": ms,
+        }
+    )
 
 
 if __name__ == "__main__":

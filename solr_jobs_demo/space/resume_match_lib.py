@@ -396,6 +396,24 @@ def _recent_title(exp_section):
     return ""
 
 
+def role_titles(text):
+    """All role-title lines (most-recent first) from the Experience section. Same
+    'title line sits directly above a date range' heuristic as _recent_title, but
+    returns every distinct title rather than only the latest — used to seed suggested
+    searches. De-duplicated case-insensitively, order preserved."""
+    exp = _experience_section(text or "")
+    lines = [ln.strip() for ln in exp.split("\n") if ln.strip()]
+    out, seen = [], set()
+    for i, ln in enumerate(lines):
+        if _MONTH_YEAR.search(ln) and i >= 1:
+            t = lines[i - 1]
+            k = t.lower()
+            if k not in seen and 2 <= len(t) <= 80:
+                seen.add(k)
+                out.append(t)
+    return out
+
+
 def query_text(text):
     """Text to embed for matching. Leans on DEMONSTRATED experience — the most-recent
     role title (weighted by repetition) plus the Experience section — rather than a
