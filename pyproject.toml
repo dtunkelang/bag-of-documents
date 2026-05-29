@@ -27,6 +27,7 @@ ignore = [
 "solr_movies_demo/space/app.py" = ["B008"]  # FastAPI Query() defaults are idiomatic
 "demo_resume_match.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
 "space_demo_resume/app.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
+"solr_jobs_demo/space/app.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
 
 [tool.ruff.format]
 quote-style = "double"

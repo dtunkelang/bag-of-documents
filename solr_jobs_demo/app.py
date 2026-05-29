@@ -331,8 +331,8 @@ def _fused_topk(
     contrib: dict[int, float] = defaultdict(float)
     for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
-    # Solr field "bge_vec" is legacy schema name; now holds e5-small vectors (both 384-dim).
-    for rank, (idx, _) in enumerate(_topk_knn("bge_vec", _dense_qv(query), pool, filters), 1):
+    # Solr field "e5_vec" holds e5-small-v2 vectors (384-dim, passage: prefix at index time).
+    for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
     return sorted(contrib.items(), key=lambda x: -x[1])[:k]
 

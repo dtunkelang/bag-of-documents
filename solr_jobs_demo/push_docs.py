@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """One-shot full re-push: original fields (title, vectors, metadata) + the
 9 facet fields from facets.jsonl. Replaces atomic_update_facets.py which
-wiped the unstored title field. The dense vec field (`bge_vec` for schema
-backwards-compat) now carries e5-small-v2 vectors.
+wiped the unstored title field. The dense vec field (`e5_vec`) carries
+e5-small-v2 vectors (384-dim).
 """
 
 import json
@@ -14,8 +14,10 @@ from collections.abc import Iterator
 import numpy as np
 import requests
 
-STAGE = "/Users/dtunkelang/bagofdocs/unified_jobs"
-FACETS = "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl"
+STAGE = os.environ.get("JOBS_STAGE", "/Users/dtunkelang/bagofdocs/unified_jobs")
+FACETS = os.environ.get(
+    "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl"
+)
 SOLR = os.environ.get("SOLR", "http://localhost:8983")
 CORE = "jobs"
 BATCH = 500
@@ -92,7 +94,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "posted_at": rec.get("posted_at") or "",
                 "source_corpus": sources[i],
                 "description": rec.get("description") or "",
-                "bge_vec": dense[i].astype(np.float32).tolist(),
+                "e5_vec": dense[i].astype(np.float32).tolist(),
             }
             if rec.get("salary_min") is not None:
                 doc["salary_min"] = float(rec["salary_min"])

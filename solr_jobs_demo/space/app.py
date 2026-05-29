@@ -21,8 +21,10 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import requests
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+
+import resume_match_lib as L
 
 # ===== configuration =====
 
@@ -135,7 +137,9 @@ def load_resources() -> None:
     import torch
     from sentence_transformers import SentenceTransformer
 
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = os.environ.get("DENSE_DEVICE") or (
+        "mps" if torch.backends.mps.is_available() else "cpu"
+    )
     dense_model = SentenceTransformer(DENSE_MODEL, device=device)
     print(f"  dense loaded on {device} in {time.time() - t0:.1f}s", flush=True)
 
@@ -342,8 +346,8 @@ def _fused_topk(
     contrib: dict[int, float] = defaultdict(float)
     for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
-    # Solr field "bge_vec" is legacy schema name; now holds e5-small vectors (both 384-dim).
-    for rank, (idx, _) in enumerate(_topk_knn("bge_vec", _dense_qv(query), pool, filters), 1):
+    # Solr field "e5_vec" holds e5-small-v2 vectors (384-dim, passage: prefix at index time).
+    for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
     return sorted(contrib.items(), key=lambda x: -x[1])[:k]
 
@@ -521,10 +525,59 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .active-filters { font-size: 0.85em; color: #666; margin-bottom: 8px; }
 .active-filters .chip { display: inline-block; background: #eef4fb; color: #0a5fbf; padding: 2px 8px; border-radius: 10px; margin-right: 6px; cursor: pointer; }
 .active-filters .chip::after { content: ' ×'; color: #888; }
+.ownbox { border: 1px solid #ddd; border-radius: 6px; background: #fff; margin-bottom: 16px; }
+.ownbox > summary { padding: 9px 12px; cursor: pointer; font-size: 0.92em; font-weight: 600; color: #2b6cb0; list-style: none; }
+.ownbox > summary::-webkit-details-marker { display: none; }
+.ownbox > summary::before { content: '\\25b8 '; color: #999; }
+.ownbox[open] > summary::before { content: '\\25be '; }
+.ownbody { padding: 0 12px 12px; }
+#own-text { width: 100%; min-height: 120px; box-sizing: border-box; padding: 8px 10px; font-size: 0.88em; font-family: inherit; border: 1px solid #ddd; border-radius: 5px; resize: vertical; }
+.ownrow { display: flex; gap: 10px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+#own-loc { flex: 1; min-width: 180px; padding: 7px 10px; font-size: 0.86em; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+#own-go { padding: 7px 16px; font-size: 0.88em; background: #2b6cb0; color: #fff; border: 1px solid #2b6cb0; border-radius: 5px; cursor: pointer; }
+#own-go:hover { background: #245a96; }
+.ownstatus { font-size: 0.82em; color: #b3261e; margin-top: 7px; min-height: 1em; }
+.rsum { border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; background: #fafbfc; margin-bottom: 14px; }
+.rsum .nm { font-weight: 600; font-size: 1.05em; }
+.rsum .hl { color: #444; margin: 3px 0; }
+.rsum .facts { color: #555; font-size: 0.85em; margin-top: 6px; }
+.rsum .facts b { color: #222; }
+.rsum .back { float: right; font-size: 0.82em; color: #2b6cb0; cursor: pointer; }
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.panel { border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+.panel h3 { margin: 0; padding: 9px 12px; font-size: 0.9em; border-bottom: 1px solid #eee; }
+.panel.cos h3 { background: #f4eee8; color: #6b4a18; }
+.panel.flt h3 { background: #e8f4ec; color: #186537; }
+.panel .note { font-size: 0.78em; color: #999; padding: 6px 12px; border-bottom: 1px dotted #eee; }
+.job { padding: 9px 12px; border-bottom: 1px dotted #eee; cursor: pointer; }
+.job:hover { background: #fafafa; }
+.job .jt { font-weight: 500; font-size: 0.92em; }
+.job .jm { color: #777; font-size: 0.8em; margin-top: 2px; }
+.job .jm .sep { color: #ccc; padding: 0 5px; }
+.job .badges { margin-top: 5px; }
+.b { display: inline-block; font-size: 0.72em; padding: 1px 7px; border-radius: 9px; margin-right: 5px; }
+.b.ok { background: #e6f4ea; color: #1a7a3a; border: 1px solid #b6dec4; }
+.b.bad { background: #fbe9e7; color: #b3261e; border: 1px solid #f0c2bd; }
+.b.warn { background: #fff4e5; color: #8a5a00; border: 1px solid #f0d9a8; }
+.cos-num { color: #555; font-variant-numeric: tabular-nums; font-size: 0.8em; float: right; }
+.jobdetail { margin-top: 7px; padding: 9px 11px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.84em; line-height: 1.4; max-height: 320px; overflow-y: auto; }
+.jobdetail.loading { color: #888; font-style: italic; }
 </style></head>
 <body>
 <h1>__PAGE_TITLE__</h1>
 <div class="subtle">__PAGE_SUBTITLE__</div>
+<details class="ownbox">
+  <summary>Find jobs for yourself &mdash; paste your profile, or upload a .txt / LinkedIn PDF</summary>
+  <div class="ownbody">
+    <textarea id="own-text" placeholder="Paste your LinkedIn &lsquo;About&rsquo; + experience, or any resume text&hellip;&#10;(LinkedIn URLs can't be fetched server-side, so paste or upload the PDF export: Profile &rarr; Resources &rarr; Save to PDF.)"></textarea>
+    <div class="ownrow">
+      <input id="own-loc" placeholder="Your location (optional, e.g. 'Boston, MA' &mdash; improves location matching)" autocomplete="off" />
+      <input type="file" id="own-file" accept=".txt,.pdf" />
+      <button id="own-go">Match my profile</button>
+    </div>
+    <div id="own-status" class="ownstatus"></div>
+  </div>
+</details>
 <div class="search">
   <div class="qwrap">
     <input id="query" placeholder="e.g. registered nurse" autocomplete="off" />
@@ -789,6 +842,104 @@ async function runSearch() {
   renderResults(div, searchRes.results, searchRes.ms);
   renderFacets(facetRes.facets);
 }
+
+// ===== "find jobs for yourself": profile -> jobs, cosine vs 3-axis filter =====
+function badge(name, ax) {
+  const cls = ax.ok ? 'ok' : 'bad';
+  const mark = ax.ok ? '✓' : '✗';
+  const tip = ax.reason ? ' — ' + ax.reason : '';
+  return `<span class="b ${cls}" title="${esc(ax.reason)}">${name} ${mark}${ax.ok ? '' : esc(tip)}</span>`;
+}
+function matchJobRow(j) {
+  const m = [];
+  m.push(j.remote ? '🌐 remote' : esc(j.location || '(no location)'));
+  if (j.employer) m.push(esc(j.employer));
+  m.push('level: ' + esc(j.seniority));
+  if (j.years_req != null) m.push('needs ' + j.years_req + ' yrs');
+  if (j.degree_req) m.push('needs ' + esc(j.degree_req));
+  if (j.cred_gates && j.cred_gates.length) m.push('needs ' + j.cred_gates.map(esc).join(', '));
+  const extra = [];
+  if (j.clearance) extra.push('<span class="b warn" title="security clearance stated (not resume-checkable)">clearance</span>');
+  if (j.workauth) extra.push('<span class="b warn" title="work-authorization stated (not resume-checkable)">work-auth</span>');
+  const row = document.createElement('div');
+  row.className = 'job';
+  row.innerHTML = `<span class="cos-num">cos ${j.cosine.toFixed(3)}</span>
+    <div class="jt">${esc(j.title)}</div>
+    <div class="jm">${m.join('<span class="sep">&middot;</span>')}</div>
+    <div class="badges">${badge('sen', j.axes.sen)}${badge('loc', j.axes.loc)}${badge('gate', j.axes.gate)}${extra.join('')}</div>`;
+  if (j.idx != null && j.idx >= 0) row.addEventListener('click', () => toggleDetail(j.idx, row));
+  return row;
+}
+function clearMatch() {
+  document.getElementById('results').innerHTML =
+    '<div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div>';
+}
+function renderMatch(d) {
+  document.getElementById('badge-row').innerHTML = '';
+  document.getElementById('facets').innerHTML = '';
+  document.getElementById('active-filters').innerHTML = '';
+  const box = document.getElementById('results');
+  const rs = d.resume;
+  const facts = [];
+  facts.push('level: <b>' + esc(rs.seniority) + '</b>');
+  if (rs.years != null) facts.push('experience: <b>' + rs.years + ' yrs</b>');
+  facts.push('degree: <b>' + esc(rs.degree) + '</b>');
+  if (rs.creds && rs.creds.length) facts.push('creds: <b>' + rs.creds.map(esc).join(', ') + '</b>');
+  const note = d.filtered_count < d.pool_n
+    ? `${d.filtered_count} of top-${d.pool_n} pass all 3 axes`
+    : `all top-${d.pool_n} pass`;
+  box.innerHTML = `
+    <div class="rsum">
+      <span class="back" onclick="clearMatch()">&larr; back to search</span>
+      <div class="nm">${esc(rs.name)}</div>
+      <div class="hl">${esc(rs.headline)}</div>
+      <div class="lc" style="color:#888;font-size:0.85em">${esc(rs.loc)}</div>
+      <div class="facts">${facts.join('<span style="color:#ccc;padding:0 6px">&middot;</span>')}</div>
+    </div>
+    <div class="panels">
+      <div class="panel cos">
+        <h3>Raw cosine (constraint-blind)</h3>
+        <div class="note">nearest jobs by embedding similarity &mdash; ignores hard constraints</div>
+        <div id="cos-list"></div>
+      </div>
+      <div class="panel flt">
+        <h3>3-axis constraint filter</h3>
+        <div class="note">${note} &middot; best-cosine survivor first${d.filtered_count === 0 ? ' (none qualified &mdash; cosine top-1 fallback)' : ''}</div>
+        <div id="flt-list"></div>
+      </div>
+    </div>`;
+  const cosList = box.querySelector('#cos-list');
+  (d.cosine || []).forEach(j => cosList.appendChild(matchJobRow(j)));
+  if (!d.cosine || !d.cosine.length) cosList.innerHTML = '<div class="empty">none</div>';
+  const fltList = box.querySelector('#flt-list');
+  const fl = (d.filtered && d.filtered.length) ? d.filtered : (d.cosine || []).slice(0, 1);
+  fl.forEach(j => fltList.appendChild(matchJobRow(j)));
+}
+async function matchOwn() {
+  const text = document.getElementById('own-text').value.trim();
+  const loc = document.getElementById('own-loc').value.trim();
+  const file = document.getElementById('own-file').files[0];
+  const status = document.getElementById('own-status');
+  if (!text && !file) { status.textContent = 'Paste some text or choose a .txt/.pdf file first.'; return; }
+  const fd = new FormData();
+  fd.append('text', text); fd.append('loc', loc);
+  if (file) fd.append('file', file);
+  status.textContent = 'matching…';
+  document.getElementById('results').innerHTML = '<div class="empty">matching your profile…</div>';
+  try {
+    const r = await fetch('/api/match_profile', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      const msg = d.error || ('error ' + r.status);
+      status.textContent = msg;
+      document.getElementById('results').innerHTML = '<div class="empty">' + esc(msg) + '</div>';
+      return;
+    }
+    status.textContent = '';
+    renderMatch(d);
+  } catch (e) { status.textContent = 'failed: ' + e; }
+}
+document.getElementById('own-go').addEventListener('click', matchOwn);
 </script>
 </body></html>
 """
@@ -800,7 +951,8 @@ def index():
     subtitle = (
         "347,900 postings (jobs_data + LinkedIn + JobStreet + USAJobs) · "
         "RRF(BM25 + e5-small) via Solr 10 · "
-        "click a result for the full description"
+        "click a result for the full description · "
+        "or paste your profile above to find jobs for yourself (3-axis constraint filter)"
     )
     return HTML_PAGE.replace("__PAGE_TITLE__", title).replace("__PAGE_SUBTITLE__", subtitle)
 
@@ -961,6 +1113,157 @@ def api_detail(idx: int = Query(...)):
             "department": d.get("department") or "",
         }
     )
+
+
+# ===== "find jobs for yourself": profile -> jobs with 3-axis constraint filter =====
+# Reuses the same e5-small dense lane (Solr KNN over e5_vec). The profile text is
+# reduced to its DEMONSTRATED experience via resume_match_lib.query_text (most-recent
+# role + Experience section, NOT the aspirational headline / skills sidebar), then the
+# 3-axis filter (seniority/location/qualification gates) is applied to the top-K pool.
+# job_features are computed LIVE from Solr's stored description/locations/remote_mode —
+# no precomputed sidecar. NOTHING the visitor uploads is persisted.
+
+PROFILE_POOL = 50  # candidate pool depth (matches the validated probe)
+PROFILE_TOP_N = 10
+# Solr stores everything job_features() needs; seniority is derived from the title.
+_PROFILE_FL = (
+    "id,title_display,description,locations,remote_mode,employer,"
+    "posted_at,source_corpus,industry,employment_type,"
+    "salary_min,salary_max,salary_currency"
+)
+
+
+def _hydrate_for_match(ids: list[int]) -> dict[int, dict]:
+    if not ids:
+        return {}
+    id_clause = " OR ".join(f'id:"{i}"' for i in ids)
+    r = requests.get(
+        f"{SOLR}/solr/{CORE}/select",
+        params={"q": id_clause, "rows": len(ids), "fl": _PROFILE_FL},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return {int(d["id"]): d for d in r.json()["response"]["docs"]}
+
+
+def _job_feats_from_solr(d: dict) -> dict:
+    """Adapt a hydrated Solr doc to the dict resume_match_lib.job_features expects.
+    remote_mode is the derived facet ('remote'/'on_site'/'hybrid'); job_is_remote also
+    falls back to scanning the locations list for 'remote'."""
+    return L.job_features(
+        {
+            "title": d.get("title_display") or "",
+            "locations": d.get("locations") or [],
+            "remote": "True" if d.get("remote_mode") == "remote" else "False",
+            "text": d.get("description") or "",
+        }
+    )
+
+
+def _profile_summary(r: dict) -> dict:
+    sen = "not stated" if not r.get("seniority_known", True) else L.SENIORITY_LABELS[r["seniority"]]
+    return {
+        "name": r["name"] or "(your profile)",
+        "headline": r["headline"],
+        "loc": r["loc"],
+        "seniority": sen,
+        "years": int(r["years"]) if r["years"] is not None else None,
+        "degree": L.DEGREE_LABELS[r["degree"]],
+        "creds": [L.CRED_LABELS.get(c, c) for c in r["creds"]],
+    }
+
+
+def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dict:
+    locs = d.get("locations") or []
+    title = (d.get("title_display") or "").strip()
+    return {
+        "idx": idx,
+        "title": title[:140],
+        "employer": d.get("employer") or "",
+        "location": ", ".join(locs[:2]) if locs else "",
+        "remote": bool(jf["remote"]),
+        "seniority": L.SENIORITY_LABELS[jf["sen"]],
+        "years_req": jf["years_req"],
+        "degree_req": L.DEGREE_LABELS[jf["degree_req"]] if jf["degree_req"] else None,
+        "cred_gates": [L.CRED_LABELS.get(c, c) for c in jf["cred_gates"]],
+        "clearance": bool(jf["clearance"]),
+        "workauth": bool(jf["workauth"]),
+        "posted": (d.get("posted_at") or "")[:7],
+        "source": SRC_SHORT.get(d.get("source_corpus") or "", d.get("source_corpus") or ""),
+        "cosine": round(float(cos), 4),
+        "axes": st,
+    }
+
+
+def _run_profile_match(r: dict, qv: list[float]) -> dict:
+    """e5-small KNN top-`PROFILE_POOL`, then the 3-axis filter with job_features
+    computed live from the hydrated Solr docs."""
+    hits = _topk_knn("e5_vec", qv, PROFILE_POOL)  # [(idx, cosine), ...] best-first
+    hyd = _hydrate_for_match([i for i, _ in hits])
+    cosine_list: list[dict] = []
+    filtered_list: list[dict] = []
+    filtered_count = 0
+    for idx, cos in hits:
+        d = hyd.get(idx)
+        if not d:
+            continue
+        jf = _job_feats_from_solr(d)
+        st = L.axis_status(r, jf)
+        brief = _profile_job_brief(idx, cos, st, d, jf)
+        if len(cosine_list) < PROFILE_TOP_N:
+            cosine_list.append(brief)
+        if st["all"]:
+            filtered_count += 1
+            if len(filtered_list) < PROFILE_TOP_N:
+                filtered_list.append(brief)
+    return {
+        "resume": _profile_summary(r),
+        "pool_n": len(hits),
+        "filtered_count": filtered_count,
+        "cosine": cosine_list,
+        "filtered": filtered_list,
+    }
+
+
+def _pdf_to_text(raw: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(raw))
+    return "\n".join((page.extract_text() or "") for page in reader.pages)
+
+
+@app.post("/api/match_profile")
+async def api_match_profile(
+    text: str = Form(""),
+    loc: str = Form(""),
+    file: UploadFile | None = File(None),
+):
+    """Match an ad-hoc profile (pasted text, an uploaded .txt, or a LinkedIn
+    'Save to PDF' export) against the catalog. Nothing is persisted."""
+    blob = (text or "").strip()
+    if file is not None and file.filename:
+        raw = await file.read()
+        try:
+            if file.filename.lower().endswith(".pdf"):
+                blob = _pdf_to_text(raw)
+            else:
+                blob = raw.decode("utf-8", "ignore")
+        except Exception as e:
+            return JSONResponse({"error": f"could not read file: {e}"}, status_code=400)
+    blob = _clean_text(blob)
+    if len(blob) < 30:
+        return JSONResponse(
+            {"error": "Need more text — paste your profile or upload a .txt / LinkedIn PDF."},
+            status_code=400,
+        )
+    r = L.features_from_text(blob, loc=loc)
+    # embed DEMONSTRATED experience (recent role + work history), not the aspirational
+    # headline / skills sidebar — query_text isolates that, and BM25 is deliberately NOT
+    # used here so the rest of the document can't dilute the most-recent-role emphasis.
+    qv = _dense_qv(L.query_text(blob))
+    return JSONResponse(_run_profile_match(r, qv))
 
 
 if __name__ == "__main__":
