@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Launch Solr (if not already running) and the FastAPI shim.
+# The shim is space/app.py — the SAME app deployed to the HF Space
+# (RRF(BM25 + e5-small) + profile-match lane + suggested searches +
+# personalized search) — so local dev mirrors production. It loads e5-small
+# and downloads the suggestion corpus from HF on startup, so first start is slow.
 # Usage:
 #   ./run.sh            # start both
 #   ./run.sh stop       # stop both
@@ -16,6 +20,7 @@ SHIM_LOG=/Users/dtunkelang/bagofdocs/solr_jobs_demo/solr_shim.log
 SHIM_PID_FILE=/Users/dtunkelang/bagofdocs/solr_jobs_demo/solr_shim.pid
 PY=/Users/dtunkelang/bagofdocs/.venv/bin/python3
 HERE=/Users/dtunkelang/bagofdocs/solr_jobs_demo
+SPACE_DIR=/Users/dtunkelang/bagofdocs/solr_jobs_demo/space
 
 cmd=${1:-start}
 
@@ -41,10 +46,11 @@ start_shim() {
     echo "shim PID $(cat "$SHIM_PID_FILE") alive but not responding; killing..."
     kill "$(cat "$SHIM_PID_FILE")" || true; sleep 2
   fi
-  echo "starting shim..."
-  nohup "$PY" "$HERE/app.py" > "$SHIM_LOG" 2>&1 &
-  echo $! > "$SHIM_PID_FILE"
-  for _ in $(seq 1 60); do shim_up && { echo "  shim ready at http://127.0.0.1:${SHIM_PORT}/"; return; }; sleep 1; done
+  echo "starting shim (space/app.py — loads e5-small + suggestion corpus, ~15-20s)..."
+  # Run from space/ so resume_match_lib resolves and cwd matches the deployed Space.
+  ( cd "$SPACE_DIR" && SHIM_PORT="$SHIM_PORT" SOLR="http://localhost:${SOLR_PORT}" \
+      nohup "$PY" app.py > "$SHIM_LOG" 2>&1 & echo $! > "$SHIM_PID_FILE" )
+  for _ in $(seq 1 90); do shim_up && { echo "  shim ready at http://127.0.0.1:${SHIM_PORT}/"; return; }; sleep 1; done
   echo "shim failed to come up; tail of log:"; tail -30 "$SHIM_LOG"; exit 1
 }
 
