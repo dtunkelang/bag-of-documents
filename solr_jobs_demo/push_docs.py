@@ -51,7 +51,6 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     with open(os.path.join(STAGE, "source_index.json")) as f:
         sources = json.load(f)["sources"]
     dense = np.load(os.path.join(STAGE, "e5_small_catalog.vecs.fp16.npy"), mmap_mode="r")
-    te3 = np.load(os.path.join(STAGE, "te3_catalog.vecs.fp16.npy"), mmap_mode="r")
 
     import csv as _csv
 
@@ -94,7 +93,6 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "source_corpus": sources[i],
                 "description": rec.get("description") or "",
                 "bge_vec": dense[i].astype(np.float32).tolist(),
-                "te3_vec": te3[i].astype(np.float32).tolist(),
             }
             if rec.get("salary_min") is not None:
                 doc["salary_min"] = float(rec["salary_min"])

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Solr-backed jobs search demo.
 
-Mirrors the default retrieval strategy of space_demo_jobs/app.py:
-  RRF(BM25, e5-small, te3-large-cached) with RRF_K=60 over top-100 per lane.
+Default retrieval strategy:
+  RRF(BM25, e5-small) with RRF_K=60 over top-100 per lane.
 
-Backed by Solr 10 for BM25 + dense vector retrieval.
+Backed by Solr 10 for BM25 + dense vector retrieval. Autocomplete suggestions
+come from a curated query corpus (lexical prefix match), with Solr's
+titleSuggester as fallback.
 Run after push_docs.py has populated the 'jobs' core.
 """
 
@@ -110,15 +112,16 @@ def _is_clean(q: str) -> bool:
 R: dict = {}
 
 
-def _download_te3_cache() -> str:
-    """Snapshot the te3 query cache files from the companion HF dataset."""
+def _download_suggest_cache() -> str:
+    """Snapshot the curated query corpus (suggestion strings + tags) from the
+    companion HF dataset. The 1024-dim te3 vectors are no longer downloaded —
+    these files supply autocomplete suggestions only."""
     from huggingface_hub import snapshot_download
 
     return snapshot_download(
         repo_id=DATASET_REPO,
         repo_type="dataset",
         allow_patterns=[
-            "te3_queries.vecs.fp16.npy",
             "te3_queries.ids.json",
             "te3_queries.sources.json",
             "te3_cache_canonical.json",
@@ -137,10 +140,9 @@ def load_resources() -> None:
     print(f"  dense loaded on {device} in {time.time() - t0:.1f}s", flush=True)
 
     t0 = time.time()
-    print("downloading te3 query cache from HF dataset...", flush=True)
-    cache_dir = _download_te3_cache()
-    print("loading te3 query cache...", flush=True)
-    qvecs = np.load(os.path.join(cache_dir, "te3_queries.vecs.fp16.npy"))
+    print("downloading suggestion corpus from HF dataset...", flush=True)
+    cache_dir = _download_suggest_cache()
+    print("loading suggestion corpus...", flush=True)
     with open(os.path.join(cache_dir, "te3_queries.ids.json")) as f:
         qids = json.load(f)
     with open(os.path.join(cache_dir, "te3_queries.sources.json")) as f:
@@ -152,7 +154,8 @@ def load_resources() -> None:
     else:
         canonical = {}
 
-    qindex: dict[str, int] = {}
+    # Keep the best (highest-priority) source tag per unique query string;
+    # the tag drives suggestion tier ordering. No vectors are needed.
     qkey_src: dict[str, str] = {}
     TAG_PRIORITY = {"title": 0, "combo": 1, "head": 2, "tail": 3, "synth": 4}
     for i, q in enumerate(qids):
@@ -160,29 +163,24 @@ def load_resources() -> None:
         tag = qsrc[i]
         cur = qkey_src.get(k)
         if cur is None or TAG_PRIORITY.get(tag, 9) < TAG_PRIORITY.get(cur, 9):
-            qindex[k] = i
             qkey_src[k] = tag
     print(
-        f"  te3 query cache: {qvecs.shape[0]:,} rows, {len(qindex):,} unique keys "
-        f"in {time.time() - t0:.1f}s",
+        f"  suggestion corpus: {len(qkey_src):,} unique keys in {time.time() - t0:.1f}s",
         flush=True,
     )
 
     by_tag: dict[str, list[str]] = defaultdict(list)
-    for k in qindex:
+    for k in qkey_src:
         if not _is_clean(k) or k in canonical:
             continue
         by_tag[qkey_src[k]].append(k)
     for v in by_tag.values():
         v.sort()
-    sorted_keys = sorted(qindex.keys())
+    sorted_keys = sorted(qkey_src.keys())
 
     R.update(
         {
             "dense_model": dense_model,
-            "qvecs": qvecs,
-            "qindex": qindex,
-            "canonical": canonical,
             "sorted_keys": sorted_keys,
             "tier_keys": dict(by_tag),
         }
@@ -197,17 +195,6 @@ def _dense_qv(query: str) -> list[float]:
     text = DENSE_QUERY_PREFIX + query
     qv = R["dense_model"].encode([text], normalize_embeddings=True, show_progress_bar=False)[0]
     return qv.astype(np.float32).tolist()
-
-
-def _te3_qv(query: str) -> list[float] | None:
-    k = query.strip().lower()
-    if k in R["qindex"]:
-        return R["qvecs"][R["qindex"][k]].astype(np.float32).tolist()
-    return None
-
-
-def _is_cached(q: str) -> bool:
-    return q.strip().lower() in R["qindex"]
 
 
 # ===== solr retrieval lanes =====
@@ -350,20 +337,14 @@ def _fused_topk(
     k: int,
     filters: dict[str, str] | None = None,
     pool: int = RRF_POOL,
-    no_te3: bool = False,
 ) -> list[tuple[int, float]]:
-    """Run BM25 + e5-small lanes (and te3 lane unless no_te3) and RRF-fuse to top-k."""
+    """Run BM25 + e5-small lanes and RRF-fuse to top-k."""
     contrib: dict[int, float] = defaultdict(float)
     for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
     # Solr field "bge_vec" is legacy schema name; now holds e5-small vectors (both 384-dim).
     for rank, (idx, _) in enumerate(_topk_knn("bge_vec", _dense_qv(query), pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
-    if not no_te3:
-        te3 = _te3_qv(query)
-        if te3 is not None:
-            for rank, (idx, _) in enumerate(_topk_knn("te3_vec", te3, pool, filters), 1):
-                contrib[idx] += 1.0 / (RRF_K + rank)
     return sorted(contrib.items(), key=lambda x: -x[1])[:k]
 
 
@@ -374,17 +355,15 @@ def search_default(
     query: str,
     k: int = 10,
     filters: dict[str, str] | None = None,
-    no_te3: bool = False,
 ) -> list[dict]:
-    """RRF(BM25, e5-small, te3-large-cached) with optional facet filters,
-    then cap to EMPLOYER_CAP results per employer for display diversity.
+    """RRF(BM25, e5-small) with optional facet filters, then cap to
+    EMPLOYER_CAP results per employer for display diversity.
     Cap is bypassed when the user explicitly filtered by employer, OR when
     one employer dominates the unfiltered pool (>= EMPLOYER_DOMINANCE share),
-    which signals employer-coupled query intent (e.g. 'amazon jobs').
-    When no_te3 is True, the te3 lane is dropped (BM25 + e5-small only)."""
+    which signals employer-coupled query intent (e.g. 'amazon jobs')."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
     pool_k = max(k * (cap + 2), k + 20) if cap > 0 else k
-    items = _fused_topk(query, pool_k, filters, RRF_POOL, no_te3=no_te3)
+    items = _fused_topk(query, pool_k, filters, RRF_POOL)
     ids = [i for i, _ in items]
     hyd = _hydrate(ids)
     if cap > 0:
@@ -424,12 +403,11 @@ def compute_facets(
     query: str,
     filters: dict[str, str] | None = None,
     pool: int = 200,
-    no_te3: bool = False,
 ) -> dict[str, list[tuple[str, int]]]:
     """Aggregate facet values over the top-`pool` RRF-fused docs (with filters
     applied at retrieval), weighted by 1/(rank+1) so values at the head of the
     result list dominate ordering. Returns {field: [(value, weight), ...]}."""
-    items = _fused_topk(query, pool, filters, pool, no_te3=no_te3)
+    items = _fused_topk(query, pool, filters, pool)
     ids = [i for i, _ in items]
     hyd = _hydrate(ids, with_facets=True)
     weights: dict[str, dict[str, float]] = {f: defaultdict(float) for f in FACET_FIELDS}
@@ -456,12 +434,7 @@ def compute_facets(
     return out
 
 
-def _serving_mode(query: str, no_te3: bool = False) -> str:
-    if no_te3:
-        return "RRF: BM25 + e5-small (te3 disabled by ?no_te3=1) [via Solr]"
-    if _is_cached(query):
-        return "RRF: BM25 + e5-small + te3-large (cache hit) [via Solr]"
-    return "RRF: BM25 + e5-small (te3 cache miss, silently skipped) [via Solr]"
+SERVING_MODE = "RRF: BM25 + e5-small [via Solr]"
 
 
 # ===== autocomplete (server-side, in-process; identical to demo) =====
@@ -519,7 +492,6 @@ h1 { font-size: 1.4em; margin-bottom: 8px; }
 .badge.cached { background: #e8f4ec; color: #186537; border: 1px solid #b9dec5; }
 .badge.uncached { background: #f4eee8; color: #6b4a18; border: 1px solid #ddc8a8; }
 button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #888; border-radius: 4px; background: #fafafa; }
-.te3-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: #666; white-space: nowrap; cursor: pointer; }
 .results-panel { border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; background: #fff; }
 .result { display: grid; grid-template-columns: 28px 60px 70px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dotted #eee; font-size: 0.95em; align-items: start; cursor: pointer; }
 .result:hover { background: #fafafa; }
@@ -559,16 +531,13 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
     <div id="suggest"></div>
   </div>
   <button onclick="runSearch()">Search</button>
-  <label class="te3-toggle" title="When checked, the te3-large cached lane is dropped — search runs on BM25 + e5-small only.">
-    <input type="checkbox" id="no_te3_chk" onchange="runSearch()" /> no te3 (BM25 + e5-small only)
-  </label>
 </div>
 <div id="badge-row"></div>
 <div id="active-filters" class="active-filters"></div>
 <div class="layout">
   <div class="facets" id="facets"></div>
   <div class="results-panel">
-    <div id="results"><div class="empty">type a query — RRF(BM25 + e5-small + te3-large-cached) via Solr</div></div>
+    <div id="results"><div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div></div>
   </div>
 </div>
 <script>
@@ -581,11 +550,11 @@ let suggestTimer = null;
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function closeSuggest() { suggestBox.style.display = 'none'; suggestActive = -1; }
 function renderSuggest(items) {
-  // items are {text, cached} (cached -> badge "cached · te3"; uncached -> "title")
-  suggestItems = items.map(s => (typeof s === 'string' ? {text: s, cached: true} : s));
+  // items are {text}; rendered as plain suggestions (no source badge).
+  suggestItems = items.map(s => (typeof s === 'string' ? {text: s} : s));
   if (!suggestItems.length) { closeSuggest(); return; }
   suggestBox.innerHTML = suggestItems.map((s, i) =>
-    `<div class="item" data-i="${i}">${esc(s.text)}<span class="hint">${s.cached ? 'cached · te3' : 'title'}</span></div>`
+    `<div class="item" data-i="${i}">${esc(s.text)}</div>`
   ).join('');
   suggestBox.style.display = 'block';
   suggestActive = -1;
@@ -809,15 +778,13 @@ async function runSearch() {
   div.innerHTML = '<div class="empty">searching...</div>';
   renderActiveFilters();
   const qs = buildFilterQS();
-  const noTe3 = document.getElementById('no_te3_chk').checked ? '&no_te3=1' : '';
   // Fire search + facets in parallel.
   const [searchRes, facetRes] = await Promise.all([
-    fetch(`/api/search?q=${encodeURIComponent(q)}${qs}${noTe3}`).then(r => r.json()),
-    fetch(`/api/facets?q=${encodeURIComponent(q)}${qs}${noTe3}`).then(r => r.json()),
+    fetch(`/api/search?q=${encodeURIComponent(q)}${qs}`).then(r => r.json()),
+    fetch(`/api/facets?q=${encodeURIComponent(q)}${qs}`).then(r => r.json()),
   ]);
   if (searchRes.served_with) {
-    const cls = searchRes.cached ? 'cached' : 'uncached';
-    badgeRow.innerHTML = `<span class="badge ${cls}">Served with: ${esc(searchRes.served_with)}</span>`;
+    badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
   }
   renderResults(div, searchRes.results, searchRes.ms);
   renderFacets(facetRes.facets);
@@ -832,7 +799,7 @@ def index():
     title = "Jobs Search Demo: 348K postings across 4 corpora (Solr backend)"
     subtitle = (
         "347,900 postings (jobs_data + LinkedIn + JobStreet + USAJobs) · "
-        "RRF(BM25 + e5-small + te3-large-cached) via Solr 10 · "
+        "RRF(BM25 + e5-small) via Solr 10 · "
         "click a result for the full description"
     )
     return HTML_PAGE.replace("__PAGE_TITLE__", title).replace("__PAGE_SUBTITLE__", subtitle)
@@ -890,7 +857,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
             for k in _prefix_matches(tier, p, limit * 2):
                 if k not in seen:
                     seen.add(k)
-                    out.append({"text": k, "cached": True})
+                    out.append({"text": k})
                     if len(out) >= limit:
                         break
             if len(out) >= limit:
@@ -901,7 +868,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
         for s in _solr_suggest(prefix, limit - len(out)):
             if s and s not in seen:
                 seen.add(s)
-                out.append({"text": s, "cached": False})
+                out.append({"text": s})
                 if len(out) >= limit:
                     break
     return JSONResponse({"suggestions": out})
@@ -915,26 +882,18 @@ def _parse_filters(request_qp: dict) -> dict[str, str]:
     }
 
 
-def _parse_no_te3(request_qp: dict) -> bool:
-    v = (request_qp.get("no_te3") or "").strip().lower()
-    return v in {"1", "true", "yes", "on"}
-
-
 @app.get("/api/search")
 def api_search(request: Request, q: str = Query(...), k: int = Query(10)):
     qp = dict(request.query_params)
     filters = _parse_filters(qp)
-    no_te3 = _parse_no_te3(qp)
     t0 = time.time()
-    res = search_default(q, k, filters, no_te3=no_te3)
+    res = search_default(q, k, filters)
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
-            "retriever": "rrf_bm25_e5" if no_te3 else "rrf_bm25_e5_te3",
-            "served_with": _serving_mode(q, no_te3=no_te3),
-            "cached": (False if no_te3 else _is_cached(q)),
-            "no_te3": no_te3,
+            "retriever": "rrf_bm25_e5",
+            "served_with": SERVING_MODE,
             "filters": filters,
             "results": res,
             "ms": ms,
@@ -949,9 +908,8 @@ def api_facets(request: Request, q: str = Query(...), pool: int = Query(200)):
     match set keeps facet counts coherent with what the user sees."""
     qp = dict(request.query_params)
     filters = _parse_filters(qp)
-    no_te3 = _parse_no_te3(qp)
     t0 = time.time()
-    facets = compute_facets(q, filters, pool=pool, no_te3=no_te3)
+    facets = compute_facets(q, filters, pool=pool)
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {

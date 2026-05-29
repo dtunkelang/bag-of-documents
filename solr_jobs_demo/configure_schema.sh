@@ -8,7 +8,7 @@ curl -sS -X POST -H 'Content-Type: application/json' \
   --data-binary '{"set-user-property": {"update.autoCreateFields":"false"}}'
 echo
 
-# 2. Field types: BM25 (k1=0.9, b=0.4) on title; dense vectors for bge + te3.
+# 2. Field types: BM25 (k1=0.9, b=0.4) on title; dense vectors for e5-small.
 curl -sS -X POST -H 'Content-Type: application/json' \
   "$SOLR/solr/jobs/schema" --data-binary @- <<'JSON'
 {
@@ -36,12 +36,6 @@ curl -sS -X POST -H 'Content-Type: application/json' \
       "class": "solr.DenseVectorField",
       "vectorDimension": 384,
       "similarityFunction": "cosine"
-    },
-    {
-      "name": "knn_vector_1024",
-      "class": "solr.DenseVectorField",
-      "vectorDimension": 1024,
-      "similarityFunction": "cosine"
     }
   ]
 }
@@ -65,8 +59,7 @@ curl -sS -X POST -H 'Content-Type: application/json' \
     {"name": "posted_at",         "type": "string",       "indexed": false, "stored": true,  "multiValued": false},
     {"name": "source_corpus",     "type": "string",       "indexed": true,  "stored": true,  "multiValued": false},
     {"name": "description",       "type": "string",       "indexed": false, "stored": true,  "multiValued": false},
-    {"name": "bge_vec",           "type": "knn_vector_384",  "indexed": true, "stored": false, "multiValued": false},
-    {"name": "te3_vec",           "type": "knn_vector_1024", "indexed": true, "stored": false, "multiValued": false}
+    {"name": "bge_vec",           "type": "knn_vector_384",  "indexed": true, "stored": false, "multiValued": false}
   ]
 }
 JSON
