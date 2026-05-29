@@ -247,6 +247,34 @@ def resume_features(row):
     }
 
 
+def features_from_text(text, loc=""):
+    """Build a feature dict from free-form profile text (paste / .txt / LinkedIn PDF).
+
+    Unlike resume_features (which reads structured parquet columns) there is only a
+    text blob here, so:
+      seniority -> highest level mentioned anywhere (a profile lists its top role)
+      location  -> the optional `loc` field, else geo tokens scanned from the text
+                   (permissive: unknown location tends to pass, matching the
+                   gate-axis "unknown -> pass" convention rather than wrongly rejecting)
+      years/degree/creds reuse the same regex extractors as the parquet path.
+    """
+    text = (text or "").strip()
+    loc = (loc or "").strip()
+    first_line = text.split("\n", 1)[0].strip() if text else ""
+    loc_src = loc or text
+    return {
+        "name": "(your profile)",
+        "headline": first_line[:160],
+        "loc": loc,
+        "loc_tok": sorted(geo_tokens(loc_src)),
+        "text": text[:2000],
+        "seniority": seniority_of(text),
+        "years": resume_years(text),
+        "degree": resume_degree(text),
+        "creds": sorted(resume_creds(text, "", text)),
+    }
+
+
 def job_features(d):
     """Build a feature dict from a parsed metadata.jsonl record."""
     txt = d.get("text") or ""

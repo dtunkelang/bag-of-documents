@@ -8,8 +8,9 @@ on seniority + location + qualification gates (years/degree/cred). This demo mak
 that visible — each job carries sen/loc/gate badges, and the right column drops the
 jobs that violate a hard constraint, promoting the highest-cosine survivor.
 
-Caches (built by precompute_resume_match.py) make boot fast; no model is loaded at
-serve time because resume vectors are precomputed.
+Caches (built by precompute_resume_match.py) make browsing fast; the e5-base-v2
+encoder is loaded at serve time so a visitor can also paste / upload their own
+profile (text, .txt, or LinkedIn Save-to-PDF export) and get matched live.
 
 Run:  .venv/bin/python demo_resume_match.py            # http://127.0.0.1:7863
 """
@@ -24,7 +25,7 @@ import time
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from huggingface_hub import snapshot_download
 
@@ -57,6 +58,8 @@ def download_data() -> str:
 
 POOL = 50  # candidate pool depth (matches the validated probe)
 TOP_N = 10
+ENCODER = "intfloat/e5-base-v2"  # must match how the catalog vecs were built
+QPREFIX = "query: "  # e5 asymmetric prefix used for the resume/query side
 
 R = {}  # loaded resources
 
@@ -88,6 +91,10 @@ async def lifespan(app):
     with open(JOB_FEATS, "rb") as fh:
         R["job_feats"] = pickle.load(fh)
     R["job_offsets"] = np.load(JOB_OFFSETS)
+    print("loading e5-base-v2 encoder (for live profile matching)...", flush=True)
+    from sentence_transformers import SentenceTransformer
+
+    R["model"] = SentenceTransformer(ENCODER, device="cpu")
     if R["res_vecs"].shape[0] != len(R["res_recs"]):
         raise SystemExit("resume vecs / records length mismatch")
     if R["cat"].shape[0] != len(R["job_feats"]):
@@ -183,6 +190,18 @@ h1 { font-size: 1.35em; margin-bottom: 6px; }
 .cos-num { color: #555; font-variant-numeric: tabular-nums; font-size: 0.8em; float: right; }
 .jobdetail { margin-top: 7px; padding: 9px 11px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.84em; line-height: 1.4; max-height: 320px; overflow-y: auto; }
 .jobdetail.loading { color: #888; font-style: italic; }
+.ownbox { border: 1px solid #ddd; border-radius: 6px; background: #fff; margin-bottom: 16px; }
+.ownbox > summary { padding: 9px 12px; cursor: pointer; font-size: 0.9em; font-weight: 600; color: #2b6cb0; list-style: none; }
+.ownbox > summary::-webkit-details-marker { display: none; }
+.ownbox > summary::before { content: '\\25b8 '; color: #999; }
+.ownbox[open] > summary::before { content: '\\25be '; }
+.ownbody { padding: 0 12px 12px; }
+#own-text { width: 100%; min-height: 120px; box-sizing: border-box; padding: 8px 10px; font-size: 0.88em; font-family: inherit; border: 1px solid #ddd; border-radius: 5px; resize: vertical; }
+.ownrow { display: flex; gap: 10px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+#own-loc { flex: 1; min-width: 180px; padding: 7px 10px; font-size: 0.86em; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+#own-go { padding: 7px 16px; font-size: 0.88em; background: #2b6cb0; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+#own-go:hover { background: #245a96; }
+.ownstatus { font-size: 0.82em; color: #b3261e; margin-top: 7px; min-height: 1em; }
 </style></head>
 <body>
 <h1>Resume &rarr; Job Matching</h1>
@@ -191,6 +210,18 @@ h1 { font-size: 1.35em; margin-bottom: 6px; }
   Left column is <b>raw cosine</b>; right column applies a <b>3-axis hard-constraint filter</b>
   (seniority &middot; location &middot; qualification gates) and promotes the best-cosine survivor.
 </div>
+<details class="ownbox">
+  <summary>Match your own profile &mdash; paste text, or upload a .txt / LinkedIn PDF</summary>
+  <div class="ownbody">
+    <textarea id="own-text" placeholder="Paste your LinkedIn &lsquo;About&rsquo; + experience, or any resume text&hellip;&#10;(LinkedIn URLs can't be fetched server-side, so paste or upload the PDF export: Profile &rarr; Resources &rarr; Save to PDF.)"></textarea>
+    <div class="ownrow">
+      <input id="own-loc" placeholder="Your location (optional, e.g. 'Boston, MA' &mdash; improves location matching)" autocomplete="off" />
+      <input type="file" id="own-file" accept=".txt,.pdf" />
+      <button id="own-go">Match my profile</button>
+    </div>
+    <div id="own-status" class="ownstatus"></div>
+  </div>
+</details>
 <div class="layout">
   <div class="col-resumes">
     <input id="resume-search" placeholder="filter resumes (name, headline, location, skills)..." autocomplete="off" />
@@ -268,6 +299,37 @@ async function pick(rid){
   box.innerHTML = '<div class="empty">matching...</div>';
   const r = await fetch('/api/match?rid=' + rid);
   const d = await r.json();
+  renderMatch(d);
+}
+
+async function matchOwn(){
+  const text = document.getElementById('own-text').value.trim();
+  const loc = document.getElementById('own-loc').value.trim();
+  const file = document.getElementById('own-file').files[0];
+  const status = document.getElementById('own-status');
+  if(!text && !file){ status.textContent = 'Paste some text or choose a .txt/.pdf file first.'; return; }
+  const fd = new FormData();
+  fd.append('text', text); fd.append('loc', loc);
+  if(file) fd.append('file', file);
+  status.textContent = 'matching\\u2026';
+  RID = null; highlight();
+  document.getElementById('match').innerHTML = '<div class="empty">matching your profile\\u2026</div>';
+  try{
+    const r = await fetch('/api/match_text', {method:'POST', body: fd});
+    const d = await r.json();
+    if(!r.ok || d.error){
+      const msg = d.error || ('error ' + r.status);
+      status.textContent = msg;
+      document.getElementById('match').innerHTML = '<div class="empty">' + esc(msg) + '</div>';
+      return;
+    }
+    status.textContent = '';
+    renderMatch(d);
+  }catch(e){ status.textContent = 'failed: ' + e; }
+}
+
+function renderMatch(d){
+  const box = document.getElementById('match');
   const rs = d.resume;
   const facts = [];
   facts.push('level: <b>' + esc(rs.seniority) + '</b>');
@@ -302,6 +364,7 @@ document.getElementById('resume-search').addEventListener('input', e => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => loadResumes(e.target.value.trim()), 160);
 });
+document.getElementById('own-go').addEventListener('click', matchOwn);
 loadResumes('');
 </script>
 </body></html>
@@ -351,12 +414,21 @@ def _row_for_rid(rid: int):
     return None, None
 
 
-@app.get("/api/match")
-def api_match(rid: int = Query(...), pool: int = Query(POOL), n: int = Query(TOP_N)):
-    pos, r = _row_for_rid(rid)
-    if r is None:
-        return JSONResponse({"error": "rid not found"}, status_code=404)
-    qv = R["res_vecs"][pos]
+def _resume_summary(r: dict) -> dict:
+    return {
+        "name": r["name"] or "(unnamed)",
+        "headline": r["headline"],
+        "loc": r["loc"],
+        "seniority": L.SENIORITY_LABELS[r["seniority"]],
+        "years": int(r["years"]) if r["years"] is not None else None,
+        "degree": L.DEGREE_LABELS[r["degree"]],
+        "creds": [L.CRED_LABELS.get(c, c) for c in r["creds"]],
+    }
+
+
+def _run_match(r: dict, qv: np.ndarray, pool: int = POOL, n: int = TOP_N) -> dict:
+    """Cosine top-`pool` against the catalog, then the 3-axis filter. Shared by the
+    browse endpoint (precomputed qv) and the live profile endpoint (encoded qv)."""
     sims = R["cat"] @ qv  # (n_jobs,)
     pool = min(pool, sims.shape[0])
     cand = np.argpartition(-sims, pool - 1)[:pool]
@@ -376,23 +448,59 @@ def api_match(rid: int = Query(...), pool: int = Query(POOL), n: int = Query(TOP
             if len(filtered_list) < n:
                 filtered_list.append(brief)
 
-    return JSONResponse(
-        {
-            "resume": {
-                "name": r["name"] or "(unnamed)",
-                "headline": r["headline"],
-                "loc": r["loc"],
-                "seniority": L.SENIORITY_LABELS[r["seniority"]],
-                "years": int(r["years"]) if r["years"] is not None else None,
-                "degree": L.DEGREE_LABELS[r["degree"]],
-                "creds": [L.CRED_LABELS.get(c, c) for c in r["creds"]],
-            },
-            "pool_n": pool,
-            "filtered_count": filtered_count,
-            "cosine": cosine_list,
-            "filtered": filtered_list,
-        }
-    )
+    return {
+        "resume": _resume_summary(r),
+        "pool_n": pool,
+        "filtered_count": filtered_count,
+        "cosine": cosine_list,
+        "filtered": filtered_list,
+    }
+
+
+@app.get("/api/match")
+def api_match(rid: int = Query(...), pool: int = Query(POOL), n: int = Query(TOP_N)):
+    pos, r = _row_for_rid(rid)
+    if r is None:
+        return JSONResponse({"error": "rid not found"}, status_code=404)
+    return JSONResponse(_run_match(r, R["res_vecs"][pos], pool, n))
+
+
+def _pdf_to_text(raw: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(raw))
+    return "\n".join((page.extract_text() or "") for page in reader.pages)
+
+
+@app.post("/api/match_text")
+async def api_match_text(
+    text: str = Form(""),
+    loc: str = Form(""),
+    file: UploadFile | None = File(None),
+):
+    """Match an ad-hoc profile supplied by the client: pasted text, an uploaded .txt,
+    or a LinkedIn 'Save to PDF' export. Nothing is persisted."""
+    blob = (text or "").strip()
+    if file is not None and file.filename:
+        raw = await file.read()
+        try:
+            if file.filename.lower().endswith(".pdf"):
+                blob = _pdf_to_text(raw)
+            else:
+                blob = raw.decode("utf-8", "ignore")
+        except Exception as e:
+            return JSONResponse({"error": f"could not read file: {e}"}, status_code=400)
+    blob = _clean_text(blob)
+    if len(blob) < 30:
+        return JSONResponse(
+            {"error": "Need more text — paste your profile or upload a .txt / LinkedIn PDF."},
+            status_code=400,
+        )
+    r = L.features_from_text(blob, loc=loc)
+    qv = R["model"].encode(QPREFIX + blob, normalize_embeddings=True).astype(np.float32)
+    return JSONResponse(_run_match(r, qv))
 
 
 @app.get("/api/job_detail")

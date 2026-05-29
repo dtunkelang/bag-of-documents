@@ -25,6 +25,8 @@ ignore = [
 "compute_bags.py" = ["SIM115"]  # Long-lived file handle for JSONL append
 "solr_movies_demo/app.py" = ["B008"]  # FastAPI Query() defaults are idiomatic
 "solr_movies_demo/space/app.py" = ["B008"]  # FastAPI Query() defaults are idiomatic
+"demo_resume_match.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
+"space_demo_resume/app.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
 
 [tool.ruff.format]
 quote-style = "double"
