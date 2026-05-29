@@ -35,6 +35,7 @@ USER root
 
 # App + entrypoint.
 COPY app.py /opt/app/app.py
+COPY resume_match_lib.py /opt/app/resume_match_lib.py
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 

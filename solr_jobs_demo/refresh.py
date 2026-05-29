@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+"""Periodic refresh of the Solr jobs demo (Space dtunkelang/jobs-search-solr).
+
+Single orchestration script. Pulls the latest OpenApply + USAJobs postings,
+rebuilds a te3-free unified catalog (RRF: BM25 + e5-small), reindexes Solr,
+and (optionally) publishes the tarred core to the HF dataset + restarts the
+Space. LinkedIn/JobStreet are intentionally DROPPED (frozen one-time scrapes);
+see project_jobs_refresh_pipeline_plan.
+
+Stages (run a contiguous range with --from-stage / --to-stage):
+  0 pull    OpenApply (--openapply-source crawl [default]: run the crawler
+            directly, ~25-30min same-day fresh; hf: download maintainer
+            snapshot, fast but may lag ~1wk)
+            + USAJobs API -> per-corpus titles/doc_ids/metadata via prep_open_apply
+  1 unify   concatenate the 2 corpora -> OUT/{doc_ids,titles}.json,
+            metadata.jsonl, source_index.json  (te3-free: NO vectors here)
+  2 encode  e5-small-v2 over unified titles -> OUT/e5_small_catalog.vecs.fp16.npy
+  3 facets  heuristics.classify_record -> facets/facets.jsonl
+            (+ byproduct: facets/new_unlabeled_slugs.txt for later labeling)
+  --- everything below mutates the live demo; gated behind --no-dry-run ---
+  4 solr     start Solr, (re)create core, apply schema (+ industry field),
+             push_docs, commit, verify
+  5 tar      COPYFILE_DISABLE=1 tar --no-xattrs the core
+  6 upload   push solr_jobs_core.tar to dataset dtunkelang/jobs-demo
+  7 deploy   upload space/app.py + restart Space + smoke check
+
+Default is a DRY RUN: stages 0-3 only (data pipeline; no live mutation). Pass
+--no-dry-run to allow stages 4-7.
+
+Usage (this session's validation run):
+  caffeinate -di .venv/bin/python solr_jobs_demo/refresh.py \\
+      --to-stage 3 --out-dir unified_jobs_v2
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path("/Users/dtunkelang/bagofdocs")
+PY = str(ROOT / ".venv" / "bin" / "python")
+
+OPENAPPLY_REPO = "edwarddgao/open-apply-jobs"  # HF dataset, raw parquet (maintainer-uploaded)
+OPENAPPLY_GIT = "https://github.com/edwarddgao/openapply"  # the crawler itself
+OPENAPPLY_CLONE = ROOT / "openapply_repo"  # local checkout for --openapply-source crawl
+EMBED_MODEL = "intfloat/e5-small-v2"
+EMBED_OUT_NAME = "e5_small_catalog"  # -> {OUT}/e5_small_catalog.vecs.fp16.npy
+EMBED_PREFIX = "passage: "  # e5 requires this on the document side
+# Encode tuning: small chunks make each GPU->CPU transfer cheap, which both
+# dodges the intermittent MPS waitUntilCompleted deadlock AND makes a kill+resume
+# (via encode_st_catalog's per-chunk progress.json) cheap when one does happen.
+EMBED_CHUNK_SIZE = 5000  # small per-chunk GPU->CPU transfer (~3.8MB) avoids the MPS deadlock
+EMBED_BATCH_SIZE = 64  # e5-small is tiny; larger batch keeps the GPU busy (transfer size is per-chunk, not per-batch)
+EMBED_STALL_SECS = 180  # no completed chunk within this -> assume MPS hang, kill + resume
+EMBED_MAX_ATTEMPTS = 8
+
+# (per-corpus dir, source_corpus tag) — order defines the unified index order.
+# OpenApply first (the bulk + the refreshed source), USAJobs second.
+CORPORA = [
+    ("jobs_data", "jobs_data"),
+    ("jobs_data_usajobs", "jobs_data_usajobs"),
+]
+
+# Stage-4 Solr constants.
+SOLR_URL = "http://localhost:8983"
+SOLR_HOME = ROOT / "solr_jobs_demo" / "solr_home"
+JAVA_HOME = (
+    "/opt/homebrew/opt/openjdk@21"  # run.sh's ${JAVA_HOME:-...} is buggy if JAVA_HOME is preset
+)
+CORE = "jobs"
+
+# Artifact reuse: the slug->industry label CSV is slug-keyed (corpus-independent),
+# so it carries over from the previous build into the fresh OUT dir.
+INDUSTRY_CSV = "slug_industry_labels_round2.csv"
+LEGACY_UNIFIED = ROOT / "unified_jobs"
+
+
+def run(cmd: list[str], cwd: Path = ROOT, env: dict | None = None) -> None:
+    """Run a subprocess, streaming output; raise on non-zero exit."""
+    print(f"\n$ {' '.join(str(c) for c in cmd)}", flush=True)
+    full_env = {**os.environ, **(env or {})}
+    subprocess.run([str(c) for c in cmd], cwd=str(cwd), env=full_env, check=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 0: pull
+# ---------------------------------------------------------------------------
+def _resolve_openapply_date(requested: str) -> str | None:
+    """The OpenApply dataset is partitioned by daily snapshot date; each date is
+    a full crawl of currently-open postings. 'latest' (default) picks the most
+    recent date = the freshest complete catalog. 'all' returns None (pull every
+    partition — heavy + highly redundant; dedup collapses it). A YYYY-MM-DD value
+    pins a specific snapshot."""
+    if requested == "all":
+        return None
+    if requested != "latest":
+        return requested
+    from huggingface_hub import HfApi
+
+    info = HfApi().dataset_info(OPENAPPLY_REPO, files_metadata=False)
+    dates = sorted(
+        {
+            part.split("=")[1]
+            for s in info.siblings
+            if s.rfilename.endswith(".parquet")
+            for part in s.rfilename.split("/")
+            if part.startswith("date=")
+        }
+    )
+    if not dates:
+        sys.exit("[0] could not discover any date= partitions in OpenApply dataset")
+    print(f"[0] discovered {len(dates)} snapshot dates; latest = {dates[-1]}", flush=True)
+    return dates[-1]
+
+
+def _pull_openapply_hf(oa_raw: Path, snapshot_date: str) -> None:
+    """Fast path: download a daily snapshot from the maintainer's HF dataset.
+    As fresh as their last upload (can lag ~1 week)."""
+    from huggingface_hub import snapshot_download
+
+    date = _resolve_openapply_date(snapshot_date)
+    patterns = [f"**/date={date}/**/*.parquet"] if date else ["*.parquet", "**/*.parquet"]
+    print(f"[0] downloading {OPENAPPLY_REPO} (date={date or 'ALL'}) ...", flush=True)
+    snapshot_download(
+        repo_id=OPENAPPLY_REPO,
+        repo_type="dataset",
+        local_dir=str(oa_raw),
+        allow_patterns=patterns,
+    )
+
+
+def _crawl_openapply(oa_raw: Path, workers: int) -> None:
+    """Fresh path: run the OpenApply crawler directly (~15 min). Hits public
+    Greenhouse/Lever/Ashby APIs across the committed slugs/cc_*_FINAL.txt lists
+    (no creds, no Common Crawl harvest). Emits the same parquet schema the HF
+    dataset uses, so prep_open_apply consumes it unchanged. Same-day fresh."""
+    if OPENAPPLY_CLONE.exists():
+        run(["git", "-C", OPENAPPLY_CLONE, "pull", "--ff-only"])
+    else:
+        run(["git", "clone", "--depth", "1", OPENAPPLY_GIT, OPENAPPLY_CLONE])
+
+    jsonl = OPENAPPLY_CLONE / "jobs.jsonl"
+    # oa_adapter reads slugs/cc_*_FINAL.txt relative to its own dir -> cwd=clone.
+    run(
+        [PY, "oa_adapter.py", "--workers", str(workers), "--out", "jobs.jsonl"], cwd=OPENAPPLY_CLONE
+    )
+
+    # A fresh crawl is a single current snapshot, so clear stale parquet first.
+    if oa_raw.exists():
+        shutil.rmtree(oa_raw)
+    oa_raw.mkdir(parents=True, exist_ok=True)
+    run([PY, "scripts/jsonl_to_parquet.py", jsonl, oa_raw], cwd=OPENAPPLY_CLONE)
+
+
+def stage_pull(args) -> None:
+    # --- OpenApply ---
+    oa_raw = ROOT / "jobs_data" / "raw"
+    if args.skip_download:
+        print(f"[0] --skip-download: reusing existing parquet under {oa_raw}", flush=True)
+    elif args.openapply_source == "crawl":
+        _crawl_openapply(oa_raw, args.crawl_workers)
+    else:
+        _pull_openapply_hf(oa_raw, args.snapshot_date)
+    run(
+        [
+            PY,
+            "download/prep_open_apply.py",
+            "--raw-dir",
+            oa_raw,
+            "--out-dir",
+            ROOT / "jobs_data",
+            "--sample-n",
+            str(args.openapply_sample_n),  # 0 = keep all
+        ]
+    )
+
+    # --- USAJobs ---
+    usa_raw = ROOT / "jobs_data_usajobs" / "raw"
+    have_creds = bool(os.environ.get("USAJOBS_EMAIL") and os.environ.get("USAJOBS_API_KEY"))
+    have_raw = usa_raw.exists() and any(usa_raw.glob("*.parquet"))
+    if args.skip_download or not have_creds:
+        if not have_raw:
+            sys.exit(
+                "[0] no USAJobs raw parquet to reuse and no API creds; set USAJOBS_EMAIL + USAJOBS_API_KEY"
+            )
+        why = "--skip-download" if args.skip_download else "no USAJOBS creds"
+        print(f"[0] {why}: reusing existing USAJobs parquet under {usa_raw}", flush=True)
+    else:
+        run([PY, "download/fetch_usajobs.py", "--out-dir", usa_raw, "--max-pages", "0"])
+    # USAJobs raw parquet shares prep_open_apply's expected field names, so the
+    # same prep produces titles/doc_ids/metadata for it.
+    run(
+        [
+            PY,
+            "download/prep_open_apply.py",
+            "--raw-dir",
+            usa_raw,
+            "--out-dir",
+            ROOT / "jobs_data_usajobs",
+            "--sample-n",
+            "0",  # keep all USAJobs
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: unify (te3-free, 2 corpora, NO vectors)
+# ---------------------------------------------------------------------------
+def stage_unify(args) -> None:
+    out = Path(args.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    all_ids: list[str] = []
+    all_titles: list[str] = []
+    all_sources: list[str] = []
+    starts: dict[str, int] = {}
+    cursor = 0
+
+    with open(out / "metadata.jsonl", "w") as meta_out:
+        for corpus_dir, tag in CORPORA:
+            d = ROOT / corpus_dir
+            with open(d / "doc_ids.json") as f:
+                ids = json.load(f)
+            with open(d / "titles.json") as f:
+                titles = json.load(f)
+            if len(ids) != len(titles):
+                sys.exit(
+                    f"[1] size mismatch in {corpus_dir}: {len(ids)} ids vs {len(titles)} titles"
+                )
+            n = len(ids)
+            starts[tag] = cursor
+            print(f"[1] {corpus_dir}: {n:,} docs starting at {cursor:,}", flush=True)
+            all_ids.extend(ids)
+            all_titles.extend(titles)
+            all_sources.extend([tag] * n)
+            with open(d / "metadata.jsonl") as fin:
+                for line in fin:
+                    rec = json.loads(line)
+                    rec["source_corpus"] = tag
+                    meta_out.write(json.dumps(rec) + "\n")
+            cursor += n
+
+    total = cursor
+    with open(out / "doc_ids.json", "w") as f:
+        json.dump(all_ids, f)
+    with open(out / "titles.json", "w") as f:
+        json.dump(all_titles, f)
+    with open(out / "source_index.json", "w") as f:
+        json.dump({"starts": starts, "sources": all_sources}, f)
+    print(f"[1] unified {total:,} docs -> {out}  (starts={starts})", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: encode e5-small over unified titles
+# ---------------------------------------------------------------------------
+def stage_encode(args) -> None:
+    import math
+    import time
+
+    out = Path(args.out_dir)
+    vec = out / f"{EMBED_OUT_NAME}.vecs.fp16.npy"
+    progress_path = out / f"{EMBED_OUT_NAME}.progress.json"
+    with open(out / "titles.json") as f:
+        n_titles = len(json.load(f))
+    n_chunks = math.ceil(n_titles / EMBED_CHUNK_SIZE)
+
+    def chunks_done() -> int:
+        if not progress_path.exists():
+            return 0
+        try:
+            with open(progress_path) as f:
+                return len(json.load(f))
+        except Exception:
+            return 0
+
+    cmd = [
+        PY,
+        "download/encode_st_catalog.py",
+        "--data-dir",
+        str(out),
+        "--titles-file",
+        "titles.json",
+        "--model",
+        EMBED_MODEL,
+        "--out-name",
+        EMBED_OUT_NAME,
+        "--doc-prefix",
+        EMBED_PREFIX,
+        "--device",
+        args.device,
+        "--chunk-size",
+        str(EMBED_CHUNK_SIZE),
+        "--batch-size",
+        str(EMBED_BATCH_SIZE),
+    ]
+
+    # Watchdog loop: encode_st_catalog resumes from progress.json, so on an MPS
+    # deadlock we kill the stalled process and relaunch — it skips done chunks.
+    for attempt in range(1, EMBED_MAX_ATTEMPTS + 1):
+        print(
+            f"[2] encode attempt {attempt}/{EMBED_MAX_ATTEMPTS} "
+            f"({chunks_done()}/{n_chunks} chunks done) on {args.device}",
+            flush=True,
+        )
+        print(f"\n$ {' '.join(cmd)}", flush=True)
+        proc = subprocess.Popen(cmd, cwd=str(ROOT), env={**os.environ})
+        last_done = chunks_done()
+        last_progress_at = time.time()
+        while True:
+            ret = proc.poll()
+            if ret is not None:
+                break
+            now_done = chunks_done()
+            if now_done != last_done:
+                last_done, last_progress_at = now_done, time.time()
+            elif time.time() - last_progress_at > EMBED_STALL_SECS:
+                print(
+                    f"[2] STALL: no chunk completed in {EMBED_STALL_SECS}s at "
+                    f"{now_done}/{n_chunks} (likely MPS deadlock); killing + resuming",
+                    flush=True,
+                )
+                proc.kill()
+                proc.wait()
+                break
+            time.sleep(5)
+        if ret == 0 and chunks_done() >= n_chunks:
+            break
+    if not vec.exists() or chunks_done() < n_chunks:
+        sys.exit(
+            f"[2] encode incomplete after {EMBED_MAX_ATTEMPTS} attempts ({chunks_done()}/{n_chunks})"
+        )
+    print(f"[2] wrote {vec} ({n_chunks} chunks)", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 3: facets (+ new-slug byproduct)
+# ---------------------------------------------------------------------------
+def stage_facets(args) -> None:
+    sys.path.insert(0, str(ROOT / "solr_jobs_demo" / "facets"))
+    from heuristics import classify_record  # noqa: E402
+
+    out = Path(args.out_dir)
+    facets_out = ROOT / "solr_jobs_demo" / "facets" / "facets.jsonl"
+    meta_path = out / "metadata.jsonl"
+
+    # Known slugs (for the new-slug byproduct). Prefer the fresh OUT dir, fall
+    # back to the legacy unified dir where the label CSV currently lives.
+    known_slugs: set[str] = set()
+    for base in (out, LEGACY_UNIFIED):
+        csv_path = base / INDUSTRY_CSV
+        if csv_path.exists():
+            import csv
+
+            with open(csv_path) as f:
+                for r in csv.DictReader(f):
+                    known_slugs.add(r["slug"])
+            print(f"[3] loaded {len(known_slugs):,} known slugs from {csv_path}", flush=True)
+            break
+
+    new_slugs: set[str] = set()
+    n = 0
+    with open(meta_path) as f, open(facets_out, "w") as fo:
+        for i, line in enumerate(f):
+            rec = json.loads(line)
+            facets = classify_record(rec)
+            fo.write(json.dumps({"idx": i, **facets}) + "\n")
+            slug = (rec.get("source_slug") or "").strip()
+            if slug and slug not in known_slugs:
+                new_slugs.add(slug)
+            n = i + 1
+    print(f"[3] wrote {n:,} facet rows -> {facets_out}", flush=True)
+
+    byproduct = ROOT / "solr_jobs_demo" / "facets" / "new_unlabeled_slugs.txt"
+    with open(byproduct, "w") as f:
+        for s in sorted(new_slugs):
+            f.write(s + "\n")
+    print(f"[3] {len(new_slugs):,} new unlabeled slugs -> {byproduct}", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: Solr build (live mutation)
+# ---------------------------------------------------------------------------
+def _solr_env() -> dict:
+    return {"JAVA_HOME": JAVA_HOME}  # force Java 21; run.sh's :- default is unsafe
+
+
+def stage_solr(args) -> None:
+    import time
+    import urllib.request
+
+    # Absolute: push_docs runs with cwd=demo, so a relative JOBS_STAGE would
+    # wrongly resolve under solr_jobs_demo/ instead of the repo root.
+    out = Path(args.out_dir).resolve()
+    demo = ROOT / "solr_jobs_demo"
+    solr_bin = "/opt/homebrew/bin/solr"
+
+    # The fresh OUT dir needs the slug->industry CSV that push_docs reads from STAGE.
+    src_csv = LEGACY_UNIFIED / INDUSTRY_CSV
+    dst_csv = out / INDUSTRY_CSV
+    if src_csv.exists() and not dst_csv.exists():
+        shutil.copy2(src_csv, dst_csv)
+        print(f"[4] copied {INDUSTRY_CSV} into {out}", flush=True)
+
+    # Start Solr (idempotent).
+    def solr_up() -> bool:
+        try:
+            with urllib.request.urlopen(f"{SOLR_URL}/solr/admin/info/system", timeout=3) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    if not solr_up():
+        run(
+            [solr_bin, "start", "--user-managed", "--solr-home", SOLR_HOME, "-p", "8983"],
+            env=_solr_env(),
+        )
+        for _ in range(60):
+            if solr_up():
+                break
+            time.sleep(1)
+        else:
+            sys.exit("[4] Solr did not come up on 8983")
+
+    # (Re)create the core with conf materialized INSIDE the instance dir. Solr
+    # auto-discovers any existing core at startup, so deleting its files while it is
+    # loaded leaves it half-alive and CREATE fails with "already exists". UNLOAD it
+    # from the running instance FIRST, then wipe the dir, then CREATE.
+    #
+    # We do NOT use configSet=_default: that records `configSet=_default` in
+    # core.properties (referenced BY NAME) instead of copying conf/ into the core,
+    # so the deploy tar (which contains only the core dir) is missing its config and
+    # the Space — which has no configsets/_default — fails to load the core and every
+    # /select 500s. Seed conf/ into jobs/conf instead, so the tar is self-contained.
+    def core_loaded() -> bool:
+        try:
+            with urllib.request.urlopen(
+                f"{SOLR_URL}/solr/admin/cores?action=STATUS&core={CORE}", timeout=10
+            ) as r:
+                return bool(json.load(r).get("status", {}).get(CORE))
+        except Exception:
+            return False
+
+    if core_loaded():
+        run(
+            [
+                "curl",
+                "-sS",
+                f"{SOLR_URL}/solr/admin/cores?action=UNLOAD&core={CORE}"
+                "&deleteIndex=true&deleteDataDir=true&deleteInstanceDir=true",
+            ],
+            env=_solr_env(),
+        )
+    instance_dir = SOLR_HOME / CORE
+    if instance_dir.exists():
+        shutil.rmtree(instance_dir)
+    shipped_conf = Path("/opt/homebrew/opt/solr/server/solr/configsets/_default/conf")
+    if not shipped_conf.exists():
+        sys.exit(f"[4] no _default conf to seed from {shipped_conf}")
+    shutil.copytree(shipped_conf, instance_dir / "conf")
+    print(f"[4] seeded core conf -> {instance_dir / 'conf'}", flush=True)
+    create_url = (
+        f"{SOLR_URL}/solr/admin/cores?action=CREATE&name={CORE}&instanceDir={CORE}&dataDir=data"
+    )
+    # --fail-with-body: HTTP 4xx/5xx -> non-zero exit (plain `curl -sS` swallows them,
+    # which is how a failed CREATE previously slipped through into a broken push).
+    run(["curl", "-sS", "--fail-with-body", create_url], env=_solr_env())
+
+    # Schema: base + facets + the industry field that BOTH schema scripts omit.
+    run(["bash", "configure_schema.sh"], cwd=demo)
+    run(["bash", "add_facet_fields.sh"], cwd=demo)
+    industry_field = json.dumps(
+        {
+            "add-field": [
+                {
+                    "name": "industry",
+                    "type": "string",
+                    "indexed": True,
+                    "stored": True,
+                    "multiValued": False,
+                }
+            ]
+        }
+    )
+    run(
+        [
+            "curl",
+            "-sS",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            f"{SOLR_URL}/solr/{CORE}/schema",
+            "--data-binary",
+            industry_field,
+        ]
+    )
+
+    # push_docs reads from STAGE (hardcoded to unified_jobs). If we built into a
+    # different dir, point it there via env override.
+    push_env = {"JOBS_STAGE": str(out)} if str(out) != str(LEGACY_UNIFIED) else {}
+    if push_env:
+        print(
+            "[4] NOTE: push_docs STAGE is hardcoded; set JOBS_STAGE handling or run with --out-dir unified_jobs",
+            flush=True,
+        )
+    run([PY, "push_docs.py"], cwd=demo, env=push_env)
+    run(["curl", "-sS", "--fail-with-body", f"{SOLR_URL}/solr/{CORE}/update?commit=true"])
+
+    with urllib.request.urlopen(f"{SOLR_URL}/solr/{CORE}/select?q=*:*&rows=0", timeout=10) as r:
+        n = json.load(r)["response"]["numFound"]
+    with open(out / "metadata.jsonl") as mf:
+        expected = sum(1 for _ in mf)
+    print(f"[4] indexed numFound={n:,} (expected {expected:,})", flush=True)
+    # Hard gate: a short/empty index must NOT reach tar/upload/deploy.
+    if n < 0.99 * expected:
+        sys.exit(f"[4] ABORT: indexed {n:,} < 99% of expected {expected:,}")
+
+
+# ---------------------------------------------------------------------------
+# Stage 5: tar
+# ---------------------------------------------------------------------------
+def stage_tar(args) -> None:
+    tar_path = ROOT / "solr_jobs_demo" / "solr_jobs_core.tar"
+    run(
+        ["tar", "--no-xattrs", "-cf", tar_path, "-C", SOLR_HOME, CORE],
+        env={"COPYFILE_DISABLE": "1"},
+    )
+    print(f"[5] wrote {tar_path} ({tar_path.stat().st_size / 1e9:.2f} GB)", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: upload to HF dataset
+# ---------------------------------------------------------------------------
+def stage_upload(args) -> None:
+    from huggingface_hub import HfApi
+
+    tar_path = ROOT / "solr_jobs_demo" / "solr_jobs_core.tar"
+    print(
+        "[6] uploading to dtunkelang/jobs-demo (expect a 30-45 min stall near 99-100%)...",
+        flush=True,
+    )
+    HfApi().upload_file(
+        path_or_fileobj=str(tar_path),
+        path_in_repo="solr_index/solr_jobs_core.tar",
+        repo_id="dtunkelang/jobs-demo",
+        repo_type="dataset",
+    )
+    print("[6] upload complete", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Stage 7: deploy app + restart Space
+# ---------------------------------------------------------------------------
+def stage_deploy(args) -> None:
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    space_id = "dtunkelang/jobs-search-solr"
+    space_dir = ROOT / "solr_jobs_demo" / "space"
+    # The merged profile-match lane needs resume_match_lib.py (imported by app.py)
+    # and pypdf (requirements.txt) on the Space — and the Dockerfile must COPY the
+    # lib into the image, so push the Dockerfile too (not just app.py).
+    for fname in ("app.py", "resume_match_lib.py", "requirements.txt", "Dockerfile"):
+        api.upload_file(
+            path_or_fileobj=str(space_dir / fname),
+            path_in_repo=fname,
+            repo_id=space_id,
+            repo_type="space",
+        )
+    api.restart_space(space_id)
+    print(
+        f"[7] redeployed app.py + restarted {space_id}; verify get_space_runtime().stage==RUNNING",
+        flush=True,
+    )
+
+
+STAGES = [
+    ("pull", stage_pull),
+    ("unify", stage_unify),
+    ("encode", stage_encode),
+    ("facets", stage_facets),
+    ("solr", stage_solr),
+    ("tar", stage_tar),
+    ("upload", stage_upload),
+    ("deploy", stage_deploy),
+]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--from-stage", type=int, default=0)
+    ap.add_argument(
+        "--to-stage", type=int, default=3, help="inclusive; default 3 (dry-run data pipeline)"
+    )
+    ap.add_argument(
+        "--out-dir", default=str(ROOT / "unified_jobs"), help="unified catalog output dir"
+    )
+    ap.add_argument(
+        "--openapply-source",
+        choices=["hf", "crawl"],
+        default="crawl",
+        help="crawl (default): run the crawler directly (~25-30min, same-day "
+        "fresh); hf: fast download of maintainer's HF snapshot (may lag ~1wk)",
+    )
+    ap.add_argument(
+        "--crawl-workers", type=int, default=16, help="oa_adapter --workers (crawl source)"
+    )
+    ap.add_argument(
+        "--snapshot-date",
+        default="latest",
+        help="hf source only: daily partition 'latest' (freshest full catalog), 'all', or YYYY-MM-DD",
+    )
+    ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
+    ap.add_argument("--device", default="mps")
+    ap.add_argument("--skip-download", action="store_true", help="reuse existing raw parquet")
+    ap.add_argument("--no-dry-run", action="store_true", help="allow live-mutation stages 4-7")
+    args = ap.parse_args()
+
+    if args.to_stage >= 4 and not args.no_dry_run:
+        sys.exit("refusing stages >=4 without --no-dry-run (those mutate the live demo)")
+
+    for i in range(args.from_stage, args.to_stage + 1):
+        name, fn = STAGES[i]
+        print(f"\n{'=' * 70}\n=== STAGE {i}: {name}\n{'=' * 70}", flush=True)
+        fn(args)
+    print(f"\nDONE stages {args.from_stage}-{args.to_stage}.", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

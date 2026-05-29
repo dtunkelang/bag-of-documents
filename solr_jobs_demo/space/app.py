@@ -947,9 +947,9 @@ document.getElementById('own-go').addEventListener('click', matchOwn);
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    title = "Jobs Search Demo: 348K postings across 4 corpora (Solr backend)"
+    title = "Jobs Search Demo: 198K postings across 2 corpora (Solr backend)"
     subtitle = (
-        "347,900 postings (jobs_data + LinkedIn + JobStreet + USAJobs) · "
+        "198,085 postings (OpenApply + USAJobs) · "
         "RRF(BM25 + e5-small) via Solr 10 · "
         "click a result for the full description · "
         "or paste your profile above to find jobs for yourself (3-axis constraint filter)"
