@@ -412,38 +412,101 @@ def _dominant_employers(items: list[tuple[int, float]], hyd: dict[int, dict]) ->
     return {e for e, n in counts.items() if total and n / total >= EMPLOYER_DOMINANCE}
 
 
+def _cap_employers(
+    items: list[tuple[int, float]],
+    hyd: dict[int, dict],
+    k: int,
+    filters: dict[str, str] | None,
+    dominance_bypass: bool = True,
+) -> list[tuple[int, float]]:
+    """Cap to EMPLOYER_CAP results per employer for display diversity.
+    Cap is bypassed when the user explicitly filtered by employer, OR (when
+    dominance_bypass) when one employer dominates the pool (>= EMPLOYER_DOMINANCE
+    share), which signals employer-coupled intent (e.g. 'amazon jobs'). The "more
+    like this" pivot turns dominance_bypass off — the user clicked a role, not an
+    employer, so near-duplicate postings from one shop add little."""
+    cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
+    if cap <= 0:
+        return items[:k]
+    exempt = _dominant_employers(items, hyd) if dominance_bypass else set()
+    kept: list[tuple[int, float]] = []
+    seen: dict[str, int] = {}
+    for idx, score in items:
+        emp = (hyd.get(idx, {}).get("employer") or "").strip().lower()
+        if emp and emp not in exempt and seen.get(emp, 0) >= cap:
+            continue
+        kept.append((idx, score))
+        if emp:
+            seen[emp] = seen.get(emp, 0) + 1
+        if len(kept) >= k:
+            break
+    return kept
+
+
 def search_default(
     query: str,
     k: int = 10,
     filters: dict[str, str] | None = None,
 ) -> list[dict]:
     """RRF(BM25, e5-small) with optional facet filters, then cap to
-    EMPLOYER_CAP results per employer for display diversity.
-    Cap is bypassed when the user explicitly filtered by employer, OR when
-    one employer dominates the unfiltered pool (>= EMPLOYER_DOMINANCE share),
-    which signals employer-coupled query intent (e.g. 'amazon jobs')."""
+    EMPLOYER_CAP results per employer for display diversity."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
     pool_k = max(k * (cap + 2), k + 20) if cap > 0 else k
     items = _fused_topk(query, pool_k, filters, RRF_POOL)
-    ids = [i for i, _ in items]
-    hyd = _hydrate(ids)
-    if cap > 0:
-        exempt = _dominant_employers(items, hyd)
-        kept: list[tuple[int, float]] = []
-        seen: dict[str, int] = {}
-        for idx, score in items:
-            emp = (hyd.get(idx, {}).get("employer") or "").strip().lower()
-            if emp and emp not in exempt and seen.get(emp, 0) >= cap:
-                continue
-            kept.append((idx, score))
-            if emp:
-                seen[emp] = seen.get(emp, 0) + 1
-            if len(kept) >= k:
-                break
-        items = kept
-    else:
-        items = items[:k]
+    hyd = _hydrate([i for i, _ in items])
+    items = _cap_employers(items, hyd, k, filters)
     return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
+
+
+# ===== "more jobs like this one": doc -> similar docs =====
+# Same RRF(BM25, e5-small) machinery as search_default, but the "query" is a source
+# job rather than typed text: the title drives the BM25 lane, and title + the lead of
+# the description drives the e5 dense lane. e5_vec is stored=false so we can't read the
+# source doc's stored vector back — re-embedding its text at query time is the only way
+# to KNN from it, and it lets the same asymmetric "query: " prefix bridge to the indexed
+# "passage: " vectors. The source doc is dropped from its own neighbour list.
+
+MLT_DESC_CHARS = 900  # lead of the description fed to the dense encoder (e5-small @ 512 tok)
+
+
+def _source_doc(idx: int) -> dict | None:
+    r = requests.get(
+        f"{SOLR}/solr/{CORE}/select",
+        params={"q": f'id:"{idx}"', "fl": "id,title_display,description", "rows": 1},
+        timeout=10,
+    )
+    r.raise_for_status()
+    docs = r.json()["response"]["docs"]
+    return docs[0] if docs else None
+
+
+def more_like_this(idx: int, k: int = 10) -> dict:
+    """Find jobs similar to job `idx` via RRF(BM25-on-title, e5-dense-on-title+lead)."""
+    src = _source_doc(idx)
+    if src is None:
+        return {"source": None, "results": []}
+    title = (src.get("title_display") or "").strip()
+    desc = (src.get("description") or "").strip()
+    seed = (title + ". " + desc)[: len(title) + 2 + MLT_DESC_CHARS] if desc else title
+    contrib: dict[int, float] = defaultdict(float)
+    # dense lane (+1 pool depth so dropping the source doc leaves a full pool)
+    for rank, (i, _) in enumerate(_topk_knn("e5_vec", _dense_qv(seed), RRF_POOL + 1), 1):
+        if i != idx:
+            contrib[i] += 1.0 / (RRF_K + rank)
+    # bm25 lane on the source title
+    if title:
+        for rank, (i, _) in enumerate(_topk_bm25(title, RRF_POOL + 1), 1):
+            if i != idx:
+                contrib[i] += 1.0 / (RRF_K + rank)
+    ranked = sorted(contrib.items(), key=lambda x: -x[1])
+    pool = ranked[: max(k * (EMPLOYER_CAP + 2), k + 20)]
+    hyd = _hydrate([i for i, _ in pool])
+    capped = _cap_employers(pool, hyd, k, None, dominance_bypass=False)
+    results = [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(capped)]
+    return {
+        "source": {"idx": idx, "title": _clean_text(title)},
+        "results": results,
+    }
 
 
 # ===== personalized search (keyword query re-ranked by an uploaded profile) =====
@@ -640,6 +703,9 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .r-title .sep { color: #ccc; padding: 0 6px; }
 .detail { grid-column: 4 / 5; margin-top: 8px; padding: 10px 12px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.88em; line-height: 1.45; max-height: 480px; overflow-y: auto; }
 .detail.loading { color: #888; font-style: italic; }
+.mlt-pivot { margin-top: 10px; display: inline-block; font-size: 0.85em; font-weight: 600; color: #2b6cb0; cursor: pointer; }
+.mlt-pivot:hover { text-decoration: underline; }
+.mlt-head .hl { font-size: 1.0em; }
 .empty { color: #999; padding: 30px; text-align: center; }
 .timing { font-size: 0.8em; color: #888; padding-top: 8px; }
 .layout { display: grid; grid-template-columns: 240px 1fr; gap: 18px; }
@@ -835,10 +901,47 @@ async function toggleDetail(idx, container) {
     const data = await r.json();
     div.classList.remove('loading');
     div.textContent = data.description || '(no description)';
+    const mlt = document.createElement('div');
+    mlt.className = 'mlt-pivot';
+    mlt.textContent = '→ More jobs like this one';
+    mlt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pivotMoreLikeThis(idx, data.title || '');
+    });
+    div.appendChild(mlt);
   } catch (e) {
     div.classList.remove('loading');
     div.textContent = '(failed to load)';
   }
+}
+
+// ===== "more jobs like this one" pivot — loads the similar set into the main pane =====
+let lastQuery = '';   // restored by the pivot's "back to search" affordance
+async function pivotMoreLikeThis(idx, title) {
+  const div = document.getElementById('results');
+  document.getElementById('badge-row').innerHTML = '';
+  document.getElementById('facets').innerHTML = '';
+  document.getElementById('active-filters').innerHTML = '';
+  document.getElementById('related').innerHTML = '';
+  div.innerHTML = '<div class="empty">finding similar jobs…</div>';
+  let d;
+  try { d = await fetch('/api/more_like_this?idx=' + idx).then(r => r.json()); }
+  catch (e) { div.innerHTML = '<div class="empty">(failed to load similar jobs)</div>'; return; }
+  const srcTitle = (d.source && d.source.title) || title;
+  if (d.served_with) {
+    document.getElementById('badge-row').innerHTML =
+      `<span class="badge cached">Served with: ${esc(d.served_with)}</span>`;
+  }
+  div.innerHTML = `<div class="rsum mlt-head">
+      <span class="back">&larr; back to search</span>
+      <div class="hl">Jobs similar to: <b>${esc(srcTitle)}</b></div>
+      <div class="lc" style="color:#888;font-size:0.85em">RRF(BM25 + e5-small) seeded by this posting</div>
+    </div>
+    <div id="mlt-list"></div>`;
+  div.querySelector('.back').addEventListener('click', () => {
+    if (lastQuery) { input.value = lastQuery; runSearch(); } else { clearMatch(); }
+  });
+  renderResults(div.querySelector('#mlt-list'), d.results, d.ms);
 }
 function renderResults(div, items, ms) {
   if (!items || !items.length) { div.innerHTML = '<div class="empty">no results</div>'; return; }
@@ -977,6 +1080,7 @@ function renderFacets(facets) {
 async function runSearch() {
   const q = input.value.trim();
   if (!q) return;
+  lastQuery = q;
   closeSuggest();
   if (profile && document.getElementById('pz-on').checked) { return runPersonalized(q); }
   const div = document.getElementById('results');
@@ -1356,6 +1460,16 @@ def api_detail(idx: int = Query(...)):
             "department": d.get("department") or "",
         }
     )
+
+
+@app.get("/api/more_like_this")
+def api_more_like_this(idx: int = Query(...), k: int = Query(10)):
+    """Jobs similar to job `idx` — RRF(BM25-on-title, e5-dense-on-title+lead)."""
+    t0 = time.time()
+    out = more_like_this(idx, k)
+    out["ms"] = int((time.time() - t0) * 1000)
+    out["served_with"] = SERVING_MODE
+    return JSONResponse(out)
 
 
 # ===== "find jobs for yourself": profile -> jobs with 3-axis constraint filter =====
