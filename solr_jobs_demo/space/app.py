@@ -143,6 +143,16 @@ def load_resources() -> None:
     dense_model = SentenceTransformer(DENSE_MODEL, device=device)
     print(f"  dense loaded on {device} in {time.time() - t0:.1f}s", flush=True)
 
+    # Query-context related-search suggester (offline corpus role vocab + e5 embeddings).
+    try:
+        from suggest_lib import RoleSuggester
+
+        role_suggester = RoleSuggester()
+        print(f"  role suggester: {len(role_suggester.phrases)} roles", flush=True)
+    except Exception as e:  # files missing -> feature degrades to off, app still serves
+        role_suggester = None
+        print(f"  role suggester unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -187,6 +197,7 @@ def load_resources() -> None:
             "dense_model": dense_model,
             "sorted_keys": sorted_keys,
             "tier_keys": dict(by_tag),
+            "role_suggester": role_suggester,
         }
     )
     print("ready.", flush=True)
@@ -663,6 +674,9 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .cos-num { color: #555; font-variant-numeric: tabular-nums; font-size: 0.8em; float: right; }
 .jobdetail { margin-top: 7px; padding: 9px 11px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.84em; line-height: 1.4; max-height: 320px; overflow-y: auto; }
 .jobdetail.loading { color: #888; font-style: italic; }
+.related { margin-bottom: 14px; }
+.related .rel-h { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 7px; }
+.related .rel-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .suggested { margin-top: 16px; }
 .sug-h { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-bottom: 7px; }
 .sug-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -706,6 +720,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 <div class="layout">
   <div class="facets" id="facets"></div>
   <div class="results-panel">
+    <div id="related" class="related"></div>
     <div id="results"><div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div></div>
   </div>
 </div>
@@ -964,6 +979,27 @@ async function runSearch() {
   }
   renderResults(div, searchRes.results, searchRes.ms);
   renderFacets(facetRes.facets);
+  loadRelated(q);
+}
+
+// ===== related searches (narrow/lateral role moves for the current query) =====
+async function loadRelated(q) {
+  const el = document.getElementById('related');
+  el.innerHTML = '';
+  if (!q) return;
+  let d;
+  try { d = await fetch(`/api/related_searches?q=${encodeURIComponent(q)}`).then(r => r.json()); }
+  catch (e) { return; }
+  const sugs = (d && d.suggestions) || [];
+  if (!sugs.length) return;
+  el.innerHTML = '<div class="rel-h">Related searches</div><div class="rel-chips">'
+    + sugs.map(s => `<span class="sug" data-q="${esc(s.display)}">${esc(s.display)}`
+        + `<span class="sug-n">${s.count.toLocaleString()}</span></span>`).join('')
+    + '</div>';
+  el.querySelectorAll('.sug').forEach(c => c.addEventListener('click', () => {
+    input.value = c.dataset.q;
+    runSearch();
+  }));
 }
 
 // ===== personalized keyword search (re-rank the query by the held profile) =====
@@ -991,6 +1027,7 @@ async function runPersonalized(q) {
     renderResults(div, searchRes.results, searchRes.ms);
   }
   renderFacets(facetRes.facets);
+  loadRelated(q);
 }
 function showPersonalize(name) {
   document.getElementById('personalize-row').style.display = 'block';
@@ -1204,6 +1241,19 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
                 if len(out) >= limit:
                     break
     return JSONResponse({"suggestions": out})
+
+
+@app.get("/api/related_searches")
+def api_related_searches(q: str = Query(""), k: int = Query(4)):
+    """Related searches for a query: NARROW (software engineer -> ML engineer) or
+    LATERAL (-> data engineer) role moves mined from the corpus. NOT synonyms or
+    level-only variants (those are redundant / belong to the facet rail). Every
+    suggestion is a corpus-grounded role, so it always has results."""
+    rs = R.get("role_suggester")
+    if not q.strip() or rs is None:
+        return JSONResponse({"suggestions": []})
+    qv = np.asarray(_dense_qv(q), dtype=np.float32)
+    return JSONResponse({"suggestions": rs.suggest(q, qv, k=k)})
 
 
 def _parse_filters(request_qp: dict) -> dict[str, str]:

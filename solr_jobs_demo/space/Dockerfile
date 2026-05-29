@@ -36,6 +36,10 @@ USER root
 # App + entrypoint.
 COPY app.py /opt/app/app.py
 COPY resume_match_lib.py /opt/app/resume_match_lib.py
+# Related-searches suggester: lib + offline corpus role vocab/embeddings (self-contained).
+COPY suggest_lib.py /opt/app/suggest_lib.py
+COPY role_vocab.json /opt/app/role_vocab.json
+COPY role_vocab_emb.npy /opt/app/role_vocab_emb.npy
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 

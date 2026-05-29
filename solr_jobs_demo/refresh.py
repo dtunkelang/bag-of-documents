@@ -563,7 +563,15 @@ def stage_deploy(args) -> None:
     # The merged profile-match lane needs resume_match_lib.py (imported by app.py)
     # and pypdf (requirements.txt) on the Space — and the Dockerfile must COPY the
     # lib into the image, so push the Dockerfile too (not just app.py).
-    for fname in ("app.py", "resume_match_lib.py", "requirements.txt", "Dockerfile"):
+    for fname in (
+        "app.py",
+        "resume_match_lib.py",
+        "requirements.txt",
+        "Dockerfile",
+        "suggest_lib.py",
+        "role_vocab.json",
+        "role_vocab_emb.npy",
+    ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),
             path_in_repo=fname,
