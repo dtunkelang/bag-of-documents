@@ -500,7 +500,13 @@ async def api_match_text(
             status_code=400,
         )
     r = L.features_from_text(blob, loc=loc)
-    qv = R["model"].encode(QPREFIX + blob, normalize_embeddings=True).astype(np.float32)
+    # embed demonstrated experience (recent role + work history), not the aspirational
+    # headline / self-declared skills — see resume_match_lib.query_text
+    qv = (
+        R["model"]
+        .encode(QPREFIX + L.query_text(blob), normalize_embeddings=True)
+        .astype(np.float32)
+    )
     return JSONResponse(_run_match(r, qv))
 
 

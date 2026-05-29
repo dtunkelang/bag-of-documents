@@ -356,6 +356,41 @@ def _years_from_free_text(text):
     return float(span) if 0 < span <= 45 else None
 
 
+def _experience_section(text):
+    """The work-history block: text between an Experience-ish heading and the next
+    section (Education). LinkedIn lists roles reverse-chronologically here."""
+    m = re.search(r"\b(experience|employment|work history)\b", text or "", re.I)
+    if not m:
+        return ""
+    rest = text[m.end() :]
+    e = re.search(r"\b(education|certifications|skills|volunteer)\b", rest, re.I)
+    return rest[: e.start()] if e else rest
+
+
+def _recent_title(exp_section):
+    """Most-recent role title: in the LinkedIn 'Company / Title / Dates' layout the
+    title is the line immediately above the first date range."""
+    lines = [ln.strip() for ln in exp_section.split("\n") if ln.strip()]
+    for i, ln in enumerate(lines):
+        if _MONTH_YEAR.search(ln) and i >= 1:
+            return lines[i - 1]
+    return ""
+
+
+def query_text(text):
+    """Text to embed for matching. Leans on DEMONSTRATED experience — the most-recent
+    role title (weighted by repetition) plus the Experience section — rather than a
+    self-declared headline / LinkedIn 'Top Skills' sidebar, which over-state aspiration
+    (an 'Aspiring AI/ML Engineer' with a sysadmin work history should match sysadmin
+    roles). Falls back to the full blob when no Experience section is parseable."""
+    text = (text or "").strip()
+    exp = _experience_section(text).strip()
+    if not exp:
+        return text
+    rt = _recent_title(exp)
+    return f"{rt}. {exp}" if rt else exp
+
+
 def features_from_text(text, loc=""):
     """Build a feature dict from free-form profile text (paste / .txt / LinkedIn PDF).
 

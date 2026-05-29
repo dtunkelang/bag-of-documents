@@ -8,8 +8,9 @@ on seniority + location + qualification gates (years/degree/cred). This demo mak
 that visible — each job carries sen/loc/gate badges, and the right column drops the
 jobs that violate a hard constraint, promoting the highest-cosine survivor.
 
-Caches (built by precompute_resume_match.py) make boot fast; no model is loaded at
-serve time because resume vectors are precomputed.
+Caches (built by precompute_resume_match.py) make browsing fast; the e5-base-v2
+encoder is loaded at serve time so a visitor can also paste / upload their own
+profile (text, .txt, or LinkedIn Save-to-PDF export) and get matched live.
 
 Run:  .venv/bin/python demo_resume_match.py            # http://127.0.0.1:7863
 """
@@ -478,7 +479,13 @@ async def api_match_text(
             status_code=400,
         )
     r = L.features_from_text(blob, loc=loc)
-    qv = R["model"].encode(QPREFIX + blob, normalize_embeddings=True).astype(np.float32)
+    # embed demonstrated experience (recent role + work history), not the aspirational
+    # headline / self-declared skills — see resume_match_lib.query_text
+    qv = (
+        R["model"]
+        .encode(QPREFIX + L.query_text(blob), normalize_embeddings=True)
+        .astype(np.float32)
+    )
     return JSONResponse(_run_match(r, qv))
 
 
