@@ -307,6 +307,25 @@ def _topk_knn(
     return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
 
 
+def _knn_over_ids(field: str, qv: list[float], ids: list[int]) -> list[tuple[int, float]]:
+    """KNN of `qv` restricted to a fixed candidate id set, returning EVERY candidate
+    scored (topK == set size). Used to score the profile fit of a query's own
+    candidates — so the profile re-ranks any query, not only ones whose results land
+    in the profile's global top-N. e5_vec is stored=false, so a preFiltered KNN is the
+    only way to read a doc's profile cosine."""
+    if not ids:
+        return []
+    pre = ("id:(" + " ".join(str(i) for i in ids) + ")").replace("'", r"\'")
+    q = f"{{!knn f={field} topK={len(ids)} preFilter='{pre}'}}{_vec_str(qv)}"
+    r = requests.post(
+        f"{SOLR}/solr/{CORE}/select",
+        data={"q": q, "rows": len(ids), "fl": "id,score"},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
+
+
 # ===== RRF fusion + result hydration =====
 
 
@@ -429,7 +448,6 @@ def search_default(
 
 # ===== personalized search (keyword query re-ranked by an uploaded profile) =====
 
-PROF_RERANK_POOL = int(os.environ.get("PROF_RERANK_POOL", "1000"))
 PROF_WEIGHT = float(os.environ.get("PROF_WEIGHT", "1.0"))
 
 
@@ -440,22 +458,23 @@ def _personalized_topk(
     filters: dict[str, str] | None = None,
     pool: int = RRF_POOL,
     prof_weight: float = PROF_WEIGHT,
-    prof_pool: int = PROF_RERANK_POOL,
 ) -> tuple[list[tuple[int, float]], dict[int, float]]:
-    """RRF(BM25, e5-small) for the query, then a third profile-KNN lane that only
-    *boosts* docs the query already retrieved (gated to the query candidate set, so
-    the keyword intent still defines what's eligible). Returns (ranked, prof_cos) where
-    prof_cos maps idx -> profile cosine for any doc in the profile's top-`prof_pool`."""
+    """RRF(BM25, e5-small) for the query, then a third lane that re-ranks the query's
+    OWN candidates by profile fit. The keyword query still defines what's eligible
+    (we never inject off-query jobs), but every candidate is scored against the profile
+    — so a profile reshapes essentially any query, including ones far from it (a
+    data-engineer profile floats the most data/eng-flavored 'manager' jobs up). Returns
+    (ranked, prof_cos) where prof_cos maps idx -> profile cosine for EVERY candidate."""
     contrib: dict[int, float] = defaultdict(float)
     for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
     for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
         contrib[idx] += 1.0 / (RRF_K + rank)
-    prof_hits = _topk_knn("e5_vec", qv_profile, prof_pool, filters)
+    # Rank the query candidates by profile fit and blend that rank in as a third lane.
+    prof_hits = _knn_over_ids("e5_vec", qv_profile, list(contrib.keys()))
     prof_cos = {idx: cos for idx, cos in prof_hits}
     for rank, (idx, _) in enumerate(prof_hits, 1):
-        if idx in contrib:  # boost only query candidates; don't inject off-query jobs
-            contrib[idx] += prof_weight * (1.0 / (RRF_K + rank))
+        contrib[idx] += prof_weight * (1.0 / (RRF_K + rank))
     ranked = sorted(contrib.items(), key=lambda x: -x[1])[:k]
     return ranked, prof_cos
 
