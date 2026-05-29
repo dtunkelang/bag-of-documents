@@ -393,11 +393,12 @@ def _row_for_rid(rid: int):
 
 
 def _resume_summary(r: dict) -> dict:
+    sen = "not stated" if not r.get("seniority_known", True) else L.SENIORITY_LABELS[r["seniority"]]
     return {
         "name": r["name"] or "(unnamed)",
         "headline": r["headline"],
         "loc": r["loc"],
-        "seniority": L.SENIORITY_LABELS[r["seniority"]],
+        "seniority": sen,
         "years": int(r["years"]) if r["years"] is not None else None,
         "degree": L.DEGREE_LABELS[r["degree"]],
         "creds": [L.CRED_LABELS.get(c, c) for c in r["creds"]],

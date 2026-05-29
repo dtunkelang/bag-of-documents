@@ -247,29 +247,139 @@ def resume_features(row):
     }
 
 
+# --- free-text / LinkedIn-PDF parsing helpers (real resumes are unstructured and,
+#     for the LinkedIn "Save to PDF" export, sidebar-first; the parquet extractors
+#     above assume clean structured fields, so the demo's upload path needs these). ---
+_SIDEBAR_LABELS = {
+    "contact",
+    "top skills",
+    "languages",
+    "summary",
+    "experience",
+    "education",
+    "certifications",
+    "honors-awards",
+    "publications",
+    "skills",
+}
+_ENTRY_RX = re.compile(
+    r"\b(aspiring|recent graduate|new grad(uate)?|entry[- ]?level|undergraduate|"
+    r"(currently |actively )?seeking|looking for (a |an |my )?(first |new )?(role|job|position|opportunit))\b",
+    re.I,
+)
+_MONTH_YEAR = re.compile(
+    r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(19[89]\d|20[0-2]\d)\b",
+    re.I,
+)
+_EDU_KW = re.compile(
+    r"\b(universit|college|bachelor|master|ph\.?d|b\.?s\.?|b\.?a\.?|b\.?tech|m\.?s\.?|"
+    r"m\.?b\.?a|high school|diploma|gpa)\b",
+    re.I,
+)
+
+
+def _looks_like_name(s):
+    toks = s.split()
+    return (
+        1 <= len(toks) <= 4
+        and len(s) <= 40
+        and not any(ch.isdigit() for ch in s)
+        and all(t[:1].isupper() for t in toks)
+    )
+
+
+def _parse_identity(text):
+    """Best-effort (name, headline, location) from free text. For a LinkedIn PDF the
+    layout is: ...sidebar... / Name / Headline / Location / Summary / ...; so when we
+    detect that layout we read the three lines that precede the 'Summary' heading."""
+    lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
+    low = [ln.lower() for ln in lines]
+    name = headline = parsed_loc = ""
+    is_linkedin = "linkedin.com/in" in (text or "").lower() or "top skills" in low
+    if is_linkedin and "summary" in low:
+        i = low.index("summary")
+        if i >= 1 and low[i - 1] not in _SIDEBAR_LABELS:
+            parsed_loc = lines[i - 1]
+        if i >= 2 and low[i - 2] not in _SIDEBAR_LABELS:
+            headline = lines[i - 2]
+        if i >= 3 and _looks_like_name(lines[i - 3]):
+            name = lines[i - 3]
+    if not headline:
+        for ln, l in zip(lines, low):
+            if l in _SIDEBAR_LABELS or "linkedin.com" in l or l.startswith("http"):
+                continue
+            if 2 <= len(ln) <= 90:
+                headline = ln
+                break
+    return name, headline, parsed_loc
+
+
+def _seniority_from_text(text):
+    """(level, known). 'known' is False only when no seniority signal is present at
+    all (so the caller can decline to hard-filter on a mere default guess)."""
+    best = None
+    for rx, lvl in SENIORITY:
+        if rx.search(text or ""):
+            best = lvl if best is None else max(best, lvl)
+    if best is not None:
+        return best, True
+    if _ENTRY_RX.search(text or ""):
+        return 1, True  # aspiring / new-grad / seeking -> junior, confidently
+    return MID, False  # no signal -> default mid, but flagged low-confidence
+
+
+def _years_from_free_text(text):
+    """Professional span from employment date-ranges, EXCLUDING education years.
+
+    The parquet `resume_years` spans every 4-digit year, which on a real resume
+    reaches back to high-school/college start years and wildly inflates experience
+    (e.g. a 2020 grad reads as 10 yrs). Here we only count month-anchored years
+    (employment ranges like 'March 2021'), drop the Education section, and skip years
+    sitting next to a degree keyword.
+    """
+    t = str(text or "")
+    if not t:
+        return None
+    edu = re.search(r"\bEducation\b", t)
+    scan = t[: edu.start()] if edu else t
+    yrs = []
+    for m in _MONTH_YEAR.finditer(scan):
+        window = scan[max(0, m.start() - 70) : m.end() + 10]
+        if _EDU_KW.search(window):
+            continue
+        yrs.append(int(m.group(1)))
+    if re.search(r"\b(present|current|now)\b", scan, re.I):
+        yrs.append(2025)
+    if len(yrs) < 2:
+        return None
+    span = max(yrs) - min(yrs)
+    return float(span) if 0 < span <= 45 else None
+
+
 def features_from_text(text, loc=""):
     """Build a feature dict from free-form profile text (paste / .txt / LinkedIn PDF).
 
-    Unlike resume_features (which reads structured parquet columns) there is only a
-    text blob here, so:
-      seniority -> highest level mentioned anywhere (a profile lists its top role)
-      location  -> the optional `loc` field, else geo tokens scanned from the text
-                   (permissive: unknown location tends to pass, matching the
-                   gate-axis "unknown -> pass" convention rather than wrongly rejecting)
-      years/degree/creds reuse the same regex extractors as the parquet path.
+    Unlike resume_features (which reads clean structured parquet columns) there is only
+    an unstructured blob, so identity/seniority/years use the LinkedIn-aware helpers
+    above; degree/creds reuse the shared regex extractors. `seniority_known=False`
+    tells axis_status not to hard-filter seniority when it was only a default guess.
     """
     text = (text or "").strip()
     loc = (loc or "").strip()
-    first_line = text.split("\n", 1)[0].strip() if text else ""
-    loc_src = loc or text
+    name, headline, parsed_loc = _parse_identity(text)
+    loc_eff = loc or parsed_loc
+    sen, sen_known = _seniority_from_text(text)
+    # clean tokens when we have a real location; else permissive whole-text scan
+    loc_tok = geo_tokens(loc_eff) if loc_eff else geo_tokens(text)
     return {
-        "name": "(your profile)",
-        "headline": first_line[:160],
-        "loc": loc,
-        "loc_tok": sorted(geo_tokens(loc_src)),
+        "name": name or "(your profile)",
+        "headline": headline[:160],
+        "loc": loc_eff,
+        "loc_tok": sorted(loc_tok),
         "text": text[:2000],
-        "seniority": seniority_of(text),
-        "years": resume_years(text),
+        "seniority": sen,
+        "seniority_known": sen_known,
+        "years": _years_from_free_text(text),
         "degree": resume_degree(text),
         "creds": sorted(resume_creds(text, "", text)),
     }
@@ -328,19 +438,44 @@ CRED_LABELS = {
 }
 
 
+# common metro abbreviations that don't share tokens with their spelled-out form;
+# expanded on both sides at compare time so e.g. a "NYC" job matches a "New York City"
+# resume. (3+ char only — 2-char abbrevs like LA/SF/DC are dropped by geo_tokens.)
+_GEO_SYNONYMS = {
+    "nyc": {"new", "york", "city"},
+    "philly": {"philadelphia"},
+    "vegas": {"las", "vegas"},
+    "nola": {"new", "orleans"},
+    "atx": {"austin"},
+    "bayarea": {"san", "francisco", "bay"},
+    "socal": {"los", "angeles", "san", "diego"},
+    "norcal": {"san", "francisco"},
+}
+
+
+def _expand_geo(tokens):
+    out = set(tokens)
+    for t in tokens:
+        if t in _GEO_SYNONYMS:
+            out |= _GEO_SYNONYMS[t]
+    return out
+
+
 def axis_status(r, j):
     """Return per-axis pass/fail + human-readable reasons for a (resume, job) pair.
 
     r and j are feature dicts (loc_tok/creds/cred_gates are lists here).
     """
-    r_loc = set(r["loc_tok"])
-    j_loc = set(j["loc_tok"])
+    r_loc = _expand_geo(set(r["loc_tok"]))
+    j_loc = _expand_geo(set(j["loc_tok"]))
     r_creds = set(r["creds"])
     j_gates = set(j["cred_gates"])
 
-    # seniority
+    # seniority — don't hard-filter on a mere default guess (free-text resume with
+    # no seniority signal); only enforce the gap when the level is known.
+    sen_known = r.get("seniority_known", True)
     sen_gap = abs(r["seniority"] - j["sen"])
-    sen_ok = sen_gap < 2
+    sen_ok = (not sen_known) or sen_gap < 2
     if sen_ok:
         sen_reason = ""
     elif r["seniority"] > j["sen"]:
