@@ -5,6 +5,7 @@ wiped the unstored title field. The dense vec field (`e5_vec`) carries
 e5-small-v2 vectors (384-dim).
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -19,7 +20,7 @@ FACETS = os.environ.get(
     "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl"
 )
 SOLR = os.environ.get("SOLR", "http://localhost:8983")
-CORE = "jobs"
+CORE = os.environ.get("JOBS_CORE", "jobs")
 BATCH = 500
 
 FACET_FIELDS = (
@@ -33,6 +34,26 @@ FACET_FIELDS = (
     "salary_band_usd_annual",
     "tech_stack",
 )
+
+# Incremental-upsert knobs (set by refresh.py --delta). Defaults reproduce the
+# original full-rebuild behaviour: clear the core, then push every doc.
+NO_CLEAR = os.environ.get("JOBS_NO_CLEAR") == "1"
+_POS_FILE = os.environ.get("JOBS_POSITIONS")
+ONLY_POSITIONS: set[int] | None = None
+if _POS_FILE:
+    with open(_POS_FILE) as _pf:
+        ONLY_POSITIONS = set(json.load(_pf))
+
+
+def stable_id(doc_id: str) -> int:
+    """52-bit blake2b of the real (corpus-stable) doc id -> a stable integer Solr
+    id. Independent of the doc's row position in the unified catalog (which shifts
+    daily as postings open/close), so the SAME job keeps the SAME id across runs —
+    the precondition for incremental upsert + Xet tar dedup. 52 bits stays under
+    JS Number.MAX_SAFE_INTEGER (2**53) so the Space frontend round-trips it, and
+    app.py's int(d["id"]) parses it unchanged."""
+    h = hashlib.blake2b(doc_id.encode("utf-8"), digest_size=7).digest()
+    return int.from_bytes(h, "big") & ((1 << 52) - 1)
 
 
 def load_facets() -> dict[int, dict]:
@@ -54,6 +75,12 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
         sources = json.load(f)["sources"]
     dense = np.load(os.path.join(STAGE, "e5_small_catalog.vecs.fp16.npy"), mmap_mode="r")
 
+    # Stable Solr ids from the real (position-independent) doc ids.
+    with open(os.path.join(STAGE, "doc_ids.json")) as f:
+        solr_ids = [stable_id(str(x)) for x in json.load(f)]
+    if len(set(solr_ids)) != len(solr_ids):
+        raise SystemExit(f"stable_id collision among {len(solr_ids):,} doc ids — widen digest_size")
+
     import csv as _csv
 
     industry_csv = os.path.join(STAGE, "slug_industry_labels_round2.csv")
@@ -73,6 +100,8 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):
+            if ONLY_POSITIONS is not None and i not in ONLY_POSITIONS:
+                continue
             rec = json.loads(line)
             title_display = (rec.get("title") or titles[i].split("\n", 1)[0]).strip()
             slug = rec.get("source_slug") or ""
@@ -82,7 +111,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 slug, slug_ind, fac.get("role_family") or "", title_display
             )
             doc = {
-                "id": str(i),
+                "id": str(solr_ids[i]),
                 "title": titles[i],  # full title + description for BM25
                 "title_display": title_display,
                 "employer": slug,
@@ -113,13 +142,19 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
 
 def main() -> int:
     facets = load_facets()
-    print("clearing core ...", flush=True)
-    requests.post(
-        f"{SOLR}/solr/{CORE}/update",
-        json={"delete": {"query": "*:*"}},
-        params={"commit": "true"},
-        timeout=120,
-    ).raise_for_status()
+    if NO_CLEAR:
+        print(
+            f"incremental: NOT clearing core; pushing {len(ONLY_POSITIONS or []):,} docs",
+            flush=True,
+        )
+    else:
+        print("clearing core ...", flush=True)
+        requests.post(
+            f"{SOLR}/solr/{CORE}/update",
+            json={"delete": {"query": "*:*"}},
+            params={"commit": "true"},
+            timeout=120,
+        ).raise_for_status()
     t0 = time.time()
     batch: list[dict] = []
     n = 0

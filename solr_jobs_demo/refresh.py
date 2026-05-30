@@ -19,7 +19,12 @@ Stages (run a contiguous range with --from-stage / --to-stage):
             (+ byproduct: facets/new_unlabeled_slugs.txt for later labeling)
   --- everything below mutates the live demo; gated behind --no-dry-run ---
   4 solr     start Solr, (re)create core, apply schema (+ industry field),
-             push_docs, commit, verify
+             push_docs, commit, verify. With --delta: incrementally upsert into
+             the persistent core (add new + delete closed postings, no wipe) so
+             the stage-6 Xet upload dedups (~MB/s vs full ~900MB). Solr id is a
+             stable hash of the real doc id (not row position), so ids survive
+             daily corpus reordering. Run a periodic full rebuild (no --delta) to
+             reconcile in-place content edits.
   5 tar      COPYFILE_DISABLE=1 tar --no-xattrs the core
   6 upload   push solr_jobs_core.tar to dataset dtunkelang/jobs-demo
   7 deploy   upload space/app.py + restart Space + smoke check
@@ -70,7 +75,7 @@ SOLR_HOME = ROOT / "solr_jobs_demo" / "solr_home"
 JAVA_HOME = (
     "/opt/homebrew/opt/openjdk@21"  # run.sh's ${JAVA_HOME:-...} is buggy if JAVA_HOME is preset
 )
-CORE = "jobs"
+CORE = os.environ.get("JOBS_CORE", "jobs")
 
 # Artifact reuse: the slug->industry label CSV is slug-keyed (corpus-independent),
 # so it carries over from the previous build into the fresh OUT dir.
@@ -397,6 +402,9 @@ def stage_solr(args) -> None:
     demo = ROOT / "solr_jobs_demo"
     solr_bin = "/opt/homebrew/bin/solr"
 
+    if getattr(args, "delta", False):
+        return _stage_solr_delta(args, out, demo, solr_bin)
+
     # The fresh OUT dir needs the slug->industry CSV that push_docs reads from STAGE.
     src_csv = LEGACY_UNIFIED / INDUSTRY_CSV
     dst_csv = out / INDUSTRY_CSV
@@ -519,6 +527,155 @@ def stage_solr(args) -> None:
         sys.exit(f"[4] ABORT: indexed {n:,} < 99% of expected {expected:,}")
 
 
+def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
+    """Incremental stage 4: diff the new build's stable ids against what's already
+    in the persistent core, then push only the ADDED postings and delete the CLOSED
+    ones. No wipe — so untouched Lucene segments stay byte-identical and the stage-6
+    Xet upload dedups them (measured: ~4MB / ~5s for a daily delta vs ~900MB full).
+
+    NOTE: a posting that is re-listed under the same doc id keeps its id, so an
+    in-place CONTENT edit (e.g. a reworded description) is NOT re-pushed here — the
+    periodic full rebuild (--no-delta) reconciles any such drift."""
+    import time
+    import urllib.request as u
+
+    src_csv = LEGACY_UNIFIED / INDUSTRY_CSV
+    dst_csv = out / INDUSTRY_CSV
+    if src_csv.exists() and not dst_csv.exists():
+        shutil.copy2(src_csv, dst_csv)
+        print(f"[4d] copied {INDUSTRY_CSV} into {out}", flush=True)
+
+    def solr_up() -> bool:
+        try:
+            with u.urlopen(f"{SOLR_URL}/solr/admin/info/system", timeout=3) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    if not solr_up():
+        run(
+            [solr_bin, "start", "--user-managed", "--solr-home", SOLR_HOME, "-p", "8983"],
+            env=_solr_env(),
+        )
+        for _ in range(60):
+            if solr_up():
+                break
+            time.sleep(1)
+        else:
+            sys.exit("[4d] Solr did not come up on 8983")
+
+    def core_loaded() -> bool:
+        try:
+            with u.urlopen(
+                f"{SOLR_URL}/solr/admin/cores?action=STATUS&core={CORE}", timeout=10
+            ) as r:
+                return bool(json.load(r).get("status", {}).get(CORE))
+        except Exception:
+            return False
+
+    # A missing core => create it fresh (+schema) WITHOUT a wipe; the diff below then
+    # resolves to "add everything", i.e. a self-healing full push on the first run.
+    if not core_loaded():
+        print("[4d] core absent — creating fresh (delta resolves to a full push)", flush=True)
+        instance_dir = SOLR_HOME / CORE
+        shipped_conf = Path("/opt/homebrew/opt/solr/server/solr/configsets/_default/conf")
+        if not shipped_conf.exists():
+            sys.exit(f"[4d] no _default conf to seed from {shipped_conf}")
+        if instance_dir.exists():
+            shutil.rmtree(instance_dir)
+        shutil.copytree(shipped_conf, instance_dir / "conf")
+        create_url = (
+            f"{SOLR_URL}/solr/admin/cores?action=CREATE&name={CORE}&instanceDir={CORE}&dataDir=data"
+        )
+        run(["curl", "-sS", "--fail-with-body", create_url], env=_solr_env())
+        run(["bash", "configure_schema.sh"], cwd=demo)
+        run(["bash", "add_facet_fields.sh"], cwd=demo)
+        industry_field = json.dumps(
+            {
+                "add-field": [
+                    {
+                        "name": "industry",
+                        "type": "string",
+                        "indexed": True,
+                        "stored": True,
+                        "multiValued": False,
+                    }
+                ]
+            }
+        )
+        run(
+            [
+                "curl",
+                "-sS",
+                "-X",
+                "POST",
+                "-H",
+                "Content-Type: application/json",
+                f"{SOLR_URL}/solr/{CORE}/schema",
+                "--data-binary",
+                industry_field,
+            ]
+        )
+
+    # New build's stable ids (same scheme push_docs uses), aligned with row position.
+    sys.path.insert(0, str(demo))
+    from push_docs import stable_id  # noqa: E402
+
+    with open(out / "doc_ids.json") as f:
+        doc_ids = [str(x) for x in json.load(f)]
+    new_ids = [stable_id(d) for d in doc_ids]
+    new_set = set(new_ids)
+    if len(new_set) != len(new_ids):
+        sys.exit("[4d] stable_id collision in new build — widen digest_size")
+
+    # Existing ids in the live core (Solr is the source of truth).
+    count_url = f"{SOLR_URL}/solr/{CORE}/select?q=*:*&rows=0&wt=json"
+    with u.urlopen(count_url, timeout=30) as r:
+        n_existing = json.load(r)["response"]["numFound"]
+    existing: set[int] = set()
+    if n_existing:
+        with u.urlopen(
+            f"{SOLR_URL}/solr/{CORE}/select?q=*:*&fl=id&rows={n_existing + 1000}&wt=json",
+            timeout=180,
+        ) as r:
+            existing = {int(d["id"]) for d in json.load(r)["response"]["docs"]}
+    add_positions = [i for i, sid in enumerate(new_ids) if sid not in existing]
+    del_ids = sorted(existing - new_set)
+    print(
+        f"[4d] existing={len(existing):,} new={len(new_set):,} -> "
+        f"add={len(add_positions):,} delete={len(del_ids):,}",
+        flush=True,
+    )
+
+    if add_positions:
+        pos_file = out / "_delta_positions.json"
+        with open(pos_file, "w") as f:
+            json.dump(add_positions, f)
+        run(
+            [PY, "push_docs.py"],
+            cwd=demo,
+            env={"JOBS_STAGE": str(out), "JOBS_NO_CLEAR": "1", "JOBS_POSITIONS": str(pos_file)},
+        )
+        pos_file.unlink()
+
+    for j in range(0, len(del_ids), 1000):
+        body = json.dumps({"delete": [str(x) for x in del_ids[j : j + 1000]]}).encode()
+        req = u.Request(
+            f"{SOLR_URL}/solr/{CORE}/update",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        u.urlopen(req, timeout=120).read()
+
+    run(["curl", "-sS", "--fail-with-body", f"{SOLR_URL}/solr/{CORE}/update?commit=true"])
+    with u.urlopen(count_url, timeout=30) as r:
+        n_final = json.load(r)["response"]["numFound"]
+    expected = len(new_set)
+    print(f"[4d] post-delta numFound={n_final:,} (expected {expected:,})", flush=True)
+    if n_final != expected:
+        sys.exit(f"[4d] ABORT: post-delta numFound {n_final:,} != expected {expected:,}")
+
+
 # ---------------------------------------------------------------------------
 # Stage 5: tar
 # ---------------------------------------------------------------------------
@@ -627,6 +784,14 @@ def main() -> int:
     ap.add_argument("--device", default="mps")
     ap.add_argument("--skip-download", action="store_true", help="reuse existing raw parquet")
     ap.add_argument("--no-dry-run", action="store_true", help="allow live-mutation stages 4-7")
+    ap.add_argument(
+        "--delta",
+        action="store_true",
+        help="stage 4: incrementally upsert into the persistent core (add new + delete "
+        "closed postings) instead of wipe+full-reindex. Keeps Lucene segments byte-stable "
+        "so the stage-6 Xet upload dedups (~MB/secs vs full ~900MB). Requires the core to "
+        "already exist from a prior full build (a missing core falls back to a full push).",
+    )
     args = ap.parse_args()
 
     if args.to_stage >= 4 and not args.no_dry_run:

@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SOLR=${SOLR:-http://localhost:8983}
+CORE=${JOBS_CORE:-jobs}
 
 # 1. Disable schemaless field-guessing — we want our schema to be authoritative.
 curl -sS -X POST -H 'Content-Type: application/json' \
-  "$SOLR/solr/jobs/config" \
+  "$SOLR/solr/$CORE/config" \
   --data-binary '{"set-user-property": {"update.autoCreateFields":"false"}}'
 echo
 
 # 2. Field types: BM25 (k1=0.9, b=0.4) on title; dense vectors for e5-small.
 curl -sS -X POST -H 'Content-Type: application/json' \
-  "$SOLR/solr/jobs/schema" --data-binary @- <<'JSON'
+  "$SOLR/solr/$CORE/schema" --data-binary @- <<'JSON'
 {
   "add-field-type": [
     {
@@ -44,7 +45,7 @@ echo
 
 # 3. Fields.
 curl -sS -X POST -H 'Content-Type: application/json' \
-  "$SOLR/solr/jobs/schema" --data-binary @- <<'JSON'
+  "$SOLR/solr/$CORE/schema" --data-binary @- <<'JSON'
 {
   "add-field": [
     {"name": "title",             "type": "text_en_bm25", "indexed": true,  "stored": true,  "multiValued": false},

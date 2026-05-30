@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SOLR=${SOLR:-http://localhost:8983}
+CORE=${JOBS_CORE:-jobs}
 curl -sS -X POST -H 'Content-Type: application/json' \
-  "$SOLR/solr/jobs/schema" --data-binary @- <<'JSON'
+  "$SOLR/solr/$CORE/schema" --data-binary @- <<'JSON'
 {
   "add-field": [
     {"name": "role_family",             "type": "string", "indexed": true, "stored": true, "multiValued": false},
