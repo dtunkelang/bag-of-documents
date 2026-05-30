@@ -36,6 +36,7 @@ USER root
 # App + entrypoint.
 COPY app.py /opt/app/app.py
 COPY resume_match_lib.py /opt/app/resume_match_lib.py
+COPY maps_svg.py /opt/app/maps_svg.py
 # Related-searches suggester: lib + offline corpus role vocab/embeddings (self-contained).
 COPY suggest_lib.py /opt/app/suggest_lib.py
 COPY role_vocab.json /opt/app/role_vocab.json

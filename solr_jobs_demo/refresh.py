@@ -832,6 +832,7 @@ def stage_deploy(args) -> None:
     for fname in (
         "app.py",
         "resume_match_lib.py",
+        "maps_svg.py",
         "requirements.txt",
         "Dockerfile",
         "suggest_lib.py",

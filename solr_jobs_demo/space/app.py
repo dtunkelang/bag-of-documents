@@ -21,10 +21,10 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import requests
+import resume_match_lib as L
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
-
-import resume_match_lib as L
+from maps_svg import US_STATES_SVG, WORLD_SVG
 
 # ===== configuration =====
 
@@ -232,27 +232,37 @@ FACET_FIELDS = (
 )
 
 
+# posted_bucket values are mutually exclusive (each job in exactly one), so a
+# "posted in the last N days" filter must OR in every fresher bucket. past_24h was
+# previously omitted -> a "Past 7 days" filter silently dropped the freshest jobs.
 POSTED_BUCKET_NESTING = {
-    "past_7d": ["past_7d"],
-    "past_30d": ["past_7d", "past_30d"],
-    "past_90d": ["past_7d", "past_30d", "past_90d"],
+    "past_24h": ["past_24h"],
+    "past_7d": ["past_24h", "past_7d"],
+    "past_30d": ["past_24h", "past_7d", "past_30d"],
+    "past_90d": ["past_24h", "past_7d", "past_30d", "past_90d"],
     "older": ["older"],
 }
 
 
-def _filter_clauses(filters: dict[str, str]) -> list[str]:
-    """Build Solr fq= clauses from a {field: value} filter dict.
-    Skips empty values; quotes the value to handle spaces/special chars."""
+def _filter_clauses(filters: dict[str, str | list[str]]) -> list[str]:
+    """Build Solr fq= clauses from a {field: value(s)} filter dict. A value may be a
+    single string or a list of strings; a list becomes an OR within that field's
+    clause (multi-select facet). Clauses AND together across fields. posted_bucket is
+    single-select with cumulative nesting. Quotes values to handle spaces/specials."""
     out = []
     for k, v in filters.items():
-        if not v or k not in FACET_FIELDS:
+        if k not in FACET_FIELDS:
             continue
-        if k == "posted_bucket" and v in POSTED_BUCKET_NESTING:
-            members = POSTED_BUCKET_NESTING[v]
+        values = [v] if isinstance(v, str) else list(v)
+        values = [x for x in values if x]
+        if not values:
+            continue
+        if k == "posted_bucket":
+            members = POSTED_BUCKET_NESTING.get(values[0], [values[0]])
             out.append("posted_bucket:(" + " OR ".join(members) + ")")
             continue
-        # tech_stack is multi-value; we filter on a single chosen tech.
-        out.append(f'{k}:"{v}"')
+        ors = " OR ".join(f'"{x}"' for x in values)
+        out.append(f"{k}:({ors})")
     return out
 
 
@@ -458,6 +468,53 @@ def search_default(
     return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
 
 
+# ===== blank/browse default (no query): recent + low-barrier "minimal skills" =====
+# Fires on page load and whenever the query box is empty. posted_at is indexed=false
+# so recency can't be a sort — it rides posted_bucket instead; "minimal skill
+# requirements" is proxied by seniority (entry/intern/junior favored), the only indexed
+# experience signal. Pure ADDITIVE edismax boosts over a match-all base, so fresher and
+# lower-barrier jobs float to the top without excluding anything — facet filters still
+# apply, and an uploaded profile re-ranks via browse_personalized(). Weights env-tunable.
+def _browse_bq() -> list[str]:
+    rec = {"past_24h": 8, "past_7d": 5, "past_30d": 3, "past_90d": 1}
+    skill = {"entry": 4, "intern": 4, "junior": 2, "not_specified": 0.5}
+    rec_w = float(os.environ.get("BROWSE_RECENCY_W", "1.0"))
+    skill_w = float(os.environ.get("BROWSE_SKILL_W", "1.0"))
+    return [f"posted_bucket:{b}^{w * rec_w:g}" for b, w in rec.items()] + [
+        f"seniority:{s}^{w * skill_w:g}" for s, w in skill.items()
+    ]
+
+
+def _browse_topk(
+    k: int, filters: dict[str, str | list[str]] | None = None, pool: int | None = None
+) -> list[tuple[int, float]]:
+    params: list[tuple[str, str]] = [
+        ("defType", "edismax"),
+        ("q", ""),
+        ("q.alt", "*:*"),
+        ("rows", str(pool or k)),
+        ("fl", "id,score"),
+    ]
+    for b in _browse_bq():
+        params.append(("bq", b))
+    for clause in _filter_clauses(filters or {}):
+        params.append(("fq", clause))
+    r = requests.get(f"{SOLR}/solr/{CORE}/select", params=params, timeout=10)
+    r.raise_for_status()
+    return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
+
+
+def browse_default(k: int = 10, filters: dict[str, str | list[str]] | None = None) -> list[dict]:
+    """Default browse: recent + low-barrier jobs, with facet filters applied."""
+    cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
+    pool_k = max(k * (cap + 2), k + 20) if cap > 0 else k
+    items = _browse_topk(max(pool_k, 200), filters)
+    hyd = _hydrate([i for i, _ in items])
+    # No query intent in a blank browse, so keep employer diversity (no dominance bypass).
+    items = _cap_employers(items, hyd, k, filters, dominance_bypass=False)
+    return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
+
+
 # ===== "more jobs like this one": doc -> similar docs =====
 # Same RRF(BM25, e5-small) machinery as search_default, but the "query" is a source
 # job rather than typed text: the title drives the BM25 lane, and title + the lead of
@@ -589,7 +646,41 @@ def search_personalized(
     return rows
 
 
-POSTED_BUCKET_ORDER = ["past_7d", "past_30d", "past_90d", "older"]
+def browse_personalized(
+    r: dict,
+    qv_profile: list[float],
+    k: int = 10,
+    filters: dict[str, str | list[str]] | None = None,
+    hard_filter: bool = False,
+) -> list[dict]:
+    """Blank-query browse personalized to an uploaded profile: rank purely by profile
+    fit (e5 KNN over filtered candidates), with the same 3-axis qualification badges as
+    keyword personalization. The recency/low-barrier browse boost is replaced by profile
+    cosine here — the profile IS the intent when there's no query."""
+    cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
+    pool = max(PROFILE_POOL, k * (cap + 2), k + 20)
+    hits = _topk_knn("e5_vec", qv_profile, pool, filters)  # (idx, cosine), best-first
+    hyd = _hydrate_for_match([i for i, _ in hits])
+    rows: list[dict] = []
+    seen: dict[str, int] = {}
+    for idx, cos in hits:
+        d = hyd.get(idx)
+        if not d:
+            continue
+        jf = _job_feats_from_solr(d)
+        st = L.axis_status(r, jf)
+        if hard_filter and not st["all"]:
+            continue
+        emp = (d.get("employer") or "").strip().lower()
+        if cap > 0 and emp and seen.get(emp, 0) >= cap:
+            continue
+        rows.append(_make_result_personalized(len(rows) + 1, cos, idx, d, st, cos))
+        if emp:
+            seen[emp] = seen.get(emp, 0) + 1
+        if len(rows) >= k:
+            break
+    return rows
+
 
 FACET_TAIL_VALUES = {
     "role_family": {"other"},
@@ -597,15 +688,27 @@ FACET_TAIL_VALUES = {
 }
 
 
-def compute_facets(
+def _retrieve_for_facets(
     query: str,
-    filters: dict[str, str] | None = None,
-    pool: int = 200,
-) -> dict[str, list[tuple[str, int]]]:
-    """Aggregate facet values over the top-`pool` RRF-fused docs (with filters
-    applied at retrieval), weighted by 1/(rank+1) so values at the head of the
-    result list dominate ordering. Returns {field: [(value, weight), ...]}."""
-    items = _fused_topk(query, pool, filters, pool)
+    filters: dict[str, str | list[str]],
+    pool: int,
+    qv_profile: list[float] | None = None,
+) -> list[tuple[int, float]]:
+    """The retrieval whose top-`pool` docs we facet over, so facet values always match
+    what the user is actually looking at: fused query results when there's a query;
+    else a profile-KNN pool when a profile is driving a blank personalized browse;
+    else the blank recency-browse pool."""
+    if query and query.strip():
+        return _fused_topk(query, pool, filters, pool)
+    if qv_profile is not None:
+        return _topk_knn("e5_vec", qv_profile, pool, filters)
+    return _browse_topk(pool, filters, pool)
+
+
+def _aggregate_facets(items: list[tuple[int, float]]) -> dict[str, list[tuple[str, float]]]:
+    """Rank-weighted (1/(rank+1)) value tallies per facet field over `items`, so values
+    at the head of the result list dominate ordering. Tail values (role 'other',
+    'unclassified') sink to the bottom. Ordinal/static ordering is applied client-side."""
     ids = [i for i, _ in items]
     hyd = _hydrate(ids, with_facets=True)
     weights: dict[str, dict[str, float]] = {f: defaultdict(float) for f in FACET_FIELDS}
@@ -616,19 +719,37 @@ def compute_facets(
             v = d.get(f)
             if v is None or v == "":
                 continue
-            if isinstance(v, list):
-                for vv in v:
+            for vv in v if isinstance(v, list) else [v]:
+                if vv:
                     weights[f][vv] += w
-            else:
-                weights[f][v] += w
     out: dict[str, list[tuple[str, float]]] = {}
     for f in FACET_FIELDS:
-        if f == "posted_bucket":
-            present = weights[f]
-            out[f] = [(b, present[b]) for b in POSTED_BUCKET_ORDER if b in present]
-        else:
-            tail = FACET_TAIL_VALUES.get(f, set())
-            out[f] = sorted(weights[f].items(), key=lambda x: (x[0] in tail, -x[1]))
+        tail = FACET_TAIL_VALUES.get(f, set())
+        out[f] = sorted(weights[f].items(), key=lambda x: (x[0] in tail, -x[1]))
+    return out
+
+
+def compute_facets(
+    query: str,
+    filters: dict[str, str | list[str]] | None = None,
+    pool: int = 200,
+    qv_profile: list[float] | None = None,
+) -> dict[str, list[tuple[str, float]]]:
+    """Facet value tallies over the top-`pool` results. Returns {field: [(value, w)]}.
+    For multi-select usability, each actively-filtered field's options are recomputed
+    against the pool filtered by all OTHER fields — otherwise a field constrained by its
+    own selection would only show the chosen values, leaving no way to add OR options.
+    When qv_profile is given (personalized blank browse), the pool is the profile-KNN
+    set, so facets reflect the profile-ranked results, not the generic recency browse."""
+    filters = filters or {}
+    out = _aggregate_facets(_retrieve_for_facets(query, filters, pool, qv_profile))
+    for f in list(filters):
+        if not filters[f]:
+            continue
+        alt = {k: v for k, v in filters.items() if k != f}
+        out[f] = _aggregate_facets(_retrieve_for_facets(query, alt, pool, qv_profile)).get(
+            f, out.get(f, [])
+        )
     return out
 
 
@@ -769,6 +890,35 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 #personalize-row label { cursor: pointer; }
 #personalize-row .pz-name { color: #888; margin-left: 6px; }
 .fit { display: inline-block; font-size: 0.72em; padding: 1px 7px; border-radius: 9px; margin-right: 5px; background: #eef0fb; color: #3a45a0; border: 1px solid #cfd3f0; }
+/* facet controls: checkbox (multi-select OR) / radio (single-select recency) */
+.facet .opt .cbox { flex: 0 0 auto; width: 12px; height: 12px; margin-right: 7px; border: 1px solid #bbb; border-radius: 3px; background: #fff; display: inline-block; position: relative; }
+.facet .opt .cbox.radio { border-radius: 50%; }
+.facet .opt .cbox.on { background: #2b6cb0; border-color: #2b6cb0; }
+.facet .opt .cbox.on::after { content: '✓'; color: #fff; font-size: 9px; line-height: 12px; position: absolute; left: 1px; top: -1px; }
+.facet .opt .cbox.radio.on::after { content: ''; left: 3px; top: 3px; width: 6px; height: 6px; background: #fff; border-radius: 50%; }
+.facet .moreless { color: #2b6cb0; cursor: pointer; font-size: 0.82em; margin-top: 4px; }
+.facet .moreless:hover { text-decoration: underline; }
+.facet h3 .map-link { float: right; color: #2b6cb0; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.95em; }
+.facet h3 .map-link::before { content: '🗺 '; }
+.facet h3 .map-link:hover { text-decoration: underline; }
+/* map picker modal */
+.map-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 500; display: flex; align-items: center; justify-content: center; }
+.map-card { background: #fff; border-radius: 8px; padding: 14px 16px; width: min(760px, 94vw); max-height: 92vh; overflow: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+.map-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 1.05em; }
+.map-head .map-close { cursor: pointer; color: #888; font-size: 1.5em; line-height: 1; padding: 0 4px; }
+.map-head .map-close:hover { color: #333; }
+.map-hint { color: #888; font-size: 0.82em; margin: 4px 0 8px; }
+.map-wrap { width: 100%; }
+.map-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.map-foot #map-sel { color: #555; font-size: 0.85em; }
+.map-foot .map-done { background: #2b6cb0; color: #fff; border: 1px solid #2b6cb0; border-radius: 5px; padding: 6px 16px; cursor: pointer; }
+.map-attr { color: #bbb; font-size: 0.72em; margin-top: 8px; text-align: right; }
+.geomap { width: 100%; height: auto; display: block; }
+.geomap path, .geomap g { fill: #e8e8ec; stroke: #fff; stroke-width: 0.7; cursor: pointer; transition: fill 0.1s; }
+.geomap path:hover, .geomap g:hover path { fill: #cfe0f5; }
+.geomap .hasdata, .geomap .hasdata path { fill: #bcd3ef; }
+.geomap .sel, .geomap .sel path { fill: #2b6cb0; }
+.geomap .sel:hover, .geomap .sel:hover path { fill: #245a96; }
 </style></head>
 <body>
 <h1>__PAGE_TITLE__</h1>
@@ -803,7 +953,17 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
   <div class="facets" id="facets"></div>
   <div class="results-panel">
     <div id="related" class="related"></div>
-    <div id="results"><div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div></div>
+    <div id="results"><div class="empty">loading recent jobs…</div></div>
+  </div>
+</div>
+<div id="map-modal" class="map-modal" style="display:none">
+  <div class="map-card">
+    <div class="map-head"><span id="map-title"></span><span class="map-close">&times;</span></div>
+    <div class="map-hint">Click regions to toggle filters (multi-select OR) &middot; shaded regions have results in the current view.</div>
+    <div id="map-us" class="map-wrap" style="display:none">__US_MAP_SVG__</div>
+    <div id="map-world" class="map-wrap" style="display:none">__WORLD_MAP_SVG__</div>
+    <div class="map-foot"><span id="map-sel"></span><button class="map-done">Done</button></div>
+    <div class="map-attr">US states: WebsiteBeaver (MIT) &middot; world map: simple-world-map (CC BY-SA 3.0)</div>
   </div>
 </div>
 <script>
@@ -813,6 +973,7 @@ let suggestItems = [];
 let suggestActive = -1;
 let suggestTimer = null;
 let profile = null;   // parsed profile {r, qv} from /api/match_profile; client-held, re-sent to personalize
+let profileSuggestions = [];   // [{q, n}] profile-derived searches; shown in the related slot on a blank personalized browse
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function closeSuggest() { suggestBox.style.display = 'none'; suggestActive = -1; }
@@ -986,10 +1147,25 @@ const FACET_LABELS = {
 };
 const FACET_VALUE_LABELS = {
   posted_bucket: {
+    past_24h: 'Past 24 hours',
     past_7d: 'Past 7 days',
     past_30d: 'Past 30 days',
     past_90d: 'Past 90 days',
     older: 'Older than 90 days',
+  },
+  seniority: {
+    intern: 'Intern', entry: 'Entry level', junior: 'Junior', mid: 'Mid level',
+    senior: 'Senior', lead: 'Lead', staff: 'Staff', manager: 'Manager',
+    senior_manager: 'Senior manager', director: 'Director', vp: 'VP',
+    c_level: 'C-level', not_specified: 'Not specified',
+  },
+  salary_band_usd_annual: {
+    under_50k: 'Under $50k', '50k_75k': '$50k–75k', '75k_100k': '$75k–100k',
+    '100k_150k': '$100k–150k', '150k_200k': '$150k–200k', '200k_300k': '$200k–300k',
+    '300k_plus': '$300k+', not_specified: 'Not specified',
+  },
+  remote_mode: {
+    on_site: 'On-site', remote: 'Remote', hybrid: 'Hybrid', not_specified: 'Not specified',
   },
   industry: {
     tech_software_internet: 'Software / Internet',
@@ -1025,68 +1201,178 @@ const FACET_VALUE_LABELS = {
 function facetValueLabel(f, v) {
   return (FACET_VALUE_LABELS[f] && FACET_VALUE_LABELS[f][v]) || v;
 }
-const activeFilters = {};   // field -> value
+// Static presentation order for ordinal facets (low->high) + remote_mode.
+const ORDINAL_ORDER = {
+  seniority: ['intern','entry','junior','mid','senior','lead','staff','manager','senior_manager','director','vp','c_level','not_specified'],
+  salary_band_usd_annual: ['under_50k','50k_75k','75k_100k','100k_150k','150k_200k','200k_300k','300k_plus','not_specified'],
+  remote_mode: ['on_site','remote','hybrid','not_specified'],
+  posted_bucket: ['past_24h','past_7d','past_30d','past_90d','older'],
+};
+const TOGGLE_FACETS = new Set(['role_family','industry','location_state','location_country','tech_stack']); // More/Less
+const MAP_FACETS = { location_state: 'us', location_country: 'world' };  // also offer a map picker
+const SINGLE_SELECT = new Set(['posted_bucket']);   // everything else is multi-select OR
+const FACET_TOP_N = 8;
+const expandedFacets = new Set();
+let lastFacets = {};
+
+// activeFilters: field -> array of values (multi-select) | string (posted_bucket).
+const activeFilters = {};
+function selectedList(f) { const a = activeFilters[f]; return a == null ? [] : (Array.isArray(a) ? a : [a]); }
+function isSelected(f, v) { return selectedList(f).includes(v); }
+function toggleFilter(f, v) {
+  if (SINGLE_SELECT.has(f)) {
+    if (activeFilters[f] === v) delete activeFilters[f]; else activeFilters[f] = v;
+  } else {
+    let a = selectedList(f);
+    a = a.includes(v) ? a.filter(x => x !== v) : a.concat([v]);
+    if (a.length) activeFilters[f] = a; else delete activeFilters[f];
+  }
+}
 
 function buildFilterQS() {
   const parts = [];
   for (const [k, v] of Object.entries(activeFilters)) {
-    if (v) parts.push(`${k}=${encodeURIComponent(v)}`);
+    for (const x of (Array.isArray(v) ? v : (v ? [v] : []))) parts.push(`${k}=${encodeURIComponent(x)}`);
   }
   return parts.length ? '&' + parts.join('&') : '';
 }
 function renderActiveFilters() {
   const row = document.getElementById('active-filters');
-  const keys = Object.keys(activeFilters).filter(k => activeFilters[k]);
-  if (!keys.length) { row.innerHTML = ''; return; }
-  row.innerHTML = 'Filters: ' + keys.map(k =>
-    `<span class="chip" data-k="${k}">${esc(FACET_LABELS[k] || k)}: ${esc(facetValueLabel(k, activeFilters[k]))}</span>`
-  ).join('');
+  const chips = [];
+  for (const f of Object.keys(activeFilters)) {
+    for (const v of selectedList(f)) {
+      chips.push(`<span class="chip" data-k="${f}" data-v="${esc(v)}">${esc(FACET_LABELS[f] || f)}: ${esc(facetValueLabel(f, v))}</span>`);
+    }
+  }
+  if (!chips.length) { row.innerHTML = ''; return; }
+  row.innerHTML = 'Filters: ' + chips.join('');
   row.querySelectorAll('.chip').forEach(el => el.addEventListener('click', () => {
-    delete activeFilters[el.dataset.k];
+    toggleFilter(el.dataset.k, el.dataset.v);
     runSearch();
   }));
 }
+// Order a facet's options for display: ordinal facets in fixed low->high order,
+// others in backend weight order. Selected values absent from the current pool are
+// kept (weight 0) so they remain de-selectable.
+function orderedOpts(f, opts) {
+  const present = new Map((opts || []).map(([v, w]) => [v, w]));
+  selectedList(f).forEach(v => { if (!present.has(v)) present.set(v, 0); });
+  if (ORDINAL_ORDER[f]) {
+    return ORDINAL_ORDER[f].filter(v => present.has(v)).map(v => [v, present.get(v)]);
+  }
+  const arr = (opts || []).slice();
+  selectedList(f).forEach(v => { if (!arr.some(o => o[0] === v)) arr.push([v, 0]); });
+  return arr;
+}
 function renderFacets(facets) {
+  lastFacets = facets || {};
   const root = document.getElementById('facets');
   const parts = [];
   for (const f of FACET_FIELDS) {
-    const opts = (facets && facets[f]) || [];
-    if (!opts.length && !activeFilters[f]) continue;
-    let inner = `<h3>${esc(FACET_LABELS[f] || f)}</h3>`;
-    if (activeFilters[f]) {
-      inner += `<div class="clear" data-f="${f}">clear ${esc(facetValueLabel(f, activeFilters[f]))}</div>`;
+    const opts = orderedOpts(f, (facets && facets[f]) || []);
+    if (!opts.length) continue;
+    const isToggle = TOGGLE_FACETS.has(f);
+    const expanded = expandedFacets.has(f);
+    // Collapsed toggle facet: show the top N, but always include any selected value
+    // that would otherwise be hidden under "More" so the user can see/clear it.
+    let shown = opts;
+    if (isToggle && !expanded) {
+      shown = opts.slice(0, FACET_TOP_N);
+      for (const o of opts.slice(FACET_TOP_N)) if (isSelected(f, o[0])) shown.push(o);
     }
-    if (!opts.length) {
-      inner += '<div class="facet-empty">(no values)</div>';
-    } else {
-      inner += opts.slice(0, 8).map(([v, _n]) =>
-        `<div class="opt${activeFilters[f] === v ? ' active' : ''}" data-f="${f}" data-v="${esc(v)}"><span class="v">${esc(facetValueLabel(f, v))}</span></div>`
-      ).join('');
+    const single = SINGLE_SELECT.has(f);
+    let inner = `<h3>${esc(FACET_LABELS[f] || f)}`;
+    if (MAP_FACETS[f]) inner += `<span class="map-link" data-mapf="${f}">map</span>`;
+    inner += `</h3>`;
+    inner += shown.map(([v]) => {
+      const on = isSelected(f, v);
+      const box = `<span class="cbox${single ? ' radio' : ''}${on ? ' on' : ''}"></span>`;
+      return `<div class="opt${on ? ' active' : ''}" data-f="${f}" data-v="${esc(v)}">${box}<span class="v">${esc(facetValueLabel(f, v))}</span></div>`;
+    }).join('');
+    if (isToggle && opts.length > FACET_TOP_N) {
+      const hidden = opts.length - shown.length;
+      if (expanded) inner += `<div class="moreless" data-f="${f}">− Less</div>`;
+      else if (hidden > 0) inner += `<div class="moreless" data-f="${f}">+ More (${hidden})</div>`;
     }
     parts.push(`<div class="facet">${inner}</div>`);
   }
-  root.innerHTML = parts.join('') || '<div class="facet-empty">no facets yet — run a search</div>';
+  root.innerHTML = parts.join('') || '<div class="facet-empty">no facets</div>';
   root.querySelectorAll('.opt').forEach(el => el.addEventListener('click', () => {
-    const f = el.dataset.f, v = el.dataset.v;
-    activeFilters[f] = activeFilters[f] === v ? '' : v;
-    if (!activeFilters[f]) delete activeFilters[f];
+    toggleFilter(el.dataset.f, el.dataset.v);
     runSearch();
   }));
-  root.querySelectorAll('.clear').forEach(el => el.addEventListener('click', () => {
-    delete activeFilters[el.dataset.f];
-    runSearch();
+  root.querySelectorAll('.moreless').forEach(el => el.addEventListener('click', () => {
+    const f = el.dataset.f;
+    if (expandedFacets.has(f)) expandedFacets.delete(f); else expandedFacets.add(f);
+    renderFacets(lastFacets);
   }));
+  root.querySelectorAll('.map-link').forEach(el => el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openMap(el.dataset.mapf);
+  }));
+  if (document.getElementById('map-modal').style.display !== 'none') repaintMaps();
 }
+
+// ===== map picker (country / US state) — clicks drive the same activeFilters =====
+let mapField = null;
+function regionCodeFromEvent(e) {
+  let el = e.target;
+  while (el && el.tagName && el.tagName.toLowerCase() !== 'svg') {
+    if (el.id && /^[A-Za-z]{2}$/.test(el.id)) return el.id.toUpperCase();
+    el = el.parentNode;
+  }
+  return null;
+}
+function paintMap(svgEl, field, facetVals) {
+  if (!svgEl) return;
+  const has = new Set((facetVals || []).map(o => o[0]));
+  const sel = new Set(selectedList(field));
+  svgEl.querySelectorAll('[id]').forEach(el => {
+    if (!/^[A-Za-z]{2}$/.test(el.id)) return;
+    const code = el.id.toUpperCase();
+    el.classList.toggle('hasdata', has.has(code));
+    el.classList.toggle('sel', sel.has(code));
+  });
+}
+function repaintMaps() {
+  paintMap(document.querySelector('#map-us .geomap'), 'location_state', lastFacets.location_state);
+  paintMap(document.querySelector('#map-world .geomap'), 'location_country', lastFacets.location_country);
+  if (mapField) {
+    const sel = selectedList(mapField);
+    document.getElementById('map-sel').textContent = sel.length ? (sel.length + ' selected: ' + sel.join(', ')) : 'none selected';
+  }
+}
+function openMap(field) {
+  mapField = field;
+  document.getElementById('map-us').style.display = field === 'location_state' ? 'block' : 'none';
+  document.getElementById('map-world').style.display = field === 'location_country' ? 'block' : 'none';
+  document.getElementById('map-title').textContent = field === 'location_state' ? 'Filter by US state' : 'Filter by country';
+  repaintMaps();
+  document.getElementById('map-modal').style.display = 'flex';
+}
+function closeMap() { document.getElementById('map-modal').style.display = 'none'; }
+['map-us', 'map-world'].forEach(id => {
+  const field = id === 'map-us' ? 'location_state' : 'location_country';
+  document.getElementById(id).addEventListener('click', e => {
+    const code = regionCodeFromEvent(e);
+    if (!code) return;
+    toggleFilter(field, code);
+    repaintMaps();
+    runSearch();
+  });
+});
+document.querySelector('.map-close').addEventListener('click', closeMap);
+document.querySelector('.map-done').addEventListener('click', closeMap);
+document.getElementById('map-modal').addEventListener('click', e => { if (e.target.id === 'map-modal') closeMap(); });
 async function runSearch() {
   const q = input.value.trim();
-  if (!q) return;
   lastQuery = q;
   closeSuggest();
   if (profile && document.getElementById('pz-on').checked) { return runPersonalized(q); }
   const div = document.getElementById('results');
   const badgeRow = document.getElementById('badge-row');
   badgeRow.innerHTML = '';
-  div.innerHTML = '<div class="empty">searching...</div>';
+  div.innerHTML = q ? '<div class="empty">searching...</div>' : '<div class="empty">loading recent jobs…</div>';
   renderActiveFilters();
   const qs = buildFilterQS();
   // Fire search + facets in parallel.
@@ -1138,12 +1424,11 @@ async function runPersonalized(q) {
   renderActiveFilters();
   const hard = document.getElementById('pz-hard').checked;
   const body = { q, k: 10, hard_filter: hard, filters: activeFilters, profile };
-  const [searchRes, facetRes] = await Promise.all([
-    fetch('/api/search_personalized', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }).then(r => r.json()),
-    fetch(`/api/facets?q=${encodeURIComponent(q)}${buildFilterQS()}`).then(r => r.json()),
-  ]);
+  // Facets come back inline, computed over the SAME profile-ranked pool as the results
+  // (a separate /api/facets call would be profile-blind and mismatch the listing).
+  const searchRes = await fetch('/api/search_personalized', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(r => r.json());
   if (searchRes.error) { div.innerHTML = '<div class="empty">' + esc(searchRes.error) + '</div>'; return; }
   badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
   if (!searchRes.results || !searchRes.results.length) {
@@ -1153,8 +1438,11 @@ async function runPersonalized(q) {
   } else {
     renderResults(div, searchRes.results, searchRes.ms);
   }
-  renderFacets(facetRes.facets);
-  loadRelated(q);
+  renderFacets(searchRes.facets);
+  // On a blank profile-driven browse, surface the profile's suggested searches;
+  // on a typed query, surface query-related role moves.
+  if (q) loadRelated(q);
+  else renderRelated('Suggested searches from your profile', profileSuggestions);
 }
 function showPersonalize(name) {
   document.getElementById('personalize-row').style.display = 'block';
@@ -1166,8 +1454,10 @@ function togglePzHard() {
   document.getElementById('pz-hard-wrap').style.display = on ? 'inline' : 'none';
   if (!on) document.getElementById('pz-hard').checked = false;
 }
-document.getElementById('pz-on').addEventListener('change', () => { togglePzHard(); if (input.value.trim()) runSearch(); });
-document.getElementById('pz-hard').addEventListener('change', () => { if (input.value.trim()) runSearch(); });
+// Re-run on toggle even with a blank query, so the default browse switches between
+// recency and profile-ranked (and the 3-axis filter applies) without needing a query.
+document.getElementById('pz-on').addEventListener('change', () => { togglePzHard(); runSearch(); });
+document.getElementById('pz-hard').addEventListener('change', () => { runSearch(); });
 
 // ===== "find jobs for yourself": profile -> jobs, cosine vs 3-axis filter =====
 function badge(name, ax) {
@@ -1176,75 +1466,10 @@ function badge(name, ax) {
   const tip = ax.reason ? ' — ' + ax.reason : '';
   return `<span class="b ${cls}" title="${esc(ax.reason)}">${name} ${mark}${ax.ok ? '' : esc(tip)}</span>`;
 }
-function matchJobRow(j) {
-  const m = [];
-  m.push(j.remote ? '🌐 remote' : esc(j.location || '(no location)'));
-  if (j.employer) m.push(esc(j.employer));
-  m.push('level: ' + esc(j.seniority));
-  if (j.years_req != null) m.push('needs ' + j.years_req + ' yrs');
-  if (j.degree_req) m.push('needs ' + esc(j.degree_req));
-  if (j.cred_gates && j.cred_gates.length) m.push('needs ' + j.cred_gates.map(esc).join(', '));
-  const extra = [];
-  if (j.clearance) extra.push('<span class="b warn" title="security clearance stated (not resume-checkable)">clearance</span>');
-  if (j.workauth) extra.push('<span class="b warn" title="work-authorization stated (not resume-checkable)">work-auth</span>');
-  const row = document.createElement('div');
-  row.className = 'job';
-  row.innerHTML = `<span class="cos-num">cos ${j.cosine.toFixed(3)}</span>
-    <div class="jt">${esc(j.title)}</div>
-    <div class="jm">${m.join('<span class="sep">&middot;</span>')}</div>
-    <div class="badges">${badge('sen', j.axes.sen)}${badge('loc', j.axes.loc)}${badge('gate', j.axes.gate)}${extra.join('')}</div>`;
-  if (j.idx != null && j.idx >= 0) row.addEventListener('click', () => toggleDetail(j.idx, row));
-  return row;
-}
 function clearMatch() {
-  document.getElementById('related').innerHTML = '';
-  document.getElementById('results').innerHTML =
-    '<div class="empty">type a query — RRF(BM25 + e5-small) via Solr</div>';
-}
-function renderMatch(d) {
-  document.getElementById('badge-row').innerHTML = '';
-  document.getElementById('facets').innerHTML = '';
-  document.getElementById('active-filters').innerHTML = '';
-  const box = document.getElementById('results');
-  const rs = d.resume;
-  const facts = [];
-  facts.push('level: <b>' + esc(rs.seniority) + '</b>');
-  if (rs.years != null) facts.push('experience: <b>' + rs.years + ' yrs</b>');
-  facts.push('degree: <b>' + esc(rs.degree) + '</b>');
-  if (rs.creds && rs.creds.length) facts.push('creds: <b>' + rs.creds.map(esc).join(', ') + '</b>');
-  const note = d.filtered_count < d.pool_n
-    ? `${d.filtered_count} of top-${d.pool_n} pass all 3 axes`
-    : `all top-${d.pool_n} pass`;
-  box.innerHTML = `
-    <div class="rsum">
-      <span class="back" onclick="clearMatch()">&larr; back to search</span>
-      <div class="nm">${esc(rs.name)}</div>
-      <div class="hl">${esc(rs.headline)}</div>
-      <div class="lc" style="color:#888;font-size:0.85em">${esc(rs.loc)}</div>
-      <div class="facts">${facts.join('<span style="color:#ccc;padding:0 6px">&middot;</span>')}</div>
-    </div>
-    <div class="panels">
-      <div class="panel cos">
-        <h3>Raw cosine (constraint-blind)</h3>
-        <div class="note">nearest jobs by embedding similarity &mdash; ignores hard constraints</div>
-        <div id="cos-list"></div>
-      </div>
-      <div class="panel flt">
-        <h3>3-axis constraint filter</h3>
-        <div class="note">${note} &middot; best-cosine survivor first${d.filtered_count === 0 ? ' (none qualified &mdash; cosine top-1 fallback)' : ''}</div>
-        <div id="flt-list"></div>
-      </div>
-    </div>`;
-  const cosList = box.querySelector('#cos-list');
-  (d.cosine || []).forEach(j => cosList.appendChild(matchJobRow(j)));
-  if (!d.cosine || !d.cosine.length) cosList.innerHTML = '<div class="empty">none</div>';
-  const fltList = box.querySelector('#flt-list');
-  const fl = (d.filtered && d.filtered.length) ? d.filtered : (d.cosine || []).slice(0, 1);
-  fl.forEach(j => fltList.appendChild(matchJobRow(j)));
-  // Profile suggestions go in the top related-searches slot (above the match panels),
-  // overwriting any query-related searches so only one set ever shows.
-  renderRelated('Suggested searches from your profile',
-    (d.suggestions || []).map(s => ({ q: s.text, n: s.n })));
+  // leave the profile-match panel and return to the (possibly personalized) browse/search
+  input.value = lastQuery || '';
+  runSearch();
 }
 async function matchOwn() {
   const text = document.getElementById('own-text').value.trim();
@@ -1267,12 +1492,26 @@ async function matchOwn() {
       return;
     }
     status.textContent = '';
-    renderMatch(d);
     profile = d.profile || null;
-    if (profile) showPersonalize(d.resume && d.resume.name);
+    profileSuggestions = (d.suggestions || []).map(s => ({ q: s.text, n: s.n }));
+    if (profile) {
+      // Uploading a profile turns the default view into a profile-driven browse:
+      // a blank "match my profile" query, ranked by profile fit, with the facet rail
+      // and filters fully available. Subsequent typed queries personalize too.
+      showPersonalize(d.resume && d.resume.name);
+      const pz = document.getElementById('pz-on');
+      pz.checked = true;
+      togglePzHard();
+      const own = document.querySelector('.ownbox');
+      if (own) own.open = false;   // collapse the upload panel to reveal results
+      input.value = '';
+      runSearch();   // -> runPersonalized('') -> browse_personalized + facets
+    }
   } catch (e) { status.textContent = 'failed: ' + e; }
 }
 document.getElementById('own-go').addEventListener('click', matchOwn);
+// Blank search runs by default on page load: recent + low-barrier jobs.
+runSearch();
 </script>
 </body></html>
 """
@@ -1280,15 +1519,27 @@ document.getElementById('own-go').addEventListener('click', matchOwn);
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    title = "Jobs Search Demo: 198K postings across 2 corpora (Solr backend)"
+    try:
+        n = requests.get(
+            f"{SOLR}/solr/{CORE}/select", params={"q": "*:*", "rows": "0"}, timeout=5
+        ).json()["response"]["numFound"]
+        n_str = f"{n:,}"
+    except Exception:
+        n_str = "~197,000"
+    title = f"Jobs Search Demo: {n_str} postings across 2 corpora (Solr backend)"
     subtitle = (
-        "198,085 postings (OpenApply + USAJobs) · "
-        "RRF(BM25 + e5-small) via Solr 10 · "
-        "click a result for the full description · "
+        f"{n_str} postings (OpenApply + USAJobs) · RRF(BM25 + e5-small) via Solr 10 · "
+        "browse recent jobs by default, then narrow with facets (multi-select) or the "
+        "country / US-state maps · click a result for the full description · "
         "or paste your profile above to find jobs for yourself (3-axis constraint filter), "
-        "get suggested searches, and personalize keyword results"
+        "get suggested searches, and personalize results"
     )
-    return HTML_PAGE.replace("__PAGE_TITLE__", title).replace("__PAGE_SUBTITLE__", subtitle)
+    return (
+        HTML_PAGE.replace("__PAGE_TITLE__", title)
+        .replace("__PAGE_SUBTITLE__", subtitle)
+        .replace("__US_MAP_SVG__", US_STATES_SVG)
+        .replace("__WORLD_MAP_SVG__", WORLD_SVG)
+    )
 
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -1373,26 +1624,32 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
     return JSONResponse({"suggestions": rs.suggest(q, qv, k=k)})
 
 
-def _parse_filters(request_qp: dict) -> dict[str, str]:
-    return {
-        f: (request_qp.get(f) or "").strip()
-        for f in FACET_FIELDS
-        if (request_qp.get(f) or "").strip()
-    }
+def _parse_filters(request: Request) -> dict[str, str | list[str]]:
+    """Read facet filters from the query string. A field repeated across params
+    (role_family=a&role_family=b) becomes a list -> OR within that field. posted_bucket
+    is single-select (cumulative recency), so only its first value is kept."""
+    qp = request.query_params
+    out: dict[str, str | list[str]] = {}
+    for f in FACET_FIELDS:
+        vals = [v.strip() for v in qp.getlist(f) if v.strip()]
+        if not vals:
+            continue
+        out[f] = vals[0] if f == "posted_bucket" else vals
+    return out
 
 
 @app.get("/api/search")
-def api_search(request: Request, q: str = Query(...), k: int = Query(10)):
-    qp = dict(request.query_params)
-    filters = _parse_filters(qp)
+def api_search(request: Request, q: str = Query(""), k: int = Query(10)):
+    """Keyword search, or — when q is blank — the recent/low-barrier browse default."""
+    filters = _parse_filters(request)
     t0 = time.time()
-    res = search_default(q, k, filters)
+    res = search_default(q, k, filters) if q.strip() else browse_default(k, filters)
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
-            "retriever": "rrf_bm25_e5",
-            "served_with": SERVING_MODE,
+            "retriever": "rrf_bm25_e5" if q.strip() else "browse_recent",
+            "served_with": SERVING_MODE if q.strip() else "Browse: recent + low-barrier [via Solr]",
             "filters": filters,
             "results": res,
             "ms": ms,
@@ -1401,12 +1658,11 @@ def api_search(request: Request, q: str = Query(...), k: int = Query(10)):
 
 
 @app.get("/api/facets")
-def api_facets(request: Request, q: str = Query(...), pool: int = Query(200)):
-    """Facet counts over the top-`pool` fused results (with the same filters
-    that the search uses). Aggregating over the fused set rather than the BM25
-    match set keeps facet counts coherent with what the user sees."""
-    qp = dict(request.query_params)
-    filters = _parse_filters(qp)
+def api_facets(request: Request, q: str = Query(""), pool: int = Query(200)):
+    """Facet counts over the top-`pool` results (fused query results, or the blank-browse
+    pool when q is empty) with the same filters the search uses, so counts stay coherent
+    with what the user sees."""
+    filters = _parse_filters(request)
     t0 = time.time()
     facets = compute_facets(q, filters, pool=pool)
     ms = int((time.time() - t0) * 1000)
@@ -1680,27 +1936,43 @@ async def api_search_personalized(request: Request):
     Stateless: the profile (features + e5 vector) is sent in the body each call."""
     body = await request.json()
     q = (body.get("q") or "").strip()
-    if not q:
-        return JSONResponse({"error": "empty query"}, status_code=400)
     prof = body.get("profile") or {}
     r, qv = prof.get("r"), prof.get("qv")
     if not r or not qv:
         return JSONResponse({"error": "no profile loaded"}, status_code=400)
     raw_filters = body.get("filters") or {}
-    filters = {f: str(raw_filters.get(f) or "").strip() for f in FACET_FIELDS if raw_filters.get(f)}
+    filters: dict[str, str | list[str]] = {}
+    for f in FACET_FIELDS:
+        v = raw_filters.get(f)
+        if isinstance(v, list):
+            vv = [str(x).strip() for x in v if str(x).strip()]
+            if vv:
+                filters[f] = vv[0] if f == "posted_bucket" else vv
+        elif v and str(v).strip():
+            filters[f] = str(v).strip()
     k = int(body.get("k") or 10)
     hard = bool(body.get("hard_filter"))
     t0 = time.time()
-    res = search_personalized(q, r, qv, k, filters, hard)
+    # Blank query + profile: rank the whole (filtered) catalog by profile fit.
+    res = (
+        search_personalized(q, r, qv, k, filters, hard)
+        if q
+        else browse_personalized(r, qv, k, filters, hard)
+    )
+    # Facets must reflect the SAME pool the user sees: for a blank personalized browse
+    # that's the profile-KNN pool (not the generic recency browse). Returned inline so
+    # the client doesn't make a second, profile-blind /api/facets call.
+    facets = compute_facets(q, filters, qv_profile=(None if q else qv))
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
-            "retriever": "rrf_bm25_e5+profile",
-            "served_with": SERVING_MODE + " + profile re-rank",
+            "retriever": "rrf_bm25_e5+profile" if q else "browse+profile",
+            "served_with": (SERVING_MODE if q else "Browse") + " + profile re-rank",
             "filters": filters,
             "hard_filter": hard,
             "results": res,
+            "facets": facets,
             "ms": ms,
         }
     )
