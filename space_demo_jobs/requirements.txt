@@ -1,8 +1,0 @@
-fastapi>=0.110
-uvicorn>=0.27
-numpy>=2.0
-torch>=2.2
-sentence-transformers>=5.0
-huggingface_hub>=1.0
-bm25s>=0.2
-PyStemmer>=2.2
