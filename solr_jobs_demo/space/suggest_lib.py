@@ -49,13 +49,26 @@ _SYN_HEAD = {
     "coder": "engineer",
 }
 
+# Generic qualifier words that rarely distinguish one role MOVE from another: two phrases
+# differing only by one of these are equivalent for dedup ('full stack software engineer'
+# ~ 'full stack engineer'). Kept minimal to avoid over-collapsing distinct roles.
+_FILLER = {"software"}
+_PUNCT = re.compile(r"[-/]+")
+# Glued compounds that also occur spaced ('fullstack' ~ 'full stack'); normalize so the
+# two spellings share a key. Word-bounded to avoid mangling longer tokens.
+_GLUED_MAP = {"fullstack": "full stack", "frontend": "front end", "backend": "back end"}
+_GLUED = re.compile(r"\b(?:{})\b".format("|".join(_GLUED_MAP)))
+
 
 def _role_key(phrase: str) -> str:
-    """Collapse a phrase to its level- and head-synonym-agnostic core so 'senior data
-    engineer'/'data engineer' and 'software developer'/'software engineer' compare
-    equal (level + synonym moves belong to the facet rail / are redundant, not here)."""
-    p = _SENIORITY.sub(" ", phrase.lower())
-    toks = _WS.sub(" ", p).strip().split()
+    """Collapse a phrase to its level-, punctuation-, filler-, and head-synonym-agnostic
+    core so 'senior data engineer'/'data engineer', 'full-stack'/'fullstack'/'full stack',
+    and 'full stack software engineer'/'full stack engineer' all compare equal (level,
+    synonym, hyphenation, spacing, and filler differences are redundant, not real moves)."""
+    p = _PUNCT.sub(" ", phrase.lower())  # 'full-stack' -> 'full stack'
+    p = _GLUED.sub(lambda m: _GLUED_MAP[m.group(0)], p)  # 'fullstack' -> 'full stack'
+    p = _SENIORITY.sub(" ", p)
+    toks = [t for t in _WS.sub(" ", p).strip().split() if t not in _FILLER]
     if toks:
         toks[-1] = _SYN_HEAD.get(toks[-1], toks[-1])
     return " ".join(toks)
@@ -101,17 +114,23 @@ class RoleSuggester:
             return []
 
         chosen: list[int] = []
+        chosen_keys: set[str] = set()
         while cand and len(chosen) < k:
             if not chosen:
                 best = cand[0]
             else:
                 best, best_score = None, -1e9
                 for i in cand:
+                    if self.keys[i] in chosen_keys:
+                        continue  # equivalent to an already-picked suggestion
                     div = max(float(self.emb[i] @ self.emb[j]) for j in chosen)
                     score = mmr_lambda * float(sims[i]) - (1 - mmr_lambda) * div
                     if score > best_score:
                         best, best_score = i, score
+                if best is None:
+                    break  # every remaining candidate duplicates a chosen one
             chosen.append(best)
+            chosen_keys.add(self.keys[best])
             cand.remove(best)
         return [
             {
