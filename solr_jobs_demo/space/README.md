@@ -7,13 +7,13 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: cc-by-4.0
-short_description: 348K jobs · RRF(BM25, e5-small) via Solr 10
+short_description: 198K jobs · RRF(BM25, e5-small) via Solr 10
 ---
 
 # Jobs Search Demo — Solr backend
 
-Hybrid job search over **347,900 postings** across 4 corpora (OpenApply, LinkedIn,
-JobStreet, USAJobs), served by **Solr 10**.
+Hybrid job search over **198,085 postings** across 2 corpora (OpenApply, USAJobs),
+served by **Solr 10**.
 
 ## Retrieval
 
