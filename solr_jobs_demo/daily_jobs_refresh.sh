@@ -6,8 +6,9 @@
 #   Sunday  -> full rebuild (no --delta): reconciles in-place content edits and
 #              compacts Lucene segment bloat. One-time ~full upload that day.
 #
-# Both pull OpenApply from the maintainer's daily HF snapshot (--openapply-source hf,
-# ~2min, freshness <=1 day). Swap to `crawl` for a same-day deep refresh by hand.
+# Both pull OpenApply via a fresh same-day crawl (--openapply-source crawl, ~25-30min,
+# freshness == today). The maintainer's HF snapshot (--openapply-source hf) is faster
+# (~2min) but lags days-to-a-week, leaving "Past 7 days" empty -- so we crawl instead.
 set -euo pipefail
 
 ROOT=/Users/dtunkelang/bagofdocs
@@ -33,5 +34,5 @@ fi
 # -di: keep system AND display awake (display sleep throttles MPS during stage-2 encode).
 exec caffeinate -di "$PY" solr_jobs_demo/refresh.py \
   --from-stage 0 --to-stage 7 --no-dry-run \
-  --openapply-source hf --out-dir "$ROOT/unified_jobs_daily" \
+  --openapply-source crawl --out-dir "$ROOT/unified_jobs_daily" \
   "${MODE[@]}"

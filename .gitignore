@@ -111,6 +111,10 @@ trained_models/
 # Large index artifacts
 *.faiss
 *.npy
+# tarred Solr core -- regenerable, pushed to the HF dataset, not git (~1GB)
+solr_jobs_demo/solr_jobs_core.tar
+# new-slug byproduct of stage_facets -- regenerated each refresh
+solr_jobs_demo/facets/new_unlabeled_slugs.txt
 
 # Misc
 memory/

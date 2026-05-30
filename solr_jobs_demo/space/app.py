@@ -377,7 +377,7 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
         "employment_type": hyd.get("employment_type") or "",
         "salary": _fmt_salary(hyd),
         "department": hyd.get("department") or "",
-        "posted": (hyd.get("posted_at") or "")[:7],
+        "posted": (hyd.get("posted_at") or "")[:10],
     }
 
 

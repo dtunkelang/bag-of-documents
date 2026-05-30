@@ -261,16 +261,38 @@ def stage_unify(args) -> None:
 # ---------------------------------------------------------------------------
 # Stage 2: encode e5-small over unified titles
 # ---------------------------------------------------------------------------
-def stage_encode(args) -> None:
+def _title_hash(title: str) -> str:
+    """Content key for a title's vector. Namespaced by model + doc-prefix so a model
+    or prefix change misses every entry, forcing a clean re-encode automatically."""
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    h.update(EMBED_MODEL.encode())
+    h.update(b"\x00")
+    h.update(EMBED_PREFIX.encode())
+    h.update(b"\x00")
+    h.update(title.encode("utf-8"))
+    return h.hexdigest()
+
+
+def _run_encode(args, titles_file: str, out_name: str, n_titles: int) -> Path:
+    """Encode the titles in `titles_file` (relative to out-dir) into
+    `{out_name}.vecs.fp16.npy` via encode_st_catalog, wrapped in the MPS-deadlock
+    watchdog. Starts from a clean slate: the encode resume cache (progress.json +
+    the .vecs memmap) is POSITIONAL -- it records which chunk indices are done, not
+    which titles produced them -- so a prior run's leftovers for this out_name would
+    paste stale vectors onto a fresh title set. Within one call, progress.json still
+    lets the watchdog skip already-done chunks across an MPS kill/relaunch."""
     import math
     import time
 
     out = Path(args.out_dir)
-    vec = out / f"{EMBED_OUT_NAME}.vecs.fp16.npy"
-    progress_path = out / f"{EMBED_OUT_NAME}.progress.json"
-    with open(out / "titles.json") as f:
-        n_titles = len(json.load(f))
+    vec = out / f"{out_name}.vecs.fp16.npy"
+    progress_path = out / f"{out_name}.progress.json"
     n_chunks = math.ceil(n_titles / EMBED_CHUNK_SIZE)
+    for stale in (progress_path, vec):
+        if stale.exists():
+            stale.unlink()
 
     def chunks_done() -> int:
         if not progress_path.exists():
@@ -287,11 +309,11 @@ def stage_encode(args) -> None:
         "--data-dir",
         str(out),
         "--titles-file",
-        "titles.json",
+        titles_file,
         "--model",
         EMBED_MODEL,
         "--out-name",
-        EMBED_OUT_NAME,
+        out_name,
         "--doc-prefix",
         EMBED_PREFIX,
         "--device",
@@ -301,13 +323,10 @@ def stage_encode(args) -> None:
         "--batch-size",
         str(EMBED_BATCH_SIZE),
     ]
-
-    # Watchdog loop: encode_st_catalog resumes from progress.json, so on an MPS
-    # deadlock we kill the stalled process and relaunch — it skips done chunks.
     for attempt in range(1, EMBED_MAX_ATTEMPTS + 1):
         print(
             f"[2] encode attempt {attempt}/{EMBED_MAX_ATTEMPTS} "
-            f"({chunks_done()}/{n_chunks} chunks done) on {args.device}",
+            f"({chunks_done()}/{n_chunks} chunks done, {n_titles:,} titles) on {args.device}",
             flush=True,
         )
         print(f"\n$ {' '.join(cmd)}", flush=True)
@@ -337,7 +356,97 @@ def stage_encode(args) -> None:
         sys.exit(
             f"[2] encode incomplete after {EMBED_MAX_ATTEMPTS} attempts ({chunks_done()}/{n_chunks})"
         )
-    print(f"[2] wrote {vec} ({n_chunks} chunks)", flush=True)
+    return vec
+
+
+def stage_encode(args) -> None:
+    """Content-addressed DELTA encode. A vector depends only on its title text (with
+    the fixed doc-prefix), so a title seen before yields an identical vector. We keep
+    a persistent {title-hash -> vector} cache and each night encode ONLY the titles
+    new since last run, copying the rest from cache. The crawl is ~95% the same jobs
+    day to day, so this turns a ~90min full encode into seconds-to-minutes. The output
+    is still the positional `{EMBED_OUT_NAME}.vecs.fp16.npy` (row i == titles[i]) that
+    push_docs consumes. Delete the .cache.* files to force a clean rebuild."""
+    import hashlib
+
+    import numpy as np
+
+    out = Path(args.out_dir)
+    vec = out / f"{EMBED_OUT_NAME}.vecs.fp16.npy"
+    fp_path = out / f"{EMBED_OUT_NAME}.titles.sha"
+    cache_vec_path = out / f"{EMBED_OUT_NAME}.cache.vecs.fp16.npy"
+    cache_key_path = out / f"{EMBED_OUT_NAME}.cache_keys.json"
+
+    raw = (out / "titles.json").read_bytes()
+    titles = json.loads(raw)
+    n = len(titles)
+    fp = hashlib.blake2b(raw, digest_size=16).hexdigest()
+    hashes = [_title_hash(t) for t in titles]
+
+    # --- load the content-addressed cache: hash -> row in cache_vecs ---
+    cache_vecs: list = []
+    cache_idx: dict[str, int] = {}
+    if cache_vec_path.exists() and cache_key_path.exists():
+        loaded = np.load(cache_vec_path)
+        with open(cache_key_path) as f:
+            cache_keys = json.load(f)
+        cache_vecs = [np.array(loaded[i], dtype=np.float16) for i in range(len(cache_keys))]
+        cache_idx = {k: i for i, k in enumerate(cache_keys)}
+        print(f"[2] vec cache: {len(cache_idx):,} cached title vectors", flush=True)
+    elif vec.exists() and fp_path.exists() and fp_path.read_text().strip() == fp:
+        # Bootstrap: a positional vecs file already matches today's titles exactly
+        # (same fingerprint), so seed the cache from it for free -- no encode.
+        existing = np.load(vec, mmap_mode="r")
+        if existing.shape[0] == n:
+            for i, h in enumerate(hashes):
+                if h not in cache_idx:
+                    cache_idx[h] = len(cache_vecs)
+                    cache_vecs.append(np.array(existing[i], dtype=np.float16))
+            print(
+                f"[2] seeded vec cache from matching positional vecs "
+                f"({len(cache_idx):,} unique titles, no encode)",
+                flush=True,
+            )
+
+    # --- which unique titles still need encoding? ---
+    need_titles: dict[str, str] = {}
+    for h, t in zip(hashes, titles):
+        if h not in cache_idx and h not in need_titles:
+            need_titles[h] = t
+
+    if need_titles:
+        n_new = len(need_titles)
+        print(
+            f"[2] delta encode: {n_new:,}/{n:,} titles new ({n - n_new:,} reused)",
+            flush=True,
+        )
+        delta_file = "delta_titles.json"
+        with open(out / delta_file, "w") as f:
+            json.dump(list(need_titles.values()), f)
+        delta_vec = _run_encode(args, delta_file, f"{EMBED_OUT_NAME}_delta", n_new)
+        new_vecs = np.load(delta_vec)
+        if new_vecs.shape[0] != n_new:
+            sys.exit(f"[2] delta encode size mismatch: {new_vecs.shape[0]} vs {n_new}")
+        for row, h in enumerate(need_titles.keys()):
+            cache_idx[h] = len(cache_vecs)
+            cache_vecs.append(np.array(new_vecs[row], dtype=np.float16))
+    else:
+        print(f"[2] delta encode: 0 new titles, all {n:,} reused from cache", flush=True)
+
+    # --- assemble the positional vecs file (row i == titles[i]) push_docs expects ---
+    cache_arr = np.asarray(cache_vecs, dtype=np.float16)
+    row_for_pos = np.fromiter((cache_idx[h] for h in hashes), dtype=np.int64, count=n)
+    np.save(vec, cache_arr[row_for_pos])
+    fp_path.write_text(fp)
+
+    # --- prune the cache to today's live titles so it stays bounded, then persist ---
+    today = set(hashes)
+    keep = [(h, cache_idx[h]) for h in cache_idx if h in today]
+    pruned = np.asarray([cache_vecs[i] for _, i in keep], dtype=np.float16)
+    np.save(cache_vec_path, pruned)
+    with open(cache_key_path, "w") as f:
+        json.dump([h for h, _ in keep], f)
+    print(f"[2] wrote {vec} ({n:,} rows); cache now {len(keep):,} vectors", flush=True)
 
 
 # ---------------------------------------------------------------------------
