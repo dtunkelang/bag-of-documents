@@ -39,12 +39,6 @@ RRF_POOL = 100
 RRF_K = 60
 EMPLOYER_CAP = int(os.environ.get("EMPLOYER_CAP", "3"))
 
-SRC_SHORT = {
-    "jobs_data": "OAP",
-    "jobs_data_linkedin": "LI",
-    "jobs_data_jobstreet": "JS",
-    "jobs_data_usajobs": "USA",
-}
 
 ABBREV_EXPANSIONS: dict[str, list[str]] = {
     "rn": ["registered nurse"],
@@ -864,6 +858,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .mlt-pivot:hover { text-decoration: underline; }
 .mlt-head .hl { font-size: 1.0em; }
 .empty { color: #999; padding: 30px; text-align: center; }
+.empty .clearlink { color: #0a5fbf; cursor: pointer; text-decoration: underline; }
 .timing { font-size: 0.8em; color: #888; padding-top: 8px; }
 .layout { display: grid; grid-template-columns: 240px 1fr; gap: 18px; }
 .facets { font-size: 0.88em; }
@@ -1066,9 +1061,14 @@ input.addEventListener('keydown', e => {
 });
 input.addEventListener('blur', () => setTimeout(closeSuggest, 120));
 const SRC_SHORT = {
-  'jobs_data': 'OAP', 'jobs_data_linkedin': 'LI', 'jobs_data_jobstreet': 'JS', 'jobs_data_usajobs': 'USA'
+  'jobs_data': 'OAP', 'jobs_data_usajobs': 'USA', 'jobs_data_adzuna': 'ADZ', 'jobs_data_ats_extra': 'ATS'
+};
+const SRC_FULL = {
+  'jobs_data': 'OpenApply (ATS crawl)', 'jobs_data_usajobs': 'USAJobs (federal)',
+  'jobs_data_adzuna': 'Adzuna (aggregator)', 'jobs_data_ats_extra': 'Extra-ATS poller'
 };
 function shortSrc(s) { return s == null ? '' : (SRC_SHORT[s] || s); }
+function srcFull(s) { return s == null ? '' : (SRC_FULL[s] || s); }
 function metaLine(r) {
   const parts = [];
   if (r.employer) parts.push(esc(r.employer));
@@ -1151,7 +1151,7 @@ function renderResults(div, items, ms) {
       const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
       fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}</div>`;
     }
-    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${fit}</span>`;
+    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${fit}</span>`;
     if (r.idx != null && r.idx >= 0) {
       const titleCell = row.querySelector('.r-title');
       row.addEventListener('click', () => toggleDetail(r.idx, titleCell));
@@ -1468,9 +1468,21 @@ async function runPersonalized(q) {
   if (searchRes.error) { div.innerHTML = '<div class="empty">' + esc(searchRes.error) + '</div>'; return; }
   badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
   if (!searchRes.results || !searchRes.results.length) {
-    div.innerHTML = hard
-      ? '<div class="empty">no jobs match this query that you also qualify for — untick the 3-axis filter to see near-misses</div>'
-      : '<div class="empty">no results</div>';
+    const hasFilters = Object.keys(activeFilters).length > 0;
+    let msg;
+    if (hard) {
+      msg = 'no jobs match this query that you also qualify for — untick the 3-axis filter to see near-misses';
+    } else if (hasFilters) {
+      msg = 'No jobs match these filters. <span id="clear-filters-link" class="clearlink">Clear all filters</span> to broaden your search.';
+    } else {
+      msg = 'no results';
+    }
+    div.innerHTML = '<div class="empty">' + msg + '</div>';
+    const cl = document.getElementById('clear-filters-link');
+    if (cl) cl.addEventListener('click', () => {
+      for (const f of Object.keys(activeFilters)) delete activeFilters[f];
+      runSearch();
+    });
   } else {
     renderResults(div, searchRes.results, searchRes.ms);
   }
@@ -1838,7 +1850,7 @@ def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dic
         "clearance": bool(jf["clearance"]),
         "workauth": bool(jf["workauth"]),
         "posted": (d.get("posted_at") or "")[:7],
-        "source": SRC_SHORT.get(d.get("source_corpus") or "", d.get("source_corpus") or ""),
+        "source": d.get("source_corpus") or "",  # raw; the client maps it to a short code + tooltip
         "cosine": round(float(cos), 4),
         "axes": st,
     }
