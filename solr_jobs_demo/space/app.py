@@ -729,6 +729,32 @@ def _aggregate_facets(items: list[tuple[int, float]]) -> dict[str, list[tuple[st
     return out
 
 
+def _native_facet_options(
+    field: str, query: str, filters: dict[str, str | list[str]]
+) -> list[tuple[str, float]]:
+    """Every value of `field` present in the matching set, via Solr facet.field
+    (rows=0), scoped to the same keyword query + filters the user sees but blind to
+    relevance/recency ranking. Use for navigational facets whose full value ladder
+    should always be offered, even when a boosted top-`pool` would only surface one."""
+    params: list[tuple[str, str]] = [
+        ("rows", "0"),
+        ("facet", "true"),
+        ("facet.field", field),
+        ("facet.mincount", "1"),
+    ]
+    if query and query.strip():
+        params += [("q", "{!edismax qf=title v=$user_q}"), ("user_q", query)]
+    else:
+        params.append(("q", "*:*"))
+    for clause in _filter_clauses(filters or {}):
+        params.append(("fq", clause))
+    r = requests.get(f"{SOLR}/solr/{CORE}/select", params=params, timeout=10)
+    r.raise_for_status()
+    flat = r.json().get("facet_counts", {}).get("facet_fields", {}).get(field, [])
+    # facet_fields is a flat [val, count, val, count, ...] list.
+    return [(flat[i], float(flat[i + 1])) for i in range(0, len(flat), 2) if flat[i + 1] > 0]
+
+
 def compute_facets(
     query: str,
     filters: dict[str, str | list[str]] | None = None,
@@ -750,6 +776,16 @@ def compute_facets(
         out[f] = _aggregate_facets(_retrieve_for_facets(query, alt, pool, qv_profile)).get(
             f, out.get(f, [])
         )
+    # posted_bucket is a navigational time ladder, not a relevance read: on a blank
+    # browse the recency boost (past_24h^8) makes the top-`pool` almost entirely
+    # past_24h, so a pool-derived tally would offer that single option. Pull its full
+    # value set from native Solr faceting over the same query+filters (minus its own
+    # selection, so all rungs stay clickable) so every present bucket shows. Counts
+    # aren't rendered for facets, so the only thing that matters here is the value set.
+    pb_alt = {k: v for k, v in filters.items() if k != "posted_bucket"}
+    pb_opts = _native_facet_options("posted_bucket", query, pb_alt)
+    if pb_opts:
+        out["posted_bucket"] = pb_opts
     return out
 
 
