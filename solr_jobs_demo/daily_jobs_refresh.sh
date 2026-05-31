@@ -22,6 +22,10 @@ PY="$ROOT/.venv/bin/python"
 ENV_FILE="$HOME/.config/jobs-refresh.env"
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
+# Repo .env holds plain KEY=VAL secrets (OPENAI_API_KEY, ADZUNA_APP_ID/KEY);
+# set -a auto-exports them so refresh.py's subprocesses (fetch_adzuna) inherit them.
+# shellcheck disable=SC1091
+[ -f "$ROOT/.env" ] && set -a && . "$ROOT/.env" && set +a
 
 if [ "$(date +%u)" = "7" ]; then
   echo "[$(date)] WEEKLY full rebuild (no --delta)"

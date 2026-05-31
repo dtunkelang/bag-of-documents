@@ -63,11 +63,20 @@ EMBED_STALL_SECS = 180  # no completed chunk within this -> assume MPS hang, kil
 EMBED_MAX_ATTEMPTS = 8
 
 # (per-corpus dir, source_corpus tag) — order defines the unified index order.
-# OpenApply first (the bulk + the refreshed source), USAJobs second.
+# OpenApply first (the bulk + the refreshed source), USAJobs second, Adzuna third.
+# Adzuna only contributes when ADZUNA_APP_ID/ADZUNA_APP_KEY are set AND its dir was
+# populated this run (or carries over); unify skips any corpus dir with no artifacts.
 CORPORA = [
     ("jobs_data", "jobs_data"),
     ("jobs_data_usajobs", "jobs_data_usajobs"),
+    ("jobs_data_adzuna", "jobs_data_adzuna"),
+    ("jobs_data_ats_extra", "jobs_data_ats_extra"),
 ]
+
+# User-maintained Greenhouse/Lever/Ashby tenant slugs that are NOT in OpenApply's
+# cc_*_FINAL.txt lists (those ~15k tenants are already covered by stage-0's crawl).
+# Drop a slug per line into cc_{ats}_EXTRA.txt to poll a company the harvest missed.
+ATS_EXTRA_SLUGS = ROOT / "solr_jobs_demo" / "extra_ats_slugs"
 
 # Stage-4 Solr constants.
 SOLR_URL = "http://localhost:8983"
@@ -160,6 +169,81 @@ def _crawl_openapply(oa_raw: Path, workers: int) -> None:
     run([PY, "scripts/jsonl_to_parquet.py", jsonl, oa_raw], cwd=OPENAPPLY_CLONE)
 
 
+def _crawl_ats_extra(out_raw: Path) -> bool:
+    """Poll Greenhouse/Lever/Ashby for the user-maintained extra tenant slugs,
+    minus any already in OpenApply's FINAL lists (those are covered by the main
+    stage-0 crawl, so subtracting them avoids both wasted API calls and
+    cross-corpus duplicates). Reuses the cloned oa_adapter.py so the parsing is
+    byte-identical to the main crawl. Returns True if a parquet was produced."""
+    # The main crawl clones this; if stage-0 pulled OpenApply from HF instead,
+    # clone now -- we need both oa_adapter.py and the FINAL lists to subtract against.
+    if not OPENAPPLY_CLONE.exists():
+        run(["git", "clone", "--depth", "1", OPENAPPLY_GIT, OPENAPPLY_CLONE])
+
+    final_dir = OPENAPPLY_CLONE / "slugs"
+    tmp = out_raw.parent / "_slugs"  # temp slug-dir for oa_adapter (cc_{ats}_EXTRA.txt)
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    ats_with_slugs: list[str] = []
+    total = 0
+    for ats in ("greenhouse", "lever", "ashby"):
+        src = ATS_EXTRA_SLUGS / f"cc_{ats}_EXTRA.txt"
+        if not src.exists():
+            continue
+        want = [
+            ln.strip()
+            for ln in src.read_text().splitlines()
+            if ln.strip() and not ln.startswith("#")
+        ]
+        final_path = final_dir / f"cc_{ats}_FINAL.txt"
+        covered = (
+            {ln.strip().lower() for ln in final_path.read_text().splitlines() if ln.strip()}
+            if final_path.exists()
+            else set()
+        )
+        fresh = [s for s in want if s.lower() not in covered]
+        dropped = len(want) - len(fresh)
+        if dropped:
+            print(f"[0] ats-extra {ats}: {dropped} slug(s) already in FINAL, skipped", flush=True)
+        if fresh:
+            (tmp / f"cc_{ats}_EXTRA.txt").write_text("\n".join(fresh) + "\n")
+            ats_with_slugs.append(ats)
+            total += len(fresh)
+
+    if not ats_with_slugs:
+        print("[0] ats-extra: no new tenants to poll (empty or all in FINAL); skipping", flush=True)
+        return False
+
+    print(f"[0] ats-extra: polling {total} tenant(s) across {ats_with_slugs}", flush=True)
+    run(
+        [
+            PY,
+            "oa_adapter.py",
+            "--slug-dir",
+            str(tmp),
+            "--suffix",
+            "EXTRA",
+            "--ats",
+            ",".join(ats_with_slugs),
+            "--workers",
+            "8",
+            "--out",
+            "jobs_extra.jsonl",
+        ],
+        cwd=OPENAPPLY_CLONE,
+    )
+    if out_raw.exists():
+        shutil.rmtree(out_raw)
+    out_raw.mkdir(parents=True, exist_ok=True)
+    run(
+        [PY, "scripts/jsonl_to_parquet.py", OPENAPPLY_CLONE / "jobs_extra.jsonl", out_raw],
+        cwd=OPENAPPLY_CLONE,
+    )
+    return True
+
+
 def stage_pull(args) -> None:
     # --- OpenApply ---
     oa_raw = ROOT / "jobs_data" / "raw"
@@ -210,6 +294,113 @@ def stage_pull(args) -> None:
         ]
     )
 
+    # --- Adzuna (optional: only when creds are set) ---
+    # Aggregator inventory (job boards / recruiters / non-ATS employers) the
+    # OpenApply ATS crawl and federal USAJobs don't reach. Recency-first fetch,
+    # same canonical parquet schema -> same prep -> same downstream stages.
+    adz_dir = ROOT / "jobs_data_adzuna"
+    adz_raw = adz_dir / "raw"
+    have_adz_creds = bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"))
+    have_adz_raw = adz_raw.exists() and any(adz_raw.glob("*.parquet"))
+    if args.skip_download or not have_adz_creds:
+        if not have_adz_raw:
+            print(
+                "[0] no Adzuna creds and no raw parquet to reuse; "
+                "skipping Adzuna corpus (set ADZUNA_APP_ID + ADZUNA_APP_KEY to enable)",
+                flush=True,
+            )
+        else:
+            why = "--skip-download" if args.skip_download else "no Adzuna creds"
+            print(f"[0] {why}: reusing existing Adzuna parquet under {adz_raw}", flush=True)
+            run(
+                [
+                    PY,
+                    "download/prep_open_apply.py",
+                    "--raw-dir",
+                    adz_raw,
+                    "--out-dir",
+                    adz_dir,
+                    "--sample-n",
+                    "0",
+                ]
+            )
+    else:
+        # Fresh fetch is one current snapshot; clear stale parquet so deleted
+        # postings don't linger (mirrors the crawl path's rmtree).
+        if adz_raw.exists():
+            shutil.rmtree(adz_raw)
+        run(
+            [
+                PY,
+                "download/fetch_adzuna.py",
+                "--out-dir",
+                adz_raw,
+                "--countries",
+                args.adzuna_countries,
+                "--max-pages",
+                str(args.adzuna_max_pages),
+                "--max-days-old",
+                str(args.adzuna_max_days_old),
+            ]
+        )
+        run(
+            [
+                PY,
+                "download/prep_open_apply.py",
+                "--raw-dir",
+                adz_raw,
+                "--out-dir",
+                adz_dir,
+                "--sample-n",
+                "0",
+            ]
+        )
+
+    # --- Extra ATS tenants (companies not in OpenApply's FINAL slug lists) ---
+    adx_dir = ROOT / "jobs_data_ats_extra"
+    adx_raw = adx_dir / "raw"
+    have_adx_raw = adx_raw.exists() and any(adx_raw.rglob("*.parquet"))
+    if args.skip_ats_extra:
+        print("[0] --skip-ats-extra: not polling extra ATS tenants", flush=True)
+    elif args.skip_download:
+        if have_adx_raw:
+            print(
+                f"[0] --skip-download: reusing existing extra-ATS parquet under {adx_raw}",
+                flush=True,
+            )
+            run(
+                [
+                    PY,
+                    "download/prep_open_apply.py",
+                    "--raw-dir",
+                    adx_raw,
+                    "--out-dir",
+                    adx_dir,
+                    "--sample-n",
+                    "0",
+                ]
+            )
+        else:
+            print("[0] --skip-download: no extra-ATS parquet to reuse; skipping", flush=True)
+    elif _crawl_ats_extra(adx_raw):
+        run(
+            [
+                PY,
+                "download/prep_open_apply.py",
+                "--raw-dir",
+                adx_raw,
+                "--out-dir",
+                adx_dir,
+                "--sample-n",
+                "0",
+            ]
+        )
+    elif have_adx_raw:
+        # No fresh tenants this run, but a prior build left a corpus -> clear it so
+        # unify doesn't re-add stale extra-ATS jobs.
+        shutil.rmtree(adx_dir)
+        print("[0] ats-extra: cleared stale corpus (no current tenants)", flush=True)
+
 
 # ---------------------------------------------------------------------------
 # Stage 1: unify (te3-free, 2 corpora, NO vectors)
@@ -227,6 +418,10 @@ def stage_unify(args) -> None:
     with open(out / "metadata.jsonl", "w") as meta_out:
         for corpus_dir, tag in CORPORA:
             d = ROOT / corpus_dir
+            if not (d / "doc_ids.json").exists():
+                # Optional corpus (e.g. Adzuna with no creds) never got prepped; skip it.
+                print(f"[1] {corpus_dir}: no doc_ids.json, skipping", flush=True)
+                continue
             with open(d / "doc_ids.json") as f:
                 ids = json.load(f)
             with open(d / "titles.json") as f:
@@ -891,6 +1086,23 @@ def main() -> int:
         help="hf source only: daily partition 'latest' (freshest full catalog), 'all', or YYYY-MM-DD",
     )
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
+    ap.add_argument(
+        "--adzuna-countries",
+        default="us",
+        help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
+    )
+    ap.add_argument(
+        "--adzuna-max-pages", type=int, default=20, help="Adzuna pages per country (50 jobs/page)"
+    )
+    ap.add_argument(
+        "--adzuna-max-days-old", type=int, default=7, help="Adzuna: only postings newer than N days"
+    )
+    ap.add_argument(
+        "--skip-ats-extra",
+        action="store_true",
+        help="don't poll the extra Greenhouse/Lever/Ashby tenants in "
+        "solr_jobs_demo/extra_ats_slugs/cc_*_EXTRA.txt",
+    )
     ap.add_argument("--device", default="mps")
     ap.add_argument("--skip-download", action="store_true", help="reuse existing raw parquet")
     ap.add_argument("--no-dry-run", action="store_true", help="allow live-mutation stages 4-7")
