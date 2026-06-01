@@ -30,17 +30,22 @@ BATCH = 1000
 
 
 def load_emb_overrides() -> dict[str, str]:
-    """Embedding-derived role_family overrides (classify_other_emb.py), keyed by
-    source doc id -> converted to the Solr stable_id so the live re-class can apply
-    them. These aren't expressible as title heuristics, so without this they would
-    revert to 'other' on every reclassify/refresh."""
-    p = Path(__file__).parent / "role_family_emb_overrides.json"
-    if not p.exists():
-        return {}
+    """Model-derived role_family overrides, keyed by source doc id -> converted to
+    the Solr stable_id so the live re-class can apply them. These aren't expressible
+    as title heuristics, so without this they would revert to 'other' on every
+    reclassify/refresh. Unions two sources (embedding/dept-agree from
+    classify_other_emb.py, then LLM backfill from classify_other_llm.py); the
+    embedding file is loaded first so it WINS on any id collision."""
     import json
 
-    src = json.loads(p.read_text())
-    return {str(stable_id(k)): v for k, v in src.items()}
+    out: dict[str, str] = {}
+    for name in ("role_family_emb_overrides.json", "role_family_llm_overrides.json"):
+        p = Path(__file__).parent / name
+        if not p.exists():
+            continue
+        for k, v in json.loads(p.read_text()).items():
+            out.setdefault(str(stable_id(k)), v)
+    return out
 
 
 def iter_docs():

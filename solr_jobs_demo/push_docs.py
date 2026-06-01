@@ -130,6 +130,22 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             role_emb_override = json.load(ef)
         print(f"  loaded {len(role_emb_override):,} embedding role_family overrides", flush=True)
 
+    # LLM-derived overrides (offline gpt-4o-mini backfill, gpt-4.1-judge allowlisted;
+    # see classify_other_llm.py). Separate file so the nightly refresh that regenerates
+    # the embedding file never clobbers it. Embedding/dept-agree WINS on conflict.
+    llm_path = os.path.join(os.path.dirname(__file__), "role_family_llm_overrides.json")
+    if os.path.exists(llm_path):
+        with open(llm_path) as lf:
+            llm_override = json.load(lf)
+        before = len(role_emb_override)
+        for k, v in llm_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(llm_override):,} LLM role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):

@@ -235,9 +235,46 @@ def audit(n: int):
         print(f"    {tp[f] / nn * 100:5.1f}%  n={nn:4d}  {f}{flag}")
 
 
+# Per-family allowlist for the production rescue: only families the gpt-4.1 judge
+# confirmed at >=90% (n>=5) in the audit are written as overrides. Set from a
+# larger --audit run before --parse. The LLM is strongest on sales/ai_ml/
+# skilled_trades/manufacturing -- exactly the grab-bag-department families that
+# dept-agree had to exclude (it reads the description, not the org chart).
+# Firm allowlist from the 600-doc audit (audit600.log): judge-confirmed >=90% at
+# n>=8 (+retail 100% n=6). The 250-doc audit overstated operations_admin (95->72%)
+# and ai_ml (100->64%) on small n -- the larger audit corrects that. High-volume
+# sales (88%) and finance (86%) sit just under the 90% floor: candidates for an
+# LLM-AND-kNN conjunction follow-up, NOT the pure-LLM allowlist.
+LLM_ALLOW = frozenset(
+    {
+        "marketing",
+        "project_program_management",
+        "data_analytics",
+        "design_ux",
+        "manufacturing_production",
+        "hr_people_ops",
+        "legal",
+        "product_management",
+        "transportation_logistics",
+        "retail",
+    }
+)
+
+BATCH_ID_FILE = HERE / "llm_other_batch.id"
+LLM_OVERRIDES = HERE / "role_family_llm_overrides.json"
+
+
+def _already_rescued() -> set[str]:
+    """doc ids already covered by the embedding/dept-agree overrides -- skip them
+    so the LLM batch only spends on the genuine residual."""
+    p = HERE / "role_family_emb_overrides.json"
+    return set(json.loads(p.read_text())) if p.exists() else set()
+
+
 def build_batch(out_path: Path):
     ids, y, txt = _load()
-    others = [did for did, fam in zip(ids, y) if fam == "other"]
+    skip = _already_rescued()
+    others = [did for did, fam in zip(ids, y) if fam == "other" and did not in skip]
     with open(out_path, "w") as f:
         for did in others:
             t, d = txt[did]
@@ -256,7 +293,75 @@ def build_batch(out_path: Path):
                 },
             }
             f.write(json.dumps(req) + "\n")
-    print(f"wrote {len(others):,} requests -> {out_path}")
+    print(f"wrote {len(others):,} requests -> {out_path} (skipped {len(skip):,} already rescued)")
+    return out_path
+
+
+def submit_batch(jsonl: Path):
+    client = _client()
+    up = client.files.create(file=open(jsonl, "rb"), purpose="batch")
+    b = client.batches.create(
+        input_file_id=up.id,
+        endpoint="/v1/chat/completions",
+        completion_window="24h",
+        metadata={"task": "role_family_other_rescue"},
+    )
+    BATCH_ID_FILE.write_text(b.id)
+    print(f"submitted batch {b.id} (status={b.status}); id saved -> {BATCH_ID_FILE.name}")
+
+
+def poll_batch():
+    client = _client()
+    bid = BATCH_ID_FILE.read_text().strip()
+    b = client.batches.retrieve(bid)
+    rc = b.request_counts
+    print(f"batch {bid}: status={b.status} completed={rc.completed}/{rc.total} failed={rc.failed}")
+    return b.status
+
+
+def parse_batch(apply: bool):
+    """Download completed batch output, keep allowlisted family labels, write
+    role_family_llm_overrides.json (separate from the embedding file so the nightly
+    refresh that regenerates the embedding file never clobbers these)."""
+    client = _client()
+    bid = BATCH_ID_FILE.read_text().strip()
+    b = client.batches.retrieve(bid)
+    if b.status != "completed":
+        print(f"batch not complete (status={b.status}); aborting")
+        return
+    content = client.files.content(b.output_file_id).text
+    skip = _already_rescued()
+    kept, assigned, abstain, dropped_fam, conflict = {}, 0, 0, 0, 0
+    fam_counts = Counter()
+    for line in content.splitlines():
+        r = json.loads(line)
+        did = r["custom_id"]
+        body = r["response"]["body"]
+        out = json.loads(body["choices"][0]["message"]["content"])
+        fam = out["family"]
+        if fam == "other":
+            abstain += 1
+            continue
+        assigned += 1
+        if did in skip:  # embedding/dept-agree already won this doc
+            conflict += 1
+            continue
+        if fam not in LLM_ALLOW:
+            dropped_fam += 1
+            continue
+        kept[did] = fam
+        fam_counts[fam] += 1
+    print(
+        f"assigned {assigned}  abstain(other) {abstain}  off-allowlist {dropped_fam}  "
+        f"already-rescued {conflict}  -> KEEP {len(kept)}"
+    )
+    for f, n in fam_counts.most_common():
+        print(f"  {n:6d}  {f}")
+    if apply:
+        LLM_OVERRIDES.write_text(json.dumps(kept, indent=0, sort_keys=True))
+        print(f"wrote {len(kept):,} -> {LLM_OVERRIDES.name}")
+    else:
+        print("\n(dry run -- re-run --parse --apply to write overrides)")
 
 
 if __name__ == "__main__":
@@ -264,13 +369,23 @@ if __name__ == "__main__":
     ap.add_argument("--validate", type=int, metavar="N")
     ap.add_argument("--audit", type=int, metavar="N")
     ap.add_argument("--build-batch", action="store_true")
+    ap.add_argument("--submit", action="store_true", help="build + upload + create batch")
+    ap.add_argument("--poll", action="store_true")
+    ap.add_argument("--parse", action="store_true")
+    ap.add_argument("--apply", action="store_true", help="with --parse: write overrides")
     ap.add_argument("--out", default=str(HERE / "llm_other_batch.jsonl"))
     args = ap.parse_args()
     if args.validate:
         validate(args.validate)
     elif args.audit:
         audit(args.audit)
+    elif args.submit:
+        submit_batch(build_batch(Path(args.out)))
     elif args.build_batch:
         build_batch(Path(args.out))
+    elif args.poll:
+        poll_batch()
+    elif args.parse:
+        parse_batch(args.apply)
     else:
-        ap.error("pick --validate N, --audit N, or --build-batch")
+        ap.error("pick --validate N, --audit N, --build-batch, --submit, --poll, or --parse")
