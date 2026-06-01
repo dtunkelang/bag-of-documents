@@ -81,20 +81,26 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     if len(set(solr_ids)) != len(solr_ids):
         raise SystemExit(f"stable_id collision among {len(solr_ids):,} doc ids — widen digest_size")
 
-    import csv as _csv
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(__file__))
+    # Confidence gate: keep hand-labeled seeds + rules, drop the noisy propagation tiers,
+    # and require any other propagated label to clear a similarity floor (see
+    # industry_filter.py). Loading round2 verbatim is what filled education_higher with
+    # ~75% wrong members (you.com, NIST, ...).
+    from industry_filter import DEFAULT_SIM_FLOOR, load_slug_industry  # noqa: E402
 
     industry_csv = os.path.join(STAGE, "slug_industry_labels_round2.csv")
     slug_to_industry: dict[str, str] = {}
     if os.path.exists(industry_csv):
-        with open(industry_csv) as f:
-            for r in _csv.DictReader(f):
-                slug_to_industry[r["slug"]] = r["industry"]
-        print(f"  loaded {len(slug_to_industry):,} slug -> industry labels", flush=True)
+        slug_to_industry = load_slug_industry(industry_csv)
+        print(
+            f"  loaded {len(slug_to_industry):,} slug -> industry labels "
+            f"(confidence-gated: seeds+rules + propagated >= {DEFAULT_SIM_FLOOR:g} sim)",
+            flush=True,
+        )
 
     # Per-doc industry override for staffing/employment-agency employers.
-    import sys as _sys
-
-    _sys.path.insert(0, os.path.dirname(__file__))
     from staffing_override import resolve_industry as _resolve_industry  # noqa: E402
 
     meta_path = os.path.join(STAGE, "metadata.jsonl")

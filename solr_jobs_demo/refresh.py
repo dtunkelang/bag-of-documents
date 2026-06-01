@@ -810,6 +810,30 @@ def stage_solr(args) -> None:
         ]
     )
 
+    # Quality check (report-only): sample the confidence-gated industry labels so a
+    # contaminated bucket like the old education_higher (~75% wrong) is caught before it
+    # ships again. Non-fatal by design — job freshness shouldn't hinge on a facet-quality
+    # blip — but the sample TSV lands in the deploy dir and any RED FLAG is logged loudly.
+    # (Run qc_industry_labels.py standalone for the strict, exit-code gate.)
+    qc_out = out / "qc_industry_sample.tsv"
+    qc = subprocess.run(
+        [
+            PY,
+            "qc_industry_labels.py",
+            "--labels",
+            str(dst_csv),
+            "--meta",
+            str(out / "metadata.jsonl"),
+            "--out",
+            str(qc_out),
+        ],
+        cwd=str(demo),
+        env={**os.environ},
+        check=False,
+    )
+    if qc.returncode != 0:
+        print(f"[4] *** industry-label QC raised red flags — review {qc_out} ***", flush=True)
+
     # push_docs reads from STAGE (hardcoded to unified_jobs). If we built into a
     # different dir, point it there via env override.
     push_env = {"JOBS_STAGE": str(out)} if str(out) != str(LEGACY_UNIFIED) else {}
