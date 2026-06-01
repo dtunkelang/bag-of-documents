@@ -1061,7 +1061,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Jobs Search Demo (Solr)", lifespan=lifespan)
+app = FastAPI(title="Jobs Search Demo", lifespan=lifespan)
 
 
 HTML_PAGE = """<!doctype html>
@@ -1917,9 +1917,9 @@ def index():
         n_str = f"{n:,}"
     except Exception:
         n_str = "~197,000"
-    title = f"Jobs Search Demo: {n_str} postings across 2 corpora (Solr backend)"
+    title = f"Jobs Search Demo: {n_str} postings across 2 corpora"
     subtitle = (
-        f"{n_str} postings (OpenApply + USAJobs) · RRF(BM25 + e5-small) via Solr 10 · "
+        f"{n_str} postings (OpenApply + USAJobs) · RRF(BM25 + e5-small) · "
         "browse recent jobs by default, then narrow with facets (multi-select) or the "
         "country / US-state maps · click a result for the full description · "
         "or paste your profile above to find jobs for yourself (3-axis constraint filter), "

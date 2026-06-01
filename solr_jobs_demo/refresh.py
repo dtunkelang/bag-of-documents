@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Periodic refresh of the Solr jobs demo (Space dtunkelang/jobs-search-solr).
+"""Periodic refresh of the Solr jobs demo (Space dtunkelang/jobs-search).
 
 Single orchestration script. Pulls the latest OpenApply + USAJobs postings,
 rebuilds a te3-free unified catalog (RRF: BM25 + e5-small), reindexes Solr,
@@ -1108,7 +1108,7 @@ def stage_deploy(args) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi()
-    space_id = "dtunkelang/jobs-search-solr"
+    space_id = "dtunkelang/jobs-search"
     space_dir = ROOT / "solr_jobs_demo" / "space"
     # The merged profile-match lane needs resume_match_lib.py (imported by app.py)
     # and pypdf (requirements.txt) on the Space — and the Dockerfile must COPY the
