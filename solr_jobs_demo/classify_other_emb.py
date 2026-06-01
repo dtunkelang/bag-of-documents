@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,145 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "unified_jobs_daily"
 EMBED_MODEL = "intfloat/e5-small-v2"
+
+# Production operating point that reproduces role_family_emb_overrides.json
+# (3,614 docs, ~96% manual-audited precision). Both the CLI --apply path and the
+# refresh.py stage call classify_other() with these defaults; changing them
+# changes the live label set, so keep them in sync with the committed overrides.
+APPLY_DEFAULTS = dict(conf=0.80, simfloor=0.86, k=25, ensemble=True)
+
+# ---- precision guards (shared by --apply CLI and the refresh stage) ----
+# junk/evergreen/test postings have no real role -> never classify.
+JUNK = re.compile(
+    r"\b(talent network|talent community|talent pool|join our talent|"
+    r"general application|open application|spontaneous application|"
+    r"future opportunit|resume upload|upload your resume|don'?t see|"
+    r"dream job|your own role|pitch your|test job|expression of interest|"
+    r"general interest|other roles|future openings)\b",
+    re.I,
+)
+# English-only (respects the exclude-multilingual policy): require a minimum
+# density of high-frequency English function words in the description.
+EN = set(
+    "the and to of for with you we our your a an in on at is are be as that this "
+    "will work team role job they have from or by".split()
+)
+# fitness/wellness studios cluster tightly near education_teaching but aren't
+# teaching roles and have no home family -> leave in other.
+FITNESS = re.compile(
+    r"\b(jetset|pilates|yoga|barre|cycling|cycle bar|spin studio|"
+    r"fitness studio|studio lead|studio manager|crossfit|workout)\b",
+    re.I,
+)
+# cluster vetoes: titles e5 reliably misroutes -> keep in other (or relabel).
+VETO = re.compile(
+    r"\b(board certified behavior analyst|bcba|medical instrument tech|"
+    r"go[ -]?to[ -]?market)\b",
+    re.I,
+)
+
+
+def is_english(desc: str) -> bool:
+    toks = desc.lower().split()[:120]
+    if len(toks) < 8:
+        return True  # too short to judge; don't penalize
+    hits = sum(1 for t in toks if t.strip(".,;:()") in EN)
+    return hits >= 4
+
+
+def load_text(metadata_path: Path | str) -> dict[str, tuple[str, str]]:
+    """{doc_id: (title, description)} for the precision-guard regexes."""
+    txt: dict[str, tuple[str, str]] = {}
+    with open(metadata_path) as f:
+        for line in f:
+            r = json.loads(line)
+            txt[r["id"]] = ((r.get("title") or ""), (r.get("description") or ""))
+    return txt
+
+
+def classify_other(
+    ids: list[str],
+    V: np.ndarray,
+    y: np.ndarray,
+    txt: dict[str, tuple[str, str]],
+    *,
+    conf: float = 0.80,
+    simfloor: float = 0.86,
+    k: int = 25,
+    ensemble: bool = True,
+) -> tuple[dict[str, str], list, dict]:
+    """Ensemble-gated e5 kNN classification of role_family:'other' docs.
+
+    V must be L2-normalized and positionally aligned to `ids`; `y` holds the
+    heuristic role_family per position ('other' for the residual). Builds a FAISS
+    kNN over the labeled docs, similarity-weighted-votes a family for each 'other'
+    doc, gates on vote-share (conf) + top-1 cosine (simfloor) + centroid agreement
+    (ensemble) + the JUNK/English/FITNESS/VETO guards. Returns
+    (predictions{id: family}, dropped[(reason, fam, title)], cnt{reason: n}).
+    """
+    import faiss
+
+    is_other = y == "other"
+    lab_idx = np.where(~is_other)[0]
+    fams = sorted(set(y[lab_idx]))
+    oth = np.where(is_other)[0]
+    Xo = V[oth]
+    Xall, yall = V[lab_idx], y[lab_idx]
+
+    full = faiss.IndexFlatIP(V.shape[1])
+    full.add(Xall)
+    D, idx = full.search(Xo, k)
+    famI = yall[idx]
+    top1 = D[:, 0]
+    pred, conf_arr = [], []
+    for row_f, row_d in zip(famI, D):
+        w: dict[str, float] = {}
+        for f, d in zip(row_f, row_d):
+            w[f] = w.get(f, 0.0) + float(d)
+        tot = sum(w.values())
+        b = max(w, key=w.get)
+        pred.append(b)
+        conf_arr.append(w[b] / tot)
+    pred, conf_arr = np.array(pred), np.array(conf_arr)
+
+    # ensemble second opinion: centroid prediction on the full labeled set
+    Cfull = np.zeros((len(fams), V.shape[1]), np.float32)
+    for j, f in enumerate(fams):
+        Cfull[j] = Xall[yall == f].mean(0)
+    Cfull = _norm(Cfull)
+    cent_pred = np.array(fams)[(Xo @ Cfull.T).argmax(1)]
+    agree = pred == cent_pred
+
+    keep = (conf_arr >= conf) & (top1 >= simfloor)
+    out: dict[str, str] = {}
+    dropped: list = []  # (reason, family, title) for characterization
+    cnt = {"junk": 0, "lang": 0, "fitness": 0, "veto": 0, "disagree": 0}
+    for i in range(len(oth)):
+        if not keep[i]:
+            continue
+        did = ids[oth[i]]
+        t, d = txt.get(did, ("", ""))
+        tt = (t or "").splitlines()[0][:55]
+        if JUNK.search(t):
+            cnt["junk"] += 1
+            continue
+        if not is_english(d):
+            cnt["lang"] += 1
+            continue
+        if VETO.search(t):
+            cnt["veto"] += 1
+            dropped.append(("veto", pred[i], tt))
+            continue
+        if pred[i] == "education_teaching" and FITNESS.search(t + " " + d[:200]):
+            cnt["fitness"] += 1
+            continue
+        if ensemble and not agree[i]:
+            cnt["disagree"] += 1
+            dropped.append(("disagree", f"{pred[i]}!={cent_pred[i]}", tt))
+            continue
+        out[did] = pred[i]
+    return out, dropped, cnt
+
 
 # Natural-language query per family (doc side was "passage: "; queries use "query: ").
 # Extends mine_all_families.FAMILIES with the two it omits (finance, annotation).
@@ -103,11 +243,28 @@ def calib_table(conf, correct, name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
-    ap.add_argument("--method", default="knn", choices=["A", "B", "C", "knn"])
-    ap.add_argument("--conf", type=float, default=0.55, help="min vote-share to assign")
-    ap.add_argument("--simfloor", type=float, default=0.0, help="min top-1 neighbor cosine")
-    ap.add_argument("--k", type=int, default=25)
-    ap.add_argument("--ensemble", action="store_true", help="require knn==centroid agreement")
+    ap.add_argument(
+        "--method",
+        default="knn",
+        choices=["A", "B", "C", "knn"],
+        help="bake-off label only; --apply always uses the knn core",
+    )
+    ap.add_argument(
+        "--conf", type=float, default=APPLY_DEFAULTS["conf"], help="min vote-share to assign"
+    )
+    ap.add_argument(
+        "--simfloor",
+        type=float,
+        default=APPLY_DEFAULTS["simfloor"],
+        help="min top-1 neighbor cosine",
+    )
+    ap.add_argument("--k", type=int, default=APPLY_DEFAULTS["k"])
+    ap.add_argument(
+        "--ensemble",
+        action="store_true",
+        default=APPLY_DEFAULTS["ensemble"],
+        help="require knn==centroid agreement",
+    )
     args = ap.parse_args()
 
     ids, V, y = load()
@@ -183,123 +340,20 @@ def main():
         print("\n(eval only — re-run with --apply --method --conf to write predictions)")
         return
 
-    # ---- APPLY to other docs with chosen method ----
-    # Production: use ALL labeled docs as reference, not just the 85% train split.
-    oth = np.where(is_other)[0]
-    Xo = V[oth]
-    Xall, yall = V[lab_idx], y[lab_idx]
-    if args.method in ("C", "knn"):
-        full = faiss.IndexFlatIP(V.shape[1])
-        full.add(Xall)
-        D, I = full.search(Xo, args.k)
-        famI = yall[I]
-        pred, conf = [], []
-        top1 = D[:, 0]
-        for row_f, row_d in zip(famI, D):
-            w = {}
-            for f, d in zip(row_f, row_d):
-                w[f] = w.get(f, 0.0) + float(d)
-            tot = sum(w.values())
-            b = max(w, key=w.get)
-            pred.append(b)
-            conf.append(w[b] / tot)
-        pred, conf = np.array(pred), np.array(conf)
-        # ensemble second opinion: centroid prediction on FULL labeled set
-        Cfull = np.zeros((len(fams), V.shape[1]), np.float32)
-        for j, f in enumerate(fams):
-            Cfull[j] = Xall[yall == f].mean(0)
-        Cfull = _norm(Cfull)
-        cent_pred = np.array(fams)[(Xo @ Cfull.T).argmax(1)]
-        agree = pred == cent_pred
-    elif args.method == "B":
-        sim = Xo @ C.T
-        pred, conf = np.array(fams)[sim.argmax(1)], sim.max(1)
-    else:
-        sim = Xo @ Q.T
-        pred, conf = np.array(fams)[sim.argmax(1)], sim.max(1)
-
-    keep = conf >= args.conf
-    if args.simfloor > 0 and args.method in ("C", "knn"):
-        keep &= top1 >= args.simfloor
-    # ---- precision guards ----
-    # junk/evergreen/test postings have no real role -> never classify.
-    JUNK = __import__("re").compile(
-        r"\b(talent network|talent community|talent pool|join our talent|"
-        r"general application|open application|spontaneous application|"
-        r"future opportunit|resume upload|upload your resume|don'?t see|"
-        r"dream job|your own role|pitch your|test job|expression of interest|"
-        r"general interest|other roles|future openings)\b",
-        2,
+    # ---- APPLY to other docs (production = knn core, shared with refresh stage) ----
+    # Uses ALL labeled docs as reference, not just the 85% train split.
+    txt = load_text(DATA / "metadata.jsonl")
+    out, dropped, cnt = classify_other(
+        ids, V, y, txt, conf=args.conf, simfloor=args.simfloor, k=args.k, ensemble=args.ensemble
     )
-    # English-only (respects the exclude-multilingual policy): require a minimum
-    # density of high-frequency English function words in the description.
-    EN = set(
-        "the and to of for with you we our your a an in on at is are be as that this "
-        "will work team role job they have from or by".split()
-    )
-    # fitness/wellness studios cluster tightly near education_teaching but aren't
-    # teaching roles and have no home family -> leave in other.
-    FITNESS = __import__("re").compile(
-        r"\b(jetset|pilates|yoga|barre|cycling|cycle bar|spin studio|"
-        r"fitness studio|studio lead|studio manager|crossfit|workout)\b",
-        2,
-    )
-    # cluster vetoes: titles e5 reliably misroutes -> keep in other (or relabel).
-    re_mod = __import__("re")
-    VETO = re_mod.compile(
-        r"\b(board certified behavior analyst|bcba|medical instrument tech|"
-        r"go[ -]?to[ -]?market)\b",
-        2,
-    )
-    txt = {}
-    with open(DATA / "metadata.jsonl") as f:
-        for line in f:
-            r = json.loads(line)
-            txt[r["id"]] = ((r.get("title") or ""), (r.get("description") or ""))
-
-    def is_english(desc: str) -> bool:
-        toks = desc.lower().split()[:120]
-        if len(toks) < 8:
-            return True  # too short to judge; don't penalize
-        hits = sum(1 for t in toks if t.strip(".,;:()") in EN)
-        return hits >= 4
-
-    have_agree = args.method in ("C", "knn")
-    out, dropped = {}, []  # dropped: (reason, family, title) for characterization
-    cnt = {"junk": 0, "lang": 0, "fitness": 0, "veto": 0, "disagree": 0}
-    for i in range(len(oth)):
-        if not keep[i]:
-            continue
-        did = ids[oth[i]]
-        t, d = txt.get(did, ("", ""))
-        tt = (t or "").splitlines()[0][:55]
-        if JUNK.search(t):
-            cnt["junk"] += 1
-            continue
-        if not is_english(d):
-            cnt["lang"] += 1
-            continue
-        if VETO.search(t):
-            cnt["veto"] += 1
-            dropped.append(("veto", pred[i], tt))
-            continue
-        if pred[i] == "education_teaching" and FITNESS.search(t + " " + d[:200]):
-            cnt["fitness"] += 1
-            continue
-        if args.ensemble and have_agree and not agree[i]:
-            cnt["disagree"] += 1
-            dropped.append(("disagree", f"{pred[i]}!={cent_pred[i]}", tt))
-            continue
-        out[did] = pred[i]
     json.dump(out, open(DATA / "other_emb_predictions.json", "w"))
     json.dump(dropped, open(DATA / "other_emb_dropped.json", "w"))
     import collections
 
     c = collections.Counter(out.values())
     print(
-        f"\nAPPLY method={args.method} conf>={args.conf} simfloor>={args.simfloor} "
-        f"ensemble={args.ensemble}: {keep.sum()} over threshold -> {len(out)} kept "
-        f"(dropped {cnt})"
+        f"\nAPPLY conf>={args.conf} simfloor>={args.simfloor} ensemble={args.ensemble}: "
+        f"{len(out)} kept (dropped {cnt})"
     )
     for f, n in c.most_common():
         print(f"  {n:6d} {f}")

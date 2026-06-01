@@ -689,12 +689,14 @@ def stage_facets(args) -> None:
             break
 
     new_slugs: set[str] = set()
+    role_fams: list[str] = []  # heuristic role_family per idx, for the embedding rescue
     n = 0
     with open(meta_path) as f, open(facets_out, "w") as fo:
         for i, line in enumerate(f):
             rec = json.loads(line)
             facets = classify_record(rec)
             fo.write(json.dumps({"idx": i, **facets}) + "\n")
+            role_fams.append(facets.get("role_family") or "other")
             slug = (rec.get("source_slug") or "").strip()
             if slug and slug not in known_slugs:
                 new_slugs.add(slug)
@@ -706,6 +708,56 @@ def stage_facets(args) -> None:
         for s in sorted(new_slugs):
             f.write(s + "\n")
     print(f"[3] {len(new_slugs):,} new unlabeled slugs -> {byproduct}", flush=True)
+
+    _rescue_other_via_embeddings(out, role_fams)
+
+
+def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
+    """Embedding-based role_family labels for the 'other' residual, regenerated
+    each refresh so NEW docs get rescued (the override file is otherwise a frozen
+    snapshot). Runs the ensemble-gated e5 kNN of classify_other_emb over the full
+    catalog vectors (stage 2 output, positionally aligned to doc_ids/metadata) and
+    overwrites role_family_emb_overrides.json, which push_docs applies at index
+    time over the heuristic label (only where the heuristic == 'other'). Reproduces
+    the prior result byte-for-byte on an unchanged corpus; grows as new docs land."""
+    import numpy as np
+
+    sys.path.insert(0, str(ROOT / "solr_jobs_demo"))
+    try:
+        from classify_other_emb import _norm, classify_other, load_text
+    except Exception as e:  # faiss/sentence-transformers absent -> skip, don't abort refresh
+        print(f"[3] embedding rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    vec_path = out / f"{EMBED_OUT_NAME}.vecs.fp16.npy"
+    ids_path = out / "doc_ids.json"
+    if not vec_path.exists() or not ids_path.exists():
+        print("[3] embedding rescue SKIPPED (vectors/doc_ids absent — run stage 2)", flush=True)
+        return
+
+    with open(ids_path) as f:
+        ids = json.load(f)
+    V = _norm(np.load(vec_path))
+    if not (len(ids) == V.shape[0] == len(role_fams)):
+        print(
+            f"[3] embedding rescue SKIPPED (alignment mismatch: ids={len(ids):,} "
+            f"V={V.shape[0]:,} fams={len(role_fams):,})",
+            flush=True,
+        )
+        return
+
+    y = np.array(role_fams)
+    txt = load_text(out / "metadata.jsonl")
+    preds, _dropped, cnt = classify_other(ids, V, y, txt)
+    dest = ROOT / "solr_jobs_demo" / "role_family_emb_overrides.json"
+    # indent=0 + sort_keys: one key per line, stable order -> reviewable line-level
+    # diffs as the override set grows refresh to refresh.
+    with open(dest, "w") as f:
+        json.dump(preds, f, indent=0, sort_keys=True)
+    print(
+        f"[3] embedding rescue: {len(preds):,} 'other' docs labeled -> {dest.name} (dropped {cnt})",
+        flush=True,
+    )
 
 
 # ---------------------------------------------------------------------------
