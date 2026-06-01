@@ -26,6 +26,13 @@ import resume_match_lib as L
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from maps_svg import US_STATES_SVG, WORLD_SVG
+from snippet_lib import (
+    SNIPPET_LEN,
+    SNIPPET_PASSAGE_PREFIX,
+    clean_text,
+    passages_for,
+    unpack_vecs,
+)
 
 # ===== configuration =====
 
@@ -405,11 +412,12 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
 # even when it shares no literal words with the query (the win lexical selection couldn't
 # get). Highlighting stays lexical on top: query terms that *do* appear in the chosen
 # passage are wrapped in <em> as a bonus, but they no longer decide which passage shows.
-# Passage vectors are batch-encoded once per page and cached across queries/pages. If the
-# encode path fails we degrade to the old lexical (most-query-terms) selection.
-SNIPPET_LEN = 240
-SNIPPET_PASSAGE_PREFIX = "passage: "  # must match the catalog's e5 "passage: " encoding
-PASSAGES_PER_DOC = 8  # cap candidate passages scanned per description (bounds encode cost)
+# Passage vectors are PRE-COMPUTED at index time and stored in the Solr `snippet_vecs`
+# field, so the serve-time cost is just dot products (no per-query encode). A doc lacking
+# stored vecs (pre-backfill / a fresh delta posting) falls back to a live batched encode,
+# and an encode failure degrades to the old lexical (most-query-terms) selection. Passage
+# segmentation + the fp16 vector codec live in snippet_lib so offline and serve-time can't
+# drift (SNIPPET_LEN / PASSAGES_PER_DOC / passages_for / unpack_vecs imported from there).
 _SNIPPET_STOP = {
     "the",
     "and",
@@ -523,28 +531,6 @@ def _snippet_for(description: str, terms: list[str]) -> str:
     return _highlight(_window(best, terms), terms)
 
 
-def _passages(text: str) -> list[str]:
-    """Segment a cleaned description into coherent ~SNIPPET_LEN passages for semantic
-    ranking. Sentences are greedily merged until the next would overflow SNIPPET_LEN, so a
-    candidate is a whole thought (e5 ranks a passage far better than a 4-word fragment), and
-    a lone oversized sentence becomes its own passage (windowed at display time)."""
-    sents = [s.strip() for s in _SNIP_SENT.split(text) if s.strip()]
-    out: list[str] = []
-    cur = ""
-    for s in sents:
-        cand = (cur + " " + s) if cur else s
-        if cur and len(cand) > SNIPPET_LEN:
-            out.append(cur)
-            cur = s
-        else:
-            cur = cand
-        if len(out) >= PASSAGES_PER_DOC:
-            return out[:PASSAGES_PER_DOC]
-    if cur and len(out) < PASSAGES_PER_DOC:
-        out.append(cur)
-    return out
-
-
 # Passage vectors are deterministic for a given passage string, so cache them across
 # queries and pagination pages: the same job's passages recur on page 2, on "more like
 # this", and on a re-typed query. Only cache-miss passages hit the model, in one batched
@@ -570,47 +556,78 @@ def _encode_passages(passages: list[str]) -> dict[str, np.ndarray]:
     return {p: _PASSAGE_VEC_CACHE[p] for p in passages}
 
 
-def _semantic_snippets(query: str, terms: list[str], cleaned: dict[int, str]) -> dict[int, str]:
-    """Pick each doc's snippet by embedding similarity: encode every candidate passage
-    once (batched + cached), then for each doc keep the passage closest to the query
-    vector. Highlight any lexical term hits in the winner as a bonus."""
-    doc_passages = {i: _passages(t) for i, t in cleaned.items()}
-    flat = [p for ps in doc_passages.values() for p in ps]
-    if not flat:
-        return {i: "" for i in cleaned}
-    pvecs = _encode_passages(flat)
+def _resolve_passage_vecs(
+    doc_passages: dict[int, list[str]], vecs_b64: dict[int, str]
+) -> dict[int, np.ndarray]:
+    """Per doc, return a (n_passages, dim) vector matrix. Prefer the stored snippet_vecs
+    (zero encode); a doc with no/stale stored vecs (count != passage count) has its
+    passages queued and batch-encoded live in one call. Docs with no passages are absent."""
+    resolved: dict[int, np.ndarray] = {}
+    need: list[str] = []
+    for i, ps in doc_passages.items():
+        if not ps:
+            continue
+        b64 = vecs_b64.get(i)
+        if b64:
+            try:
+                v = unpack_vecs(b64)
+                if v.shape[0] == len(ps):
+                    resolved[i] = v
+                    continue
+            except Exception:
+                pass  # corrupt/stale -> live encode below
+        need.extend(ps)
+    if need:
+        enc = _encode_passages(need)
+        for i, ps in doc_passages.items():
+            if ps and i not in resolved:
+                resolved[i] = np.vstack([enc[p] for p in ps])
+    return resolved
+
+
+def _semantic_snippets(
+    query: str, terms: list[str], raw: dict[int, str], vecs_b64: dict[int, str]
+) -> dict[int, str]:
+    """Pick each doc's snippet by embedding similarity: re-derive its candidate passages
+    from the description, pair each with its (stored or live-encoded) vector, keep the
+    passage closest to the query vector. Highlight any lexical term hits in the winner."""
+    doc_passages = {i: passages_for(t) for i, t in raw.items()}
+    pvecs = _resolve_passage_vecs(doc_passages, vecs_b64)
     qv = np.asarray(_dense_qv(query), dtype=np.float32)
     out: dict[int, str] = {}
     for i, ps in doc_passages.items():
         if not ps:
-            out[i] = html.escape(_lead(cleaned[i])) if cleaned[i] else ""
+            cleaned = clean_text(raw[i])
+            out[i] = html.escape(_lead(cleaned)) if cleaned else ""
             continue
-        best = max(ps, key=lambda p: float(np.dot(qv, pvecs[p])))
+        best = ps[int(np.argmax(pvecs[i] @ qv))]
         out[i] = _highlight(_window(best, terms), terms)
     return out
 
 
 def _snippets(query: str, ids: list[int]) -> dict[int, str]:
-    """Fetch descriptions for the displayed ids in one Solr call and build a snippet for
-    each. With a query, selection is semantic (best passage by e5 cosine) with lexical
-    <em> highlighting layered on; blank query (seed/browse) shows the description lead.
-    Falls back to lexical most-terms selection if the encode path fails."""
+    """Fetch descriptions + stored passage vectors for the displayed ids in one Solr call
+    and build a snippet for each. With a query, selection is semantic (best passage by e5
+    cosine, dot against the stored snippet_vecs) with lexical <em> highlighting layered on;
+    blank query (seed/browse) shows the description lead. Falls back to lexical most-terms
+    selection if the semantic path raises."""
     if not ids:
         return {}
     id_clause = " OR ".join(f'id:"{i}"' for i in ids)
     r = requests.get(
         f"{SOLR}/solr/{CORE}/select",
-        params={"q": id_clause, "rows": len(ids), "fl": "id,description"},
+        params={"q": id_clause, "rows": len(ids), "fl": "id,description,snippet_vecs"},
         timeout=10,
     )
     r.raise_for_status()
-    raw = {int(d["id"]): (d.get("description") or "") for d in r.json()["response"]["docs"]}
+    docs = r.json()["response"]["docs"]
+    raw = {int(d["id"]): (d.get("description") or "") for d in docs}
     if not query.strip():
-        return {i: (html.escape(_lead(_clean_text(t))) if t else "") for i, t in raw.items()}
+        return {i: (html.escape(_lead(clean_text(t))) if t else "") for i, t in raw.items()}
+    vecs_b64 = {int(d["id"]): (d.get("snippet_vecs") or "") for d in docs}
     terms = _snippet_terms(query)
-    cleaned = {i: _clean_text(t) for i, t in raw.items()}
     try:
-        return _semantic_snippets(query, terms, cleaned)
+        return _semantic_snippets(query, terms, raw, vecs_b64)
     except Exception as e:  # model/encode hiccup -> lexical selection still serves a snippet
         print(f"semantic snippet fallback ({e}); using lexical selection", flush=True)
         return {i: _snippet_for(t, terms) for i, t in raw.items()}
@@ -2326,18 +2343,10 @@ def api_facets(
     )
 
 
-_WS_RUN = re.compile(r"[ \t]+")
-_NL_RUN = re.compile(r"\n{3,}")
-
-
 def _clean_text(s: str) -> str:
-    if not s:
-        return ""
-    s = html.unescape(s)  # decode literal &nbsp; &amp; etc.
-    s = s.replace("\xa0", " ")  # collapse non-breaking spaces
-    s = _WS_RUN.sub(" ", s)
-    s = _NL_RUN.sub("\n\n", s)
-    return s.strip()
+    """Decode entities + collapse whitespace. Thin alias for snippet_lib.clean_text so
+    the live snippet text matches the text the offline encoder split + embedded."""
+    return clean_text(s)
 
 
 @app.get("/api/detail")

@@ -15,6 +15,9 @@ from collections.abc import Iterator
 import numpy as np
 import requests
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "space"))
+from snippet_lib import pack_vecs  # noqa: E402
+
 STAGE = os.environ.get("JOBS_STAGE", "/Users/dtunkelang/bagofdocs/unified_jobs")
 FACETS = os.environ.get(
     "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl"
@@ -74,6 +77,25 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     with open(os.path.join(STAGE, "source_index.json")) as f:
         sources = json.load(f)["sources"]
     dense = np.load(os.path.join(STAGE, "e5_small_catalog.vecs.fp16.npy"), mmap_mode="r")
+
+    # Pre-computed snippet passage vectors (optional): the encoder writes one normalized
+    # fp16 row per UNIQUE passage; snippet_doc_rows maps a doc's metadata position to its
+    # passage rows. Present => attach the stored snippet_vecs field so the Space picks
+    # snippet passages by dot product instead of encoding at query time. Absent => docs
+    # ship without it and the Space falls back to a live encode (still correct, slower).
+    snip_vecs = None
+    snip_rows: dict[str, list[int]] = {}
+    snip_path = os.path.join(STAGE, "snippet_passages.vecs.fp16.npy")
+    rows_path = os.path.join(STAGE, "snippet_doc_rows.json")
+    if os.path.exists(snip_path) and os.path.exists(rows_path):
+        snip_vecs = np.load(snip_path, mmap_mode="r")
+        with open(rows_path) as f:
+            snip_rows = json.load(f)
+        print(
+            f"  snippet vecs: {snip_vecs.shape[0]:,} unique passages, "
+            f"{len(snip_rows):,} docs mapped",
+            flush=True,
+        )
 
     # Stable Solr ids from the real (position-independent) doc ids.
     with open(os.path.join(STAGE, "doc_ids.json")) as f:
@@ -177,6 +199,9 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "description": rec.get("description") or "",
                 "e5_vec": dense[i].astype(np.float32).tolist(),
             }
+            rows = snip_rows.get(str(i)) if snip_vecs is not None else None
+            if rows:
+                doc["snippet_vecs"] = pack_vecs(snip_vecs[rows])
             if rec.get("salary_min") is not None:
                 doc["salary_min"] = float(rec["salary_min"])
             if rec.get("salary_max") is not None:

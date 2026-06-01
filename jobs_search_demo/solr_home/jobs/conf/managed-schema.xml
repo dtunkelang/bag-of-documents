@@ -75,7 +75,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_ar.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_ar.txt" name="stop"/>
       <filter name="arabicNormalization"/>
       <filter name="arabicStem"/>
     </analyzer>
@@ -84,16 +84,16 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_bg.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_bg.txt" name="stop"/>
       <filter name="bulgarianStem"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_ca" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
       <tokenizer name="standard"/>
-      <filter name="elision" ignoreCase="true" articles="lang/contractions_ca.txt"/>
+      <filter ignoreCase="true" articles="lang/contractions_ca.txt" name="elision"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_ca.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_ca.txt" name="stop"/>
       <filter language="Catalan" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -109,7 +109,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_cz.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_cz.txt" name="stop"/>
       <filter name="czechStem"/>
     </analyzer>
   </fieldType>
@@ -134,14 +134,14 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="greekLowercase"/>
-      <filter name="stop" ignoreCase="false" words="lang/stopwords_el.txt"/>
+      <filter ignoreCase="false" words="lang/stopwords_el.txt" name="stop"/>
       <filter name="greekStem"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_en" class="solr.TextField" positionIncrementGap="100">
     <analyzer type="index">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
       <filter name="lowercase"/>
       <filter name="englishPossessive"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
@@ -149,8 +149,8 @@
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
-      <filter expand="true" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="true"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
       <filter name="lowercase"/>
       <filter name="englishPossessive"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
@@ -172,8 +172,8 @@
   <fieldType name="text_en_splitting" class="solr.TextField" positionIncrementGap="100" autoGeneratePhraseQueries="true">
     <analyzer type="index">
       <tokenizer name="whitespace"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
-      <filter catenateNumbers="1" catenateWords="1" generateNumberParts="1" generateWordParts="1" catenateAll="0" name="wordDelimiterGraph" splitOnCaseChange="1"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
+      <filter catenateWords="1" generateNumberParts="1" generateWordParts="1" catenateAll="0" name="wordDelimiterGraph" splitOnCaseChange="1" catenateNumbers="1"/>
       <filter name="lowercase"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
       <filter name="porterStem"/>
@@ -181,9 +181,9 @@
     </analyzer>
     <analyzer type="query">
       <tokenizer name="whitespace"/>
-      <filter expand="true" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
-      <filter catenateNumbers="0" catenateWords="0" generateNumberParts="1" generateWordParts="1" catenateAll="0" name="wordDelimiterGraph" splitOnCaseChange="1"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="true"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
+      <filter catenateWords="0" generateNumberParts="1" generateWordParts="1" catenateAll="0" name="wordDelimiterGraph" splitOnCaseChange="1" catenateNumbers="0"/>
       <filter name="lowercase"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
       <filter name="porterStem"/>
@@ -192,8 +192,8 @@
   <fieldType name="text_en_splitting_tight" class="solr.TextField" positionIncrementGap="100" autoGeneratePhraseQueries="true">
     <analyzer type="index">
       <tokenizer name="whitespace"/>
-      <filter expand="false" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="false"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
       <filter generateWordParts="0" catenateNumbers="1" catenateWords="1" name="wordDelimiterGraph" generateNumberParts="0" catenateAll="0"/>
       <filter name="lowercase"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
@@ -203,8 +203,8 @@
     </analyzer>
     <analyzer type="query">
       <tokenizer name="whitespace"/>
-      <filter expand="false" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_en.txt"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="false"/>
+      <filter ignoreCase="true" words="lang/stopwords_en.txt" name="stop"/>
       <filter generateWordParts="0" catenateNumbers="1" catenateWords="1" name="wordDelimiterGraph" generateNumberParts="0" catenateAll="0"/>
       <filter name="lowercase"/>
       <filter protected="protwords.txt" name="keywordMarker"/>
@@ -224,7 +224,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_et.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_et.txt" name="stop"/>
       <filter language="Estonian" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -232,7 +232,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_eu.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_eu.txt" name="stop"/>
       <filter language="Basque" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -243,7 +243,7 @@
       <filter name="lowercase"/>
       <filter name="arabicNormalization"/>
       <filter name="persianNormalization"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_fa.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_fa.txt" name="stop"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_fi" class="solr.TextField" positionIncrementGap="100">
@@ -257,7 +257,7 @@
   <fieldType name="text_fr" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
       <tokenizer name="standard"/>
-      <filter name="elision" ignoreCase="true" articles="lang/contractions_fr.txt"/>
+      <filter ignoreCase="true" articles="lang/contractions_fr.txt" name="elision"/>
       <filter name="lowercase"/>
       <filter format="snowball" ignoreCase="true" words="lang/stopwords_fr.txt" name="stop"/>
       <filter name="frenchLightStem"/>
@@ -266,50 +266,50 @@
   <fieldType name="text_ga" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
       <tokenizer name="standard"/>
-      <filter name="elision" ignoreCase="true" articles="lang/contractions_ga.txt"/>
-      <filter name="stop" ignoreCase="true" words="lang/hyphenations_ga.txt"/>
+      <filter ignoreCase="true" articles="lang/contractions_ga.txt" name="elision"/>
+      <filter ignoreCase="true" words="lang/hyphenations_ga.txt" name="stop"/>
       <filter name="irishLowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_ga.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_ga.txt" name="stop"/>
       <filter language="Irish" name="snowballPorter"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_gen_sort" class="solr.SortableTextField" positionIncrementGap="100" multiValued="true">
     <analyzer type="index">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
       <filter name="lowercase"/>
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
-      <filter expand="true" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="true"/>
       <filter name="lowercase"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100" multiValued="true">
     <analyzer type="index">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
       <filter name="lowercase"/>
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
-      <filter expand="true" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="true"/>
       <filter name="lowercase"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_general_rev" class="solr.TextField" positionIncrementGap="100">
     <analyzer type="index">
       <tokenizer name="standard"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
       <filter name="lowercase"/>
       <filter maxFractionAsterisk="0.33" name="reversedWildcard" maxPosQuestion="2" withOriginal="true" maxPosAsterisk="3"/>
     </analyzer>
     <analyzer type="query">
       <tokenizer name="standard"/>
-      <filter expand="true" ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph"/>
-      <filter name="stop" ignoreCase="true" words="stopwords.txt"/>
+      <filter ignoreCase="true" synonyms="synonyms.txt" name="synonymGraph" expand="true"/>
+      <filter ignoreCase="true" words="stopwords.txt" name="stop"/>
       <filter name="lowercase"/>
     </analyzer>
   </fieldType>
@@ -317,7 +317,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_gl.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_gl.txt" name="stop"/>
       <filter name="galicianStem"/>
     </analyzer>
   </fieldType>
@@ -327,7 +327,7 @@
       <filter name="lowercase"/>
       <filter name="indicNormalization"/>
       <filter name="hindiNormalization"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_hi.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_hi.txt" name="stop"/>
       <filter name="hindiStem"/>
     </analyzer>
   </fieldType>
@@ -343,7 +343,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_hy.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_hy.txt" name="stop"/>
       <filter language="Armenian" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -351,14 +351,14 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_id.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_id.txt" name="stop"/>
       <filter stemDerivational="true" name="indonesianStem"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_it" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
       <tokenizer name="standard"/>
-      <filter name="elision" ignoreCase="true" articles="lang/contractions_it.txt"/>
+      <filter ignoreCase="true" articles="lang/contractions_it.txt" name="elision"/>
       <filter name="lowercase"/>
       <filter format="snowball" ignoreCase="true" words="lang/stopwords_it.txt" name="stop"/>
       <filter name="italianLightStem"/>
@@ -370,14 +370,14 @@
       <filter name="japaneseBaseForm"/>
       <filter tags="lang/stoptags_ja.txt" name="japanesePartOfSpeechStop"/>
       <filter name="cjkWidth"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_ja.txt"/>
-      <filter minimumLength="4" name="japaneseKatakanaStem"/>
+      <filter ignoreCase="true" words="lang/stopwords_ja.txt" name="stop"/>
+      <filter name="japaneseKatakanaStem" minimumLength="4"/>
       <filter name="lowercase"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_ko" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
-      <tokenizer name="korean" decompoundMode="discard" outputUnknownUnigrams="false"/>
+      <tokenizer decompoundMode="discard" outputUnknownUnigrams="false" name="korean"/>
       <filter name="koreanPartOfSpeechStop"/>
       <filter name="koreanReadingForm"/>
       <filter name="lowercase"/>
@@ -387,7 +387,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_lv.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_lv.txt" name="stop"/>
       <filter name="latvianStem"/>
     </analyzer>
   </fieldType>
@@ -396,7 +396,7 @@
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
       <filter format="snowball" ignoreCase="true" words="lang/stopwords_nl.txt" name="stop"/>
-      <filter name="stemmerOverride" ignoreCase="false" dictionary="lang/stemdict_nl.txt"/>
+      <filter ignoreCase="false" dictionary="lang/stemdict_nl.txt" name="stemmerOverride"/>
       <filter language="Dutch" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -420,7 +420,7 @@
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_ro.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_ro.txt" name="stop"/>
       <filter language="Romanian" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -444,14 +444,14 @@
     <analyzer>
       <tokenizer name="thai"/>
       <filter name="lowercase"/>
-      <filter name="stop" ignoreCase="true" words="lang/stopwords_th.txt"/>
+      <filter ignoreCase="true" words="lang/stopwords_th.txt" name="stop"/>
     </analyzer>
   </fieldType>
   <fieldType name="text_tr" class="solr.TextField" positionIncrementGap="100">
     <analyzer>
       <tokenizer name="standard"/>
       <filter name="turkishLowercase"/>
-      <filter name="stop" ignoreCase="false" words="lang/stopwords_tr.txt"/>
+      <filter ignoreCase="false" words="lang/stopwords_tr.txt" name="stop"/>
       <filter language="Turkish" name="snowballPorter"/>
     </analyzer>
   </fieldType>
@@ -484,6 +484,7 @@
   <field name="salary_max" type="pdouble" multiValued="false" indexed="false" stored="true"/>
   <field name="salary_min" type="pdouble" multiValued="false" indexed="false" stored="true"/>
   <field name="seniority" type="string" multiValued="false" indexed="true" stored="true"/>
+  <field name="snippet_vecs" type="binary" multiValued="false" indexed="false" stored="true"/>
   <field name="source_corpus" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="tech_stack" type="string" multiValued="true" indexed="true" stored="true"/>
   <field name="title" type="text_en_bm25" multiValued="false" indexed="true" stored="true"/>
