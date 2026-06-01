@@ -724,7 +724,7 @@ def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
 
     sys.path.insert(0, str(ROOT / "solr_jobs_demo"))
     try:
-        from classify_other_emb import _norm, classify_other, load_text
+        from classify_other_emb import _norm, classify_other, load_depts, load_text
     except Exception as e:  # faiss/sentence-transformers absent -> skip, don't abort refresh
         print(f"[3] embedding rescue SKIPPED (import failed: {e})", flush=True)
         return
@@ -748,7 +748,8 @@ def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
 
     y = np.array(role_fams)
     txt = load_text(out / "metadata.jsonl")
-    preds, _dropped, cnt = classify_other(ids, V, y, txt)
+    depts = load_depts(out / "metadata.jsonl")
+    preds, _dropped, cnt = classify_other(ids, V, y, txt, depts=depts)
     dest = ROOT / "solr_jobs_demo" / "role_family_emb_overrides.json"
     # indent=0 + sort_keys: one key per line, stable order -> reviewable line-level
     # diffs as the override set grows refresh to refresh.

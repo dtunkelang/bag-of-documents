@@ -32,6 +32,33 @@ EMBED_MODEL = "intfloat/e5-small-v2"
 # changes the live label set, so keep them in sync with the committed overrides.
 APPLY_DEFAULTS = dict(conf=0.80, simfloor=0.86, k=25, ensemble=True)
 
+# ---- department-agreement rescue (relaxes the kNN gate when the doc's own
+# department's modal family agrees with the kNN vote) ----
+# A doc that fails the strict gate is still rescued if (a) the kNN family is in
+# DEPT_ALLOW, (b) its vote-share clears DEPT_CONF, and (c) the modal family of
+# its department (over labeled docs) equals the kNN family. The conjunction of
+# two independent signals substitutes for the strict conf/simfloor floor.
+# Held-out precision 95.1% on the allowlisted set (exp_dept_gate.py); families
+# below 90% (software_engineering, ai_ml, skilled_trades...) are excluded because
+# their departments are grab-bags (e.g. "Engineering" spans product/design/data).
+DEPT_ALLOW = frozenset(
+    {
+        "operations_admin",
+        "customer_success_support",
+        "finance_accounting",
+        "hr_people_ops",
+        "product_management",
+        "legal",
+        "design_ux",
+        "food_service_hospitality",
+        "transportation_logistics",
+        "security",
+        "project_program_management",
+    }
+)
+DEPT_CONF = 0.40  # relaxed vote-share for the dept-agree path
+DEPT_MIN_LABELED = 20  # department needs this many labeled exemplars to vote
+
 # ---- precision guards (shared by --apply CLI and the refresh stage) ----
 # junk/evergreen/test postings have no real role -> never classify.
 JUNK = re.compile(
@@ -81,6 +108,17 @@ def load_text(metadata_path: Path | str) -> dict[str, tuple[str, str]]:
     return txt
 
 
+def load_depts(metadata_path: Path | str) -> dict[str, str]:
+    """{doc_id: department} for the department-agreement rescue ('' when absent)."""
+    depts: dict[str, str] = {}
+    with open(metadata_path) as f:
+        for line in f:
+            r = json.loads(line)
+            dep = (r.get("department") or "").strip()
+            depts[r["id"]] = "" if dep in ("", "None") else dep
+    return depts
+
+
 def classify_other(
     ids: list[str],
     V: np.ndarray,
@@ -91,6 +129,7 @@ def classify_other(
     simfloor: float = 0.86,
     k: int = 25,
     ensemble: bool = True,
+    depts: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], list, dict]:
     """Ensemble-gated e5 kNN classification of role_family:'other' docs.
 
@@ -162,6 +201,42 @@ def classify_other(
             dropped.append(("disagree", f"{pred[i]}!={cent_pred[i]}", tt))
             continue
         out[did] = pred[i]
+
+    # ---- department-agreement rescue (second pass; never overwrites strict) ----
+    # For 'other' docs that failed the strict gate: rescue when the kNN family is
+    # allowlisted, clears the relaxed DEPT_CONF, and equals the modal family of the
+    # doc's own department (computed over labeled docs). Same JUNK/English/VETO
+    # guards apply. cnt["dept_rescue"] counts the incremental additions.
+    if depts:
+        from collections import Counter as _Counter
+
+        dc: dict[str, _Counter] = {}
+        for j in lab_idx:
+            dp = depts.get(ids[int(j)], "")
+            if dp:
+                dc.setdefault(dp, _Counter())[y[int(j)]] += 1
+        dept_modal = {
+            dp: c.most_common(1)[0][0]
+            for dp, c in dc.items()
+            if sum(c.values()) >= DEPT_MIN_LABELED
+        }
+        cnt["dept_rescue"] = 0
+        for i in range(len(oth)):
+            did = ids[oth[i]]
+            if did in out:  # already strict-kept; never overwrite
+                continue
+            p = pred[i]
+            if p not in DEPT_ALLOW or conf_arr[i] < DEPT_CONF:
+                continue
+            dp = depts.get(did, "")
+            if not dp or dept_modal.get(dp) != p:
+                continue
+            t, d = txt.get(did, ("", ""))
+            if JUNK.search(t) or not is_english(d) or VETO.search(t):
+                continue
+            out[did] = p
+            cnt["dept_rescue"] += 1
+
     return out, dropped, cnt
 
 
@@ -343,8 +418,17 @@ def main():
     # ---- APPLY to other docs (production = knn core, shared with refresh stage) ----
     # Uses ALL labeled docs as reference, not just the 85% train split.
     txt = load_text(DATA / "metadata.jsonl")
+    depts = load_depts(DATA / "metadata.jsonl")
     out, dropped, cnt = classify_other(
-        ids, V, y, txt, conf=args.conf, simfloor=args.simfloor, k=args.k, ensemble=args.ensemble
+        ids,
+        V,
+        y,
+        txt,
+        conf=args.conf,
+        simfloor=args.simfloor,
+        k=args.k,
+        ensemble=args.ensemble,
+        depts=depts,
     )
     json.dump(out, open(DATA / "other_emb_predictions.json", "w"))
     json.dump(dropped, open(DATA / "other_emb_dropped.json", "w"))
