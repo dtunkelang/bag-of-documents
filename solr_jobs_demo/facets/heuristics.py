@@ -303,7 +303,9 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         _ci(
             r"\b(marketing|growth|brand|SEO|SEM|content marketing|"
-            r"social media manager|community manager|PR\b|public relations|"
+            r"social media (manager|specialist|associate|lead|coordinator|"
+            r"director|producer|strategist|editor|executive|intern|assistant)|"
+            r"community manager|PR\b|public relations|"
             r"copywriter|demand gen|email marketing|product marketing|PMM\b|"
             r"(earned|paid|owned) media|user acquisition|"
             r"analyst relations|influencer (marketing|relations|manager|director|strategist)|"
@@ -361,7 +363,12 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"(ejecutiv[oa]|asesor[ae]?|representante|gerente)\s+de\s+ventas|"
             r"consultor\s*(\(a\))?\s+comercial|comercial externo|"
             r"agente comercial|asesor comercial|"
-            r"de ventas|de vendas)\b"
+            r"de ventas|de vendas|"
+            # insurance producers/agents/brokers are commission sales roles (the
+            # corpus has a large "Insurance Producer - City, ST" inventory in
+            # 'other'). Underwriters/actuaries are NOT matched — they stay in
+            # finance_accounting.
+            r"insurance (producer|agent|agency|broker|sales|advisor))\b"
         ),
         "sales",
     ),
