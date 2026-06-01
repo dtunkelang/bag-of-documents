@@ -20,6 +20,26 @@ def _ci(p: str) -> re.Pattern:
 
 
 ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # healthcare_allied — non-licensed direct-care workers (home health aides,
+    # caregivers, personal-care aides, DSPs). MUST precede healthcare_clinical:
+    # the clinical pattern used to grab these via "caregiver"/"home care"/"personal
+    # care aide", which both mis-bucketed them (they're allied, not clinical) and,
+    # because of plural/abbreviation gaps, dropped many to suppressed "other". The
+    # negative lookahead keeps childcare nannies ("Child Caregiver") and corporate
+    # roles *about* caregivers ("Caregiver Benefits Specialist") out of this bucket.
+    (
+        _ci(
+            r"\b(home health aide|home health aid|HHA|CHHA|"
+            r"personal care (aide|assistant|attendant)|"
+            r"direct support (professional|worker|staff|personnel)|"
+            r"home (health|care) (aide|aid|worker)|"
+            r"(?<!child )caregivers?"
+            r"(?![\s,]+(benefits|engagement|specialist|manager|operations|advocate|"
+            r"recruiter|coordinator|relations|experience|support specialist|"
+            r"success|enrollment|navigator|animal|pet|wellness)))\b"
+        ),
+        "healthcare_allied",
+    ),
     # healthcare_clinical — high specificity to win against generic "engineer"
     (
         _ci(
@@ -30,7 +50,7 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"occupational therapist|OT\b|respiratory therapist|"
             r"nursing assistant|nurse aide|midwife|EMT|paramedic|"
             r"med(?:ication)? aide|sterile processing|"
-            r"home care|personal care aide|caregiver|caretaker|"
+            r"home care|caretaker|"
             r"(residential|substance abuse|mental health|behavioral health) counselor|"
             r"(psychiatric|mental health|behavioral health|clinical) "
             r"(clinician|specialist|therapist|supervisor)|"
@@ -316,7 +336,15 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"VP,?\s+account director|"
             r"sales executive (senior )?director|"
             r"district (partner|partnership) (specialist|manager|director)|"
-            r"VP (of )?revenue)\b"
+            r"VP (of )?revenue|"
+            # Portuguese/Spanish sales roles (the corpus has a large LatAm/BR
+            # inventory the English-only patterns above were blind to).
+            r"vendedor[ae]?s?|"
+            r"(consultor|executiv[oa]|coordenador[ae]?)\s*(\(a\))?\s+de\s+vendas|"
+            r"(ejecutiv[oa]|asesor[ae]?|representante|gerente)\s+de\s+ventas|"
+            r"consultor\s*(\(a\))?\s+comercial|comercial externo|"
+            r"agente comercial|asesor comercial|"
+            r"de ventas|de vendas)\b"
         ),
         "sales",
     ),
