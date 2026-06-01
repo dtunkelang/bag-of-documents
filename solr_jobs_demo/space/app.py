@@ -11,6 +11,7 @@ Run after push_docs.py has populated the 'jobs' core.
 """
 
 import bisect
+import functools
 import html
 import json
 import os
@@ -200,10 +201,19 @@ def load_resources() -> None:
 # ===== query encoders =====
 
 
-def _dense_qv(query: str) -> list[float]:
-    text = DENSE_QUERY_PREFIX + query
+@functools.lru_cache(maxsize=4096)
+def _encode_query_cached(text: str) -> tuple[float, ...]:
+    """Memoize the e5-small query encode. A single user search fans out to
+    /api/search + /api/facets + /api/related_searches (and re-fires per pagination
+    page), each on the SAME query string — without this they'd each re-run the
+    model. Keyed on the already-prefixed text; returns an immutable tuple so the
+    shared cache entry can't be mutated by a caller."""
     qv = R["dense_model"].encode([text], normalize_embeddings=True, show_progress_bar=False)[0]
-    return qv.astype(np.float32).tolist()
+    return tuple(qv.astype(np.float32).tolist())
+
+
+def _dense_qv(query: str) -> list[float]:
+    return list(_encode_query_cached(DENSE_QUERY_PREFIX + query))
 
 
 # ===== solr retrieval lanes =====
