@@ -58,20 +58,35 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
-# Ensure the 'jobs' core is loaded. Auto-discovery doesn't always pick up
-# cores from a freshly-extracted tarball, so we explicitly invoke the Core
-# admin API. STATUS first; CREATE if missing.
-JOBS_STATUS=$(curl -sS "http://localhost:8983/solr/admin/cores?action=STATUS&core=jobs&wt=json" || true)
-if echo "$JOBS_STATUS" | grep -q '"name":"jobs"' && echo "$JOBS_STATUS" | grep -q '"instanceDir"'; then
-  echo "[entrypoint] jobs core already loaded."
-else
-  echo "[entrypoint] loading jobs core via Core admin ..."
-  curl -sS -X POST "http://localhost:8983/solr/admin/cores?action=CREATE&name=jobs&instanceDir=$SOLR_HOME/jobs" || {
-    echo "[entrypoint] core CREATE failed; tail of solr log:" >&2
+# Ensure the 'jobs' core is loaded. The deploy tar is self-contained
+# (jobs/core.properties + conf inside it), so Solr auto-discovers the core at
+# startup — but discovery can lag a beat behind the admin API coming up. Poll
+# STATUS briefly; only fall back to an explicit Core-admin CREATE if the core
+# never registers. (A CREATE when the core is already defined returns a harmless
+# 400 "another core is already defined there"; tolerate it instead of treating
+# it as fatal — this is what produced the noisy startup error.)
+JOBS_LOADED=0
+for _ in $(seq 1 30); do
+  JOBS_STATUS=$(curl -sS "http://localhost:8983/solr/admin/cores?action=STATUS&core=jobs&wt=json" || true)
+  if echo "$JOBS_STATUS" | grep -q '"instanceDir"'; then
+    JOBS_LOADED=1
+    echo "[entrypoint] jobs core auto-discovered."
+    break
+  fi
+  sleep 1
+done
+if [ "$JOBS_LOADED" -eq 0 ]; then
+  echo "[entrypoint] core not auto-discovered; invoking Core admin CREATE ..."
+  CREATE_RESP=$(curl -sS -X POST "http://localhost:8983/solr/admin/cores?action=CREATE&name=jobs&instanceDir=$SOLR_HOME/jobs" || true)
+  if echo "$CREATE_RESP" | grep -q '"status":0'; then
+    echo "[entrypoint] core created."
+  elif echo "$CREATE_RESP" | grep -qiE "already defined|already exists"; then
+    echo "[entrypoint] core already defined (ok)."
+  else
+    echo "[entrypoint] core CREATE failed: $CREATE_RESP" >&2
     tail -50 /var/solr/logs/solr.log 2>/dev/null || tail -50 "$SOLR_HOME"/../*solr*.log 2>/dev/null || true
     exit 1
-  }
-  echo
+  fi
 fi
 
 # Confirm doc count is plausible.

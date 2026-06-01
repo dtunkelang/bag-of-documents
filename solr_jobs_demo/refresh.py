@@ -1030,6 +1030,7 @@ def stage_deploy(args) -> None:
         "maps_svg.py",
         "requirements.txt",
         "Dockerfile",
+        "entrypoint.sh",
         "suggest_lib.py",
         "role_vocab.json",
         "role_vocab_emb.npy",
