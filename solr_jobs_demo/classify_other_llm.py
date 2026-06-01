@@ -344,18 +344,44 @@ def poll_batch():
     return statuses
 
 
-def parse_batch(apply: bool):
-    """Download all completed batch shards, keep allowlisted family labels, write
-    role_family_llm_overrides.json (separate from the embedding file so the nightly
-    refresh that regenerates the embedding file never clobbers these)."""
+BATCH_OUTPUT = HERE / "llm_other_batch_output.jsonl"
+
+
+def _fetch_output() -> str:
+    """All completed batch shards' raw JSONL, cached to disk so re-parses (e.g. the
+    LLM-AND-kNN conjunction) don't re-download. Returns '' if any shard incomplete."""
+    if BATCH_OUTPUT.exists():
+        return BATCH_OUTPUT.read_text()
     client = _client()
     content = ""
     for bid in _batch_ids():
         b = client.batches.retrieve(bid)
         if b.status != "completed":
             print(f"batch {bid} not complete (status={b.status}); aborting")
-            return
+            return ""
         content += client.files.content(b.output_file_id).text
+    BATCH_OUTPUT.write_text(content)
+    print(f"cached batch output -> {BATCH_OUTPUT.name}")
+    return content
+
+
+def llm_predictions() -> dict[str, str]:
+    """{doc_id: llm_family} over all batch results (incl. 'other' abstentions)."""
+    preds = {}
+    for line in _fetch_output().splitlines():
+        r = json.loads(line)
+        out = json.loads(r["response"]["body"]["choices"][0]["message"]["content"])
+        preds[r["custom_id"]] = out["family"]
+    return preds
+
+
+def parse_batch(apply: bool):
+    """Download all completed batch shards, keep allowlisted family labels, write
+    role_family_llm_overrides.json (separate from the embedding file so the nightly
+    refresh that regenerates the embedding file never clobbers these)."""
+    content = _fetch_output()
+    if not content:
+        return
     skip = _already_rescued()
     kept, assigned, abstain, dropped_fam, conflict = {}, 0, 0, 0, 0
     fam_counts = Counter()
