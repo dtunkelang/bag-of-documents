@@ -427,6 +427,19 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
             r"retirement plan (specialist|manager|director|consultant|advisor)|"
             r"risk (?:and|&) compliance|"
             r"alternative distribution|"
+            # finance/accounting roles rescued from 'other' via mine_other_terms.py:
+            # "finance" + a role noun, plus strategic/senior/VP/director variants.
+            # The bare unigrams (finance, financial, reporting, fund) and ambiguous
+            # bigrams (finance operations/strategy, commercial/business finance) are
+            # deliberately excluded -- they spill >25% into software_engineering/sales.
+            r"finance (associate|analyst|manager|lead|specialist|director|"
+            r"business partner|transformation)|"
+            r"strategic finance( (analyst|manager|lead))?|"
+            r"senior finance (analyst|manager|lead)|"
+            r"financial reporting( manager)?|"
+            r"(VP|vice president),?\s+finance|"
+            r"(director|head),?\s+(of )?finance|"
+            r"director,?\s+financial|"
             r"chief financial officer|CFO\b)\b"
         ),
         "finance_accounting",
