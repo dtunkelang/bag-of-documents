@@ -39,4 +39,4 @@ fi
 exec caffeinate -di "$PY" solr_jobs_demo/refresh.py \
   --from-stage 0 --to-stage 7 --no-dry-run \
   --openapply-source crawl --out-dir "$ROOT/unified_jobs_daily" \
-  "${MODE[@]}"
+  ${MODE[@]+"${MODE[@]}"}
