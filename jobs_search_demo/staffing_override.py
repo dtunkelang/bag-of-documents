@@ -7,7 +7,7 @@ healthcare_provider, not tech_software_internet or even consulting_professional_
 Strategy:
   - Detect staffing agencies by slug pattern + curated known names.
   - For those, derive industry from the job's role_family (already produced by
-    solr_jobs_demo/facets/heuristics.py).
+    jobs_search_demo/facets/heuristics.py).
   - Fall back to consulting_professional_services when role_family is too
     generic to imply an industry (sales, hr_people_ops, etc.) — that's the
     taxonomy-documented default for "industry not discernible from job".

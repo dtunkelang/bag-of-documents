@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 SOLR = "http://127.0.0.1:8983/solr/jobs/select"
 PHRASES_PATH = "/Users/dtunkelang/bagofdocs/unified_jobs/te3_cache_canonical.json"
-OUT_PATH = "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/audit_other_in_titles.tsv"
+OUT_PATH = "/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/audit_other_in_titles.tsv"
 
 MIN_TOTAL = 10
 MIN_OTHER_FRAC = 0.5

@@ -105,7 +105,7 @@ if __name__ == "__main__":
         print(f"  {n:>6} ({100 * n / total:>5.1f}%)  {v}")
     print(f"\nmean confidence: {conf.mean():.3f}  median: {np.median(conf):.3f}")
     # Save
-    out = "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/role_family.zero_shot.npy"
+    out = "/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/role_family.zero_shot.npy"
     np.save(out, np.array([labels_idx for labels_idx in labels]))
-    np.save("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/role_family.conf.npy", conf)
+    np.save("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/role_family.conf.npy", conf)
     print(f"saved labels to {out}")

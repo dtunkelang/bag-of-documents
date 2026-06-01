@@ -17,7 +17,7 @@ import requests
 
 STAGE = os.environ.get("JOBS_STAGE", "/Users/dtunkelang/bagofdocs/unified_jobs")
 FACETS = os.environ.get(
-    "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl"
+    "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl"
 )
 SOLR = os.environ.get("SOLR", "http://localhost:8983")
 CORE = os.environ.get("JOBS_CORE", "jobs")

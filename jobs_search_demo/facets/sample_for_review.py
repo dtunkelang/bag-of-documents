@@ -11,7 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 
 META = Path("/Users/dtunkelang/bagofdocs/unified_jobs/metadata.jsonl")
-FACETS = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl")
+FACETS = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl")
 
 
 def main() -> None:

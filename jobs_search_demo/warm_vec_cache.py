@@ -9,7 +9,7 @@ first run after this feature shipped, or a manual one-off) produces the position
 builds the cache from that vecs file in seconds, so the next refresh starts warm and
 finishes in minutes instead of bootstrapping with another full ~90min encode.
 
-Usage: python solr_jobs_demo/warm_vec_cache.py [--out-dir DIR]
+Usage: python jobs_search_demo/warm_vec_cache.py [--out-dir DIR]
 """
 
 import argparse

@@ -1,6 +1,6 @@
 # Industry-label propagation audit — 2026-05-25
 
-50,754 employer slugs, 347,900 docs, 28-label taxonomy. Currently live on `dtunkelang/jobs-search-solr`.
+50,754 employer slugs, 347,900 docs, 28-label taxonomy. Currently live on `dtunkelang/jobs-search`.
 
 ## TL;DR
 
@@ -57,7 +57,7 @@ real_estate_construction over-attraction is consistent with the audit: several e
 
 ### High-effort but high-precision
 - **F6. LLM re-label the round2_hi tail** — ~20k slugs at GPT-4o-mini scale (~$5-10 estimated). Best precision recovery. Aligns with the OpenAI-API-available memory.
-- **F7. Replace round2 with embedding-similarity reclassify** using `bge-small` over titles+descriptions, with calibrated thresholds and per-class centroids. Cost: ~1-2hrs. The `solr_jobs_demo/facets/centroid_reclassify.py` already exists for this — was it abandoned for a reason?
+- **F7. Replace round2 with embedding-similarity reclassify** using `bge-small` over titles+descriptions, with calibrated thresholds and per-class centroids. Cost: ~1-2hrs. The `jobs_search_demo/facets/centroid_reclassify.py` already exists for this — was it abandoned for a reason?
 
 ### Coverage gap (orthogonal)
 - **F8. LLM-label the top-N slugs in `low_margin`** by n_jobs descending — cisco, amtrak, fda, etc. ~100 slugs would recover several thousand mis-unclassified docs. Cost: minutes of GPT-4o-mini.

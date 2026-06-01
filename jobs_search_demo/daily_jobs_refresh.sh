@@ -36,7 +36,7 @@ else
 fi
 
 # -di: keep system AND display awake (display sleep throttles MPS during stage-2 encode).
-exec caffeinate -di "$PY" solr_jobs_demo/refresh.py \
+exec caffeinate -di "$PY" jobs_search_demo/refresh.py \
   --from-stage 0 --to-stage 7 --no-dry-run \
   --openapply-source crawl --out-dir "$ROOT/unified_jobs_daily" \
   ${MODE[@]+"${MODE[@]}"}

@@ -33,7 +33,7 @@ Default is a DRY RUN: stages 0-3 only (data pipeline; no live mutation). Pass
 --no-dry-run to allow stages 4-7.
 
 Usage (this session's validation run):
-  caffeinate -di .venv/bin/python solr_jobs_demo/refresh.py \\
+  caffeinate -di .venv/bin/python jobs_search_demo/refresh.py \\
       --to-stage 3 --out-dir unified_jobs_v2
 """
 
@@ -76,11 +76,11 @@ CORPORA = [
 # User-maintained Greenhouse/Lever/Ashby tenant slugs that are NOT in OpenApply's
 # cc_*_FINAL.txt lists (those ~15k tenants are already covered by stage-0's crawl).
 # Drop a slug per line into cc_{ats}_EXTRA.txt to poll a company the harvest missed.
-ATS_EXTRA_SLUGS = ROOT / "solr_jobs_demo" / "extra_ats_slugs"
+ATS_EXTRA_SLUGS = ROOT / "jobs_search_demo" / "extra_ats_slugs"
 
 # Stage-4 Solr constants.
 SOLR_URL = "http://localhost:8983"
-SOLR_HOME = ROOT / "solr_jobs_demo" / "solr_home"
+SOLR_HOME = ROOT / "jobs_search_demo" / "solr_home"
 JAVA_HOME = (
     "/opt/homebrew/opt/openjdk@21"  # run.sh's ${JAVA_HOME:-...} is buggy if JAVA_HOME is preset
 )
@@ -661,11 +661,11 @@ def stage_encode(args) -> None:
 # Stage 3: facets (+ new-slug byproduct)
 # ---------------------------------------------------------------------------
 def stage_facets(args) -> None:
-    sys.path.insert(0, str(ROOT / "solr_jobs_demo" / "facets"))
+    sys.path.insert(0, str(ROOT / "jobs_search_demo" / "facets"))
     from heuristics import classify_record  # noqa: E402
 
     out = Path(args.out_dir)
-    facets_out = ROOT / "solr_jobs_demo" / "facets" / "facets.jsonl"
+    facets_out = ROOT / "jobs_search_demo" / "facets" / "facets.jsonl"
     meta_path = out / "metadata.jsonl"
 
     # Known slugs (for the new-slug byproduct). Prefer the fresh OUT dir, fall
@@ -703,7 +703,7 @@ def stage_facets(args) -> None:
             n = i + 1
     print(f"[3] wrote {n:,} facet rows -> {facets_out}", flush=True)
 
-    byproduct = ROOT / "solr_jobs_demo" / "facets" / "new_unlabeled_slugs.txt"
+    byproduct = ROOT / "jobs_search_demo" / "facets" / "new_unlabeled_slugs.txt"
     with open(byproduct, "w") as f:
         for s in sorted(new_slugs):
             f.write(s + "\n")
@@ -722,7 +722,7 @@ def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
     the prior result byte-for-byte on an unchanged corpus; grows as new docs land."""
     import numpy as np
 
-    sys.path.insert(0, str(ROOT / "solr_jobs_demo"))
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
     try:
         from classify_other_emb import _norm, classify_other, load_depts, load_text
     except Exception as e:  # faiss/sentence-transformers absent -> skip, don't abort refresh
@@ -750,7 +750,7 @@ def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
     txt = load_text(out / "metadata.jsonl")
     depts = load_depts(out / "metadata.jsonl")
     preds, _dropped, cnt = classify_other(ids, V, y, txt, depts=depts)
-    dest = ROOT / "solr_jobs_demo" / "role_family_emb_overrides.json"
+    dest = ROOT / "jobs_search_demo" / "role_family_emb_overrides.json"
     # indent=0 + sort_keys: one key per line, stable order -> reviewable line-level
     # diffs as the override set grows refresh to refresh.
     with open(dest, "w") as f:
@@ -773,9 +773,9 @@ def stage_solr(args) -> None:
     import urllib.request
 
     # Absolute: push_docs runs with cwd=demo, so a relative JOBS_STAGE would
-    # wrongly resolve under solr_jobs_demo/ instead of the repo root.
+    # wrongly resolve under jobs_search_demo/ instead of the repo root.
     out = Path(args.out_dir).resolve()
-    demo = ROOT / "solr_jobs_demo"
+    demo = ROOT / "jobs_search_demo"
     solr_bin = "/opt/homebrew/bin/solr"
 
     if getattr(args, "delta", False):
@@ -1073,7 +1073,7 @@ def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
 # Stage 5: tar
 # ---------------------------------------------------------------------------
 def stage_tar(args) -> None:
-    tar_path = ROOT / "solr_jobs_demo" / "solr_jobs_core.tar"
+    tar_path = ROOT / "jobs_search_demo" / "solr_jobs_core.tar"
     run(
         ["tar", "--no-xattrs", "-cf", tar_path, "-C", SOLR_HOME, CORE],
         env={"COPYFILE_DISABLE": "1"},
@@ -1087,7 +1087,7 @@ def stage_tar(args) -> None:
 def stage_upload(args) -> None:
     from huggingface_hub import HfApi
 
-    tar_path = ROOT / "solr_jobs_demo" / "solr_jobs_core.tar"
+    tar_path = ROOT / "jobs_search_demo" / "solr_jobs_core.tar"
     print(
         "[6] uploading to dtunkelang/jobs-demo (expect a 30-45 min stall near 99-100%)...",
         flush=True,
@@ -1109,7 +1109,7 @@ def stage_deploy(args) -> None:
 
     api = HfApi()
     space_id = "dtunkelang/jobs-search"
-    space_dir = ROOT / "solr_jobs_demo" / "space"
+    space_dir = ROOT / "jobs_search_demo" / "space"
     # The merged profile-match lane needs resume_match_lib.py (imported by app.py)
     # and pypdf (requirements.txt) on the Space — and the Dockerfile must COPY the
     # lib into the image, so push the Dockerfile too (not just app.py).
@@ -1191,7 +1191,7 @@ def main() -> int:
         "--skip-ats-extra",
         action="store_true",
         help="don't poll the extra Greenhouse/Lever/Ashby tenants in "
-        "solr_jobs_demo/extra_ats_slugs/cc_*_EXTRA.txt",
+        "jobs_search_demo/extra_ats_slugs/cc_*_EXTRA.txt",
     )
     ap.add_argument("--device", default="mps")
     ap.add_argument("--skip-download", action="store_true", help="reuse existing raw parquet")

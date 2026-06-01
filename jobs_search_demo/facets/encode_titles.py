@@ -15,7 +15,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 META = Path("/Users/dtunkelang/bagofdocs/unified_jobs/metadata.jsonl")
-OUT = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/title_bge.vecs.fp16.npy")
+OUT = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/title_bge.vecs.fp16.npy")
 
 
 def main() -> int:

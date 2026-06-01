@@ -15,9 +15,9 @@ from pathlib import Path
 
 import numpy as np
 
-FACETS_IN = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl")
-FACETS_OUT = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.v2.jsonl")
-TITLE_VECS = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/title_bge.vecs.fp16.npy")
+FACETS_IN = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl")
+FACETS_OUT = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.v2.jsonl")
+TITLE_VECS = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/title_bge.vecs.fp16.npy")
 CONF_THRESHOLD = 0.65  # min cosine to override 'other'
 MIN_SEEDS_PER_FAMILY = 50  # don't build a centroid from fewer seeds than this
 

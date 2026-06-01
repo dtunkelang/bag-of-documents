@@ -12,7 +12,7 @@ from pathlib import Path
 
 import requests
 
-FACETS = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl")
+FACETS = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl")
 SOLR = "http://localhost:8983"
 CORE = "jobs"
 BATCH = 500

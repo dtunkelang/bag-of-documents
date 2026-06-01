@@ -6,7 +6,7 @@
   and fires it on the next wake (cron silently skips it).
 
   Install:
-    cp solr_jobs_demo/launchd/com.dtunkelang.jobs-refresh.plist ~/Library/LaunchAgents/
+    cp jobs_search_demo/launchd/com.dtunkelang.jobs-refresh.plist ~/Library/LaunchAgents/
     launchctl load -w ~/Library/LaunchAgents/com.dtunkelang.jobs-refresh.plist
   Run once now (test):   launchctl start com.dtunkelang.jobs-refresh
   Tail the log:          tail -f ~/Library/Logs/jobs-refresh.log
@@ -20,7 +20,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/dtunkelang/bagofdocs/solr_jobs_demo/daily_jobs_refresh.sh</string>
+    <string>/Users/dtunkelang/bagofdocs/jobs_search_demo/daily_jobs_refresh.sh</string>
   </array>
 
   <!-- Every day at 03:00 local. Missed runs (laptop asleep) fire on wake. -->

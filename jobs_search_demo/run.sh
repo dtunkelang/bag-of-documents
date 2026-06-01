@@ -13,14 +13,14 @@ set -euo pipefail
 
 export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}
 SOLR_BIN=/opt/homebrew/opt/solr/bin/solr
-SOLR_HOME=/Users/dtunkelang/bagofdocs/solr_jobs_demo/solr_home
+SOLR_HOME=/Users/dtunkelang/bagofdocs/jobs_search_demo/solr_home
 SOLR_PORT=8983
 SHIM_PORT=7864
-SHIM_LOG=/Users/dtunkelang/bagofdocs/solr_jobs_demo/solr_shim.log
-SHIM_PID_FILE=/Users/dtunkelang/bagofdocs/solr_jobs_demo/solr_shim.pid
+SHIM_LOG=/Users/dtunkelang/bagofdocs/jobs_search_demo/solr_shim.log
+SHIM_PID_FILE=/Users/dtunkelang/bagofdocs/jobs_search_demo/solr_shim.pid
 PY=/Users/dtunkelang/bagofdocs/.venv/bin/python3
-HERE=/Users/dtunkelang/bagofdocs/solr_jobs_demo
-SPACE_DIR=/Users/dtunkelang/bagofdocs/solr_jobs_demo/space
+HERE=/Users/dtunkelang/bagofdocs/jobs_search_demo
+SPACE_DIR=/Users/dtunkelang/bagofdocs/jobs_search_demo/space
 
 cmd=${1:-start}
 

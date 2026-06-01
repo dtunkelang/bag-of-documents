@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from heuristics import classify_record
 
 META = Path("/Users/dtunkelang/bagofdocs/unified_jobs/metadata.jsonl")
-OUT = Path("/Users/dtunkelang/bagofdocs/solr_jobs_demo/facets/facets.jsonl")
+OUT = Path("/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl")
 
 
 def main() -> int:
