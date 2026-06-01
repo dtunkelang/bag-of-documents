@@ -392,7 +392,159 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
         "salary": _fmt_salary(hyd),
         "department": hyd.get("department") or "",
         "posted": (hyd.get("posted_at") or "")[:10],
+        "snippet": "",  # filled in by _attach_snippets at the endpoint layer
     }
+
+
+# ===== result snippets =====
+# description is stored but indexed=false (a single un-tokenized string token), so Solr
+# can't highlight it server-side without a reindex. Instead we extract the best passage in
+# Python over just the handful of DISPLAYED results: the sentence carrying the most
+# distinct query terms wins (a literal, query-relevant match) and its matched tokens are
+# wrapped in <em>. When nothing matches -- a dense-only hit with no lexical overlap -- we
+# fall back to the description lead, so a strong semantic match still shows a sensible
+# preview instead of a blank.
+SNIPPET_LEN = 240
+_SNIPPET_STOP = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "you",
+    "your",
+    "our",
+    "are",
+    "job",
+    "jobs",
+    "role",
+    "roles",
+    "work",
+    "will",
+    "this",
+    "that",
+    "from",
+    "have",
+    "all",
+    "who",
+}
+_SNIP_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.\-]*")
+_SNIP_SENT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _snippet_terms(query: str) -> list[str]:
+    """Lowercased content tokens of the query, deduped, used for scoring + highlighting."""
+    out: list[str] = []
+    for w in _SNIP_TOKEN.findall(query.lower()):
+        if len(w) > 1 and w not in _SNIPPET_STOP and w not in out:
+            out.append(w)
+    return out
+
+
+def _term_hit(word_lc: str, term: str) -> bool:
+    # exact, or the query term is a prefix of the doc word (cheap stem: python->pythonic,
+    # engineer->engineering). Prefix only for terms >= 4 chars, to avoid noisy matches.
+    return word_lc == term or (len(term) >= 4 and word_lc.startswith(term))
+
+
+def _distinct_hits(text: str, terms: list[str]) -> int:
+    words = {w.lower() for w in _SNIP_TOKEN.findall(text)}
+    return sum(1 for t in terms if any(_term_hit(w, t) for w in words))
+
+
+def _lead(text: str) -> str:
+    if len(text) <= SNIPPET_LEN:
+        return text
+    cut = text[:SNIPPET_LEN]
+    sp = cut.rfind(" ")
+    if sp > SNIPPET_LEN * 0.6:
+        cut = cut[:sp]
+    return cut.rstrip() + "…"
+
+
+def _window(text: str, terms: list[str]) -> str:
+    """Trim a long winning sentence to a window around its first matched token."""
+    if len(text) <= SNIPPET_LEN:
+        return text
+    pos = 0
+    for m in _SNIP_TOKEN.finditer(text):
+        if any(_term_hit(m.group(0).lower(), t) for t in terms):
+            pos = m.start()
+            break
+    start = max(0, pos - 50)
+    seg = text[start : start + SNIPPET_LEN]
+    if start > 0:
+        seg = "…" + seg.lstrip()
+    if start + SNIPPET_LEN < len(text):
+        seg = seg.rstrip() + "…"
+    return seg
+
+
+def _highlight(text: str, terms: list[str]) -> str:
+    """HTML-escape `text` and wrap matched word tokens in <em>. Returns safe HTML: only
+    <em> tags are introduced, every other character is escaped."""
+    out: list[str] = []
+    last = 0
+    for m in _SNIP_TOKEN.finditer(text):
+        word = m.group(0)
+        if any(_term_hit(word.lower(), t) for t in terms):
+            # keep internal punctuation (node.js, c#) but leave a trailing sentence
+            # period/comma outside the <em> so the highlight ends on the word.
+            core = word.rstrip(".,;:!?")
+            trail = word[len(core) :]
+            out.append(html.escape(text[last : m.start()]))
+            out.append("<em>" + html.escape(core) + "</em>" + html.escape(trail))
+            last = m.end()
+    out.append(html.escape(text[last:]))
+    return "".join(out)
+
+
+def _snippet_for(description: str, terms: list[str]) -> str:
+    """Best-passage snippet (safe HTML) for one description given query terms."""
+    text = _clean_text(description)
+    if not text:
+        return ""
+    if not terms:
+        return html.escape(_lead(text))
+    best, best_score = "", 0
+    for s in _SNIP_SENT.split(text):
+        s = s.strip()
+        if not s:
+            continue
+        score = _distinct_hits(s, terms)
+        if score > best_score:
+            best, best_score = s, score
+    if best_score == 0:
+        return html.escape(_lead(text))
+    return _highlight(_window(best, terms), terms)
+
+
+def _snippets(query: str, ids: list[int]) -> dict[int, str]:
+    """Fetch descriptions for the displayed ids in one Solr call and build a snippet for
+    each: a query-relevant passage with <em> highlights where the query lexically matches
+    the description, else the description lead."""
+    if not ids:
+        return {}
+    id_clause = " OR ".join(f'id:"{i}"' for i in ids)
+    r = requests.get(
+        f"{SOLR}/solr/{CORE}/select",
+        params={"q": id_clause, "rows": len(ids), "fl": "id,description"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    terms = _snippet_terms(query)
+    return {
+        int(d["id"]): _snippet_for(d.get("description") or "", terms)
+        for d in r.json()["response"]["docs"]
+    }
+
+
+def _attach_snippets(res: list[dict], query: str) -> None:
+    """Attach a `snippet` to each result row in place (one Solr fetch for the page)."""
+    if not res:
+        return
+    snips = _snippets(query, [row["idx"] for row in res if row.get("idx", -1) >= 0])
+    for row in res:
+        row["snippet"] = snips.get(row.get("idx"), "")
 
 
 class QSpec:
@@ -1091,6 +1243,8 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .r-title .t { font-weight: 500; }
 .r-title .m { color: #666; font-size: 0.85em; margin-top: 3px; }
 .r-title .m2 { color: #888; font-size: 0.8em; margin-top: 2px; font-style: italic; }
+.r-title .r-snip { color: #444; font-size: 0.85em; line-height: 1.45; margin-top: 4px; }
+.r-title .r-snip em { font-style: normal; font-weight: 600; background: #fff3cd; padding: 0 1px; border-radius: 2px; }
 .r-title .sep { color: #ccc; padding: 0 6px; }
 .detail { grid-column: 4 / 5; margin-top: 8px; padding: 10px 12px; background: #f7f7f9; border-left: 3px solid #c4c4cc; border-radius: 3px; white-space: pre-wrap; color: #333; font-size: 0.88em; line-height: 1.45; max-height: 480px; overflow-y: auto; }
 .detail.loading { color: #888; font-style: italic; }
@@ -1417,7 +1571,7 @@ function renderResults(div, items, ms) {
       const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
       fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}</div>`;
     }
-    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${fit}</span>`;
+    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}</span>`;
     if (r.idx != null && r.idx >= 0) {
       const titleCell = row.querySelector('.r-title');
       row.addEventListener('click', () => toggleDetail(r.idx, titleCell));
@@ -2053,6 +2207,8 @@ def api_search(
         res = browse_default(k, filters, start)
         retriever = "browse_recent"
         served = "Browse: recent + low-barrier [via Solr]"
+    # Highlight the typed query in each result's passage; seed/browse get a plain lead.
+    _attach_snippets(res, q if (spec is not None and spec.active and not spec.is_seed) else "")
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
@@ -2379,6 +2535,7 @@ async def api_search_personalized(request: Request):
     facets = compute_facets(
         spec or qspec_text(""), filters, qv_profile=(None if (spec and spec.active) else qv)
     )
+    _attach_snippets(res, q if (spec is not None and spec.active and not spec.is_seed) else "")
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
