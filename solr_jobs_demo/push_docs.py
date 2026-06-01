@@ -120,6 +120,16 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     # Per-doc industry override for staffing/employment-agency employers.
     from staffing_override import resolve_industry as _resolve_industry  # noqa: E402
 
+    # Embedding-derived role_family overrides for docs the title heuristics leave
+    # in 'other'. Keyed by source doc id (ensemble-gated e5 kNN, ~96% precision;
+    # see classify_other_emb.py). Applied over the heuristic role_family below.
+    emb_path = os.path.join(os.path.dirname(__file__), "role_family_emb_overrides.json")
+    role_emb_override: dict[str, str] = {}
+    if os.path.exists(emb_path):
+        with open(emb_path) as ef:
+            role_emb_override = json.load(ef)
+        print(f"  loaded {len(role_emb_override):,} embedding role_family overrides", flush=True)
+
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):
@@ -129,6 +139,9 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             title_display = (rec.get("title") or titles[i].split("\n", 1)[0]).strip()
             slug = rec.get("source_slug") or ""
             fac = facets.get(i, {})
+            emb_fam = role_emb_override.get(str(rec.get("id")))
+            if emb_fam and (fac.get("role_family") or "other") == "other":
+                fac = {**fac, "role_family": emb_fam}
             slug_ind = slug_to_industry.get(slug, "unclassified")
             doc_industry = _resolve_industry(
                 slug, slug_ind, fac.get("role_family") or "", title_display

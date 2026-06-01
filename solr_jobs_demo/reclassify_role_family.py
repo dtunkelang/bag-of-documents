@@ -19,12 +19,28 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent / "facets"))
+sys.path.insert(0, str(Path(__file__).parent))
 from heuristics import classify_role_family  # noqa: E402
+from push_docs import stable_id  # noqa: E402
 
 SOLR = "http://localhost:8983"
 CORE = "jobs"
 PAGE = 2000
 BATCH = 1000
+
+
+def load_emb_overrides() -> dict[str, str]:
+    """Embedding-derived role_family overrides (classify_other_emb.py), keyed by
+    source doc id -> converted to the Solr stable_id so the live re-class can apply
+    them. These aren't expressible as title heuristics, so without this they would
+    revert to 'other' on every reclassify/refresh."""
+    p = Path(__file__).parent / "role_family_emb_overrides.json"
+    if not p.exists():
+        return {}
+    import json
+
+    src = json.loads(p.read_text())
+    return {str(stable_id(k)): v for k, v in src.items()}
 
 
 def iter_docs():
@@ -66,12 +82,18 @@ def main(apply: bool) -> int:
     changed = 0
     transitions: dict[str, int] = {}
     batch: list[dict] = []
+    emb = load_emb_overrides()
+    if emb:
+        print(f"loaded {len(emb):,} embedding role_family overrides", flush=True)
     for doc in iter_docs():
         seen += 1
         title = doc.get("title_display") or ""
         desc = doc.get("description") or ""
         old = doc.get("role_family") or ""
         new = classify_role_family(title, desc)
+        # embedding override only fills genuine 'other' (never overrides a heuristic hit)
+        if new == "other":
+            new = emb.get(str(doc["id"]), new)
         if new != old:
             changed += 1
             transitions[f"{old or '<empty>'} -> {new}"] = (

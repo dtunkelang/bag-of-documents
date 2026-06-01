@@ -23,6 +23,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "demo.py" = ["E402"]  # FastAPI imports after setup code
 "compute_bags.py" = ["SIM115"]  # Long-lived file handle for JSONL append
+"solr_jobs_demo/classify_other_emb.py" = ["SIM115", "SIM905"]  # one-shot analysis loads
 "solr_movies_demo/app.py" = ["B008"]  # FastAPI Query() defaults are idiomatic
 "solr_movies_demo/space/app.py" = ["B008"]  # FastAPI Query() defaults are idiomatic
 "demo_resume_match.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
