@@ -451,15 +451,19 @@ def search_default(
     query: str,
     k: int = 10,
     filters: dict[str, str] | None = None,
+    offset: int = 0,
 ) -> list[dict]:
     """RRF(BM25, e5-small) with optional facet filters, then cap to
-    EMPLOYER_CAP results per employer for display diversity."""
+    EMPLOYER_CAP results per employer for display diversity. `offset` paginates:
+    the employer cap is applied across the full ranked list, then the [offset, offset+k]
+    window is returned, so paging is stable (page 2 never repeats a page-1 row)."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
-    pool_k = max(k * (cap + 2), k + 20) if cap > 0 else k
-    items = _fused_topk(query, pool_k, filters, RRF_POOL)
+    need = offset + k
+    pool_k = max(need * (cap + 2), need + 20) if cap > 0 else need
+    items = _fused_topk(query, pool_k, filters, max(RRF_POOL, pool_k))
     hyd = _hydrate([i for i, _ in items])
-    items = _cap_employers(items, hyd, k, filters)
-    return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
+    items = _cap_employers(items, hyd, need, filters)[offset : offset + k]
+    return [_make_result(offset + r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
 
 
 # ===== blank/browse default (no query): recent + low-barrier "minimal skills" =====
@@ -498,15 +502,19 @@ def _browse_topk(
     return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
 
 
-def browse_default(k: int = 10, filters: dict[str, str | list[str]] | None = None) -> list[dict]:
-    """Default browse: recent + low-barrier jobs, with facet filters applied."""
+def browse_default(
+    k: int = 10, filters: dict[str, str | list[str]] | None = None, offset: int = 0
+) -> list[dict]:
+    """Default browse: recent + low-barrier jobs, with facet filters applied.
+    `offset` paginates the same way as search_default."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
-    pool_k = max(k * (cap + 2), k + 20) if cap > 0 else k
+    need = offset + k
+    pool_k = max(need * (cap + 2), need + 20) if cap > 0 else need
     items = _browse_topk(max(pool_k, 200), filters)
     hyd = _hydrate([i for i, _ in items])
     # No query intent in a blank browse, so keep employer diversity (no dominance bypass).
-    items = _cap_employers(items, hyd, k, filters, dominance_bypass=False)
-    return [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
+    items = _cap_employers(items, hyd, need, filters, dominance_bypass=False)[offset : offset + k]
+    return [_make_result(offset + r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
 
 
 # ===== "more jobs like this one": doc -> similar docs =====
@@ -682,32 +690,51 @@ FACET_TAIL_VALUES = {
 }
 
 
-def _retrieve_for_facets(
+# Facet rank decay: weight a doc's facet contributions by 1/(rank+1)**FACET_DECAY_POW.
+# A steep (>1) exponent makes the VISIBLE head of the list dominate facet ordering, while
+# the long tail still contributes enough to surface values that aren't on the first page.
+# At 1.0 this degraded to near-volume-weighting (harmonic tail mass ~ ln(pool) swamped the
+# head); 2.0 puts ~95% of the weight in the first page. Env-tunable.
+FACET_DECAY_POW = float(os.environ.get("FACET_DECAY_POW", "2.0"))
+
+
+def _facet_pool(
     query: str,
     filters: dict[str, str | list[str]],
     pool: int,
     qv_profile: list[float] | None = None,
-) -> list[tuple[int, float]]:
-    """The retrieval whose top-`pool` docs we facet over, so facet values always match
-    what the user is actually looking at: fused query results when there's a query;
-    else a profile-KNN pool when a profile is driving a blank personalized browse;
-    else the blank recency-browse pool."""
+) -> tuple[list[tuple[int, float]], dict[int, dict]]:
+    """The employer-capped, ranked list we facet over — the SAME list the user pages
+    through, so facet ordering reconciles with the visible results rather than being
+    driven by a deeper, uncapped pool. Fused query results when there's a query; else a
+    profile-KNN pool when a profile drives a blank personalized browse; else the blank
+    recency-browse pool. Returns (capped_items, hydration)."""
     if query and query.strip():
-        return _fused_topk(query, pool, filters, pool)
-    if qv_profile is not None:
-        return _topk_knn("e5_vec", qv_profile, pool, filters)
-    return _browse_topk(pool, filters, pool)
+        items = _fused_topk(query, pool, filters, pool)
+        dominance_bypass = True
+    elif qv_profile is not None:
+        items = _topk_knn("e5_vec", qv_profile, pool, filters)
+        dominance_bypass = False
+    else:
+        items = _browse_topk(pool, filters, pool)
+        dominance_bypass = False
+    hyd = _hydrate([i for i, _ in items], with_facets=True)
+    # Same per-employer cap as search_default/browse_default, so one shop posting many
+    # near-identical roles can't dominate the facet tally any more than it dominates the page.
+    items = _cap_employers(items, hyd, pool, filters, dominance_bypass=dominance_bypass)
+    return items, hyd
 
 
-def _aggregate_facets(items: list[tuple[int, float]]) -> dict[str, list[tuple[str, float]]]:
-    """Rank-weighted (1/(rank+1)) value tallies per facet field over `items`, so values
-    at the head of the result list dominate ordering. Tail values (role 'other',
+def _aggregate_facets(
+    items: list[tuple[int, float]], hyd: dict[int, dict]
+) -> dict[str, list[tuple[str, float]]]:
+    """Rank-weighted value tallies per facet field over `items`, weighted by
+    1/(rank+1)**FACET_DECAY_POW so the head of the result list dominates ordering while
+    tail docs still fill in values absent from the first page. Tail values (role 'other',
     'unclassified') sink to the bottom. Ordinal/static ordering is applied client-side."""
-    ids = [i for i, _ in items]
-    hyd = _hydrate(ids, with_facets=True)
     weights: dict[str, dict[str, float]] = {f: defaultdict(float) for f in FACET_FIELDS}
     for rank, (i, _s) in enumerate(items):
-        w = 1.0 / (rank + 1)
+        w = 1.0 / (rank + 1) ** FACET_DECAY_POW
         d = hyd.get(i, {})
         for f in FACET_FIELDS:
             v = d.get(f)
@@ -762,12 +789,12 @@ def compute_facets(
     When qv_profile is given (personalized blank browse), the pool is the profile-KNN
     set, so facets reflect the profile-ranked results, not the generic recency browse."""
     filters = filters or {}
-    out = _aggregate_facets(_retrieve_for_facets(query, filters, pool, qv_profile))
+    out = _aggregate_facets(*_facet_pool(query, filters, pool, qv_profile))
     for f in list(filters):
         if not filters[f]:
             continue
         alt = {k: v for k, v in filters.items() if k != f}
-        out[f] = _aggregate_facets(_retrieve_for_facets(query, alt, pool, qv_profile)).get(
+        out[f] = _aggregate_facets(*_facet_pool(query, alt, pool, qv_profile)).get(
             f, out.get(f, [])
         )
     # posted_bucket is a navigational time ladder, not a relevance read: on a blank
@@ -825,7 +852,7 @@ app = FastAPI(title="Jobs Search Demo (Solr)", lifespan=lifespan)
 
 
 HTML_PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><title>__PAGE_TITLE__</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>__PAGE_TITLE__</title>
 <style>
 body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 30px auto; padding: 0 16px; color: #222; }
 h1 { font-size: 1.4em; margin-bottom: 8px; }
@@ -950,6 +977,37 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .geomap .hasdata, .geomap .hasdata path { fill: #bcd3ef; }
 .geomap .sel, .geomap .sel path { fill: #2b6cb0; }
 .geomap .sel:hover, .geomap .sel:hover path { fill: #245a96; }
+/* ===== pagination ===== */
+.pager { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 14px 0 4px; }
+.pager button { padding: 6px 16px; font-size: 0.9em; }
+.pager button[disabled] { opacity: 0.4; cursor: default; }
+.pg-info { color: #888; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+/* ===== responsive / mobile ===== */
+/* "Filters" toggle is desktop-hidden; on narrow screens the facet rail collapses
+   behind it so results are visible immediately and filters are one tap away. */
+.facet-toggle { display: none; }
+@media (max-width: 760px) {
+  body { margin: 14px auto; padding: 0 12px; }
+  h1 { font-size: 1.18em; }
+  .subtle { font-size: 0.84em; margin-bottom: 12px; }
+  /* iOS zooms the page when focusing an input < 16px; pin form fields to 16px. */
+  #query, #own-text, #own-loc { font-size: 16px; }
+  /* single-column: results first, facet rail collapsed by default. */
+  .layout { grid-template-columns: 1fr; gap: 12px; }
+  .facets { display: none; }
+  .layout.show-facets .facets { display: block; order: -1; margin-bottom: 4px; }
+  .facet-toggle { display: inline-block; margin-bottom: 10px; padding: 7px 14px; font-size: 0.9em; }
+  .facet .opt { padding: 8px 0; }   /* larger tap targets */
+  .facet { margin-bottom: 10px; }
+  /* result rows: drop the rank/score debug columns, let the title own the width. */
+  .result { grid-template-columns: 1fr; gap: 3px; padding: 11px 0; }
+  .r-rank, .r-score { display: none; }
+  .r-source { font-size: 0.72em; }
+  .detail { grid-column: 1 / -1; max-height: 60vh; }
+  /* profile cos-vs-filter panels stack instead of sitting two-up. */
+  .panels { grid-template-columns: 1fr; }
+  .jobdetail { max-height: 50vh; }
+}
 </style></head>
 <body>
 <h1>__PAGE_TITLE__</h1>
@@ -980,6 +1038,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 </div>
 <div id="badge-row"></div>
 <div id="active-filters" class="active-filters"></div>
+<button id="facet-toggle" class="facet-toggle" onclick="toggleFacets()">&#9776; Filters</button>
 <div class="layout">
   <div class="facets" id="facets"></div>
   <div class="results-panel">
@@ -1007,6 +1066,7 @@ let profile = null;   // parsed profile {r, qv} from /api/match_profile; client-
 let profileSuggestions = [];   // [{q, n}] profile-derived searches; shown in the related slot on a blank personalized browse
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toggleFacets() { document.querySelector('.layout').classList.toggle('show-facets'); }
 function closeSuggest() { suggestBox.style.display = 'none'; suggestActive = -1; }
 function renderSuggest(items) {
   // items are {text}; rendered as plain suggestions (no source badge).
@@ -1400,27 +1460,63 @@ function closeMap() { document.getElementById('map-modal').style.display = 'none
 document.querySelector('.map-close').addEventListener('click', closeMap);
 document.querySelector('.map-done').addEventListener('click', closeMap);
 document.getElementById('map-modal').addEventListener('click', e => { if (e.target.id === 'map-modal') closeMap(); });
+// ===== pagination for the main search/browse list =====
+// Facets/related are page-independent (computed over the whole pool), so paging only
+// re-fetches results. Any new query or filter change goes back through runSearch, which
+// resets to page 1; the Prev/Next pager moves the window without touching facets.
+let resultsOffset = 0;
+const PAGE_SIZE = 10;
+let lastSearchQs = '';
+
+function renderPager(div, count) {
+  const hasPrev = resultsOffset > 0;
+  const hasNext = count >= PAGE_SIZE;   // a full page implies there may be more
+  if (!hasPrev && !hasNext) return;
+  const from = count ? resultsOffset + 1 : resultsOffset;
+  const bar = document.createElement('div');
+  bar.className = 'pager';
+  bar.innerHTML =
+    `<button class="pg-prev"${hasPrev ? '' : ' disabled'}>&lsaquo; Prev</button>`
+    + `<span class="pg-info">${from}&ndash;${resultsOffset + count}</span>`
+    + `<button class="pg-next"${hasNext ? '' : ' disabled'}>Next &rsaquo;</button>`;
+  div.appendChild(bar);
+  if (hasPrev) bar.querySelector('.pg-prev').addEventListener('click', () => changePage(-1));
+  if (hasNext) bar.querySelector('.pg-next').addEventListener('click', () => changePage(1));
+}
+
+async function fetchResultsPage(q) {
+  const div = document.getElementById('results');
+  div.innerHTML = q ? '<div class="empty">searching...</div>' : '<div class="empty">loading recent jobs…</div>';
+  const searchRes = await fetch(
+    `/api/search?q=${encodeURIComponent(q)}&start=${resultsOffset}${lastSearchQs}`
+  ).then(r => r.json());
+  if (searchRes.served_with) {
+    document.getElementById('badge-row').innerHTML =
+      `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
+  }
+  renderResults(div, searchRes.results, searchRes.ms);
+  renderPager(div, (searchRes.results || []).length);
+}
+
+function changePage(delta) {
+  resultsOffset = Math.max(0, resultsOffset + delta * PAGE_SIZE);
+  fetchResultsPage(lastQuery);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 async function runSearch() {
   const q = input.value.trim();
   lastQuery = q;
   closeSuggest();
   if (profile && document.getElementById('pz-on').checked) { return runPersonalized(q); }
-  const div = document.getElementById('results');
-  const badgeRow = document.getElementById('badge-row');
-  badgeRow.innerHTML = '';
-  div.innerHTML = q ? '<div class="empty">searching...</div>' : '<div class="empty">loading recent jobs…</div>';
+  document.getElementById('badge-row').innerHTML = '';
+  resultsOffset = 0;            // new query/filter context — back to page 1
   renderActiveFilters();
-  const qs = buildFilterQS();
-  // Fire search + facets in parallel.
-  const [searchRes, facetRes] = await Promise.all([
-    fetch(`/api/search?q=${encodeURIComponent(q)}${qs}`).then(r => r.json()),
-    fetch(`/api/facets?q=${encodeURIComponent(q)}${qs}`).then(r => r.json()),
-  ]);
-  if (searchRes.served_with) {
-    badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
-  }
-  renderResults(div, searchRes.results, searchRes.ms);
-  renderFacets(facetRes.facets);
+  lastSearchQs = buildFilterQS();
+  // Facets are page-independent, so fetch them once alongside the first page.
+  const facetP = fetch(`/api/facets?q=${encodeURIComponent(q)}${lastSearchQs}`).then(r => r.json());
+  await fetchResultsPage(q);
+  renderFacets((await facetP).facets);
   loadRelated(q);
 }
 
@@ -1687,11 +1783,13 @@ def _parse_filters(request: Request) -> dict[str, str | list[str]]:
 
 
 @app.get("/api/search")
-def api_search(request: Request, q: str = Query(""), k: int = Query(10)):
-    """Keyword search, or — when q is blank — the recent/low-barrier browse default."""
+def api_search(request: Request, q: str = Query(""), k: int = Query(10), start: int = Query(0)):
+    """Keyword search, or — when q is blank — the recent/low-barrier browse default.
+    `start` is the pagination offset (0-based) into the employer-capped ranked list."""
     filters = _parse_filters(request)
+    start = max(0, start)
     t0 = time.time()
-    res = search_default(q, k, filters) if q.strip() else browse_default(k, filters)
+    res = search_default(q, k, filters, start) if q.strip() else browse_default(k, filters, start)
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
@@ -1699,6 +1797,7 @@ def api_search(request: Request, q: str = Query(""), k: int = Query(10)):
             "retriever": "rrf_bm25_e5" if q.strip() else "browse_recent",
             "served_with": SERVING_MODE if q.strip() else "Browse: recent + low-barrier [via Solr]",
             "filters": filters,
+            "start": start,
             "results": res,
             "ms": ms,
         }
