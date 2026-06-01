@@ -271,65 +271,91 @@ def _already_rescued() -> set[str]:
     return set(json.loads(p.read_text())) if p.exists() else set()
 
 
+SHARD_LINES = 20000  # OpenAI batch input file cap is 200MB; ~5.8KB/line -> shard
+
+
 def build_batch(out_path: Path):
+    """Write sharded JSONL (<=SHARD_LINES each) to stay under the 200MB batch cap.
+    Returns the list of shard paths."""
     ids, y, txt = _load()
     skip = _already_rescued()
     others = [did for did, fam in zip(ids, y) if fam == "other" and did not in skip]
-    with open(out_path, "w") as f:
-        for did in others:
-            t, d = txt[did]
-            req = {
-                "custom_id": did,
-                "method": "POST",
-                "url": "/v1/chat/completions",
-                "body": {
-                    "model": MODEL,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM},
-                        {"role": "user", "content": user_msg(t, d)},
-                    ],
-                    "response_format": {"type": "json_schema", "json_schema": SCHEMA},
-                    "temperature": 0,
-                },
-            }
-            f.write(json.dumps(req) + "\n")
-    print(f"wrote {len(others):,} requests -> {out_path} (skipped {len(skip):,} already rescued)")
-    return out_path
-
-
-def submit_batch(jsonl: Path):
-    client = _client()
-    up = client.files.create(file=open(jsonl, "rb"), purpose="batch")
-    b = client.batches.create(
-        input_file_id=up.id,
-        endpoint="/v1/chat/completions",
-        completion_window="24h",
-        metadata={"task": "role_family_other_rescue"},
+    shards = []
+    for s in range(0, len(others), SHARD_LINES):
+        chunk = others[s : s + SHARD_LINES]
+        shard = out_path.with_suffix(f".{s // SHARD_LINES:03d}.jsonl")
+        with open(shard, "w") as f:
+            for did in chunk:
+                t, d = txt[did]
+                req = {
+                    "custom_id": did,
+                    "method": "POST",
+                    "url": "/v1/chat/completions",
+                    "body": {
+                        "model": MODEL,
+                        "messages": [
+                            {"role": "system", "content": SYSTEM},
+                            {"role": "user", "content": user_msg(t, d)},
+                        ],
+                        "response_format": {"type": "json_schema", "json_schema": SCHEMA},
+                        "temperature": 0,
+                    },
+                }
+                f.write(json.dumps(req) + "\n")
+        shards.append(shard)
+    print(
+        f"wrote {len(others):,} requests across {len(shards)} shards "
+        f"(skipped {len(skip):,} already rescued)"
     )
-    BATCH_ID_FILE.write_text(b.id)
-    print(f"submitted batch {b.id} (status={b.status}); id saved -> {BATCH_ID_FILE.name}")
+    return shards
+
+
+def submit_batch(shards: list[Path]):
+    client = _client()
+    ids = []
+    for shard in shards:
+        up = client.files.create(file=open(shard, "rb"), purpose="batch")
+        b = client.batches.create(
+            input_file_id=up.id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+            metadata={"task": "role_family_other_rescue", "shard": shard.name},
+        )
+        ids.append(b.id)
+        print(f"submitted {shard.name} -> batch {b.id} (status={b.status})")
+    BATCH_ID_FILE.write_text("\n".join(ids) + "\n")
+    print(f"saved {len(ids)} batch ids -> {BATCH_ID_FILE.name}")
+
+
+def _batch_ids() -> list[str]:
+    return [x for x in BATCH_ID_FILE.read_text().splitlines() if x.strip()]
 
 
 def poll_batch():
     client = _client()
-    bid = BATCH_ID_FILE.read_text().strip()
-    b = client.batches.retrieve(bid)
-    rc = b.request_counts
-    print(f"batch {bid}: status={b.status} completed={rc.completed}/{rc.total} failed={rc.failed}")
-    return b.status
+    statuses = []
+    for bid in _batch_ids():
+        b = client.batches.retrieve(bid)
+        rc = b.request_counts
+        statuses.append(b.status)
+        print(f"  {bid}: status={b.status} completed={rc.completed}/{rc.total} failed={rc.failed}")
+    done = all(s == "completed" for s in statuses)
+    print(f"all completed: {done}")
+    return statuses
 
 
 def parse_batch(apply: bool):
-    """Download completed batch output, keep allowlisted family labels, write
+    """Download all completed batch shards, keep allowlisted family labels, write
     role_family_llm_overrides.json (separate from the embedding file so the nightly
     refresh that regenerates the embedding file never clobbers these)."""
     client = _client()
-    bid = BATCH_ID_FILE.read_text().strip()
-    b = client.batches.retrieve(bid)
-    if b.status != "completed":
-        print(f"batch not complete (status={b.status}); aborting")
-        return
-    content = client.files.content(b.output_file_id).text
+    content = ""
+    for bid in _batch_ids():
+        b = client.batches.retrieve(bid)
+        if b.status != "completed":
+            print(f"batch {bid} not complete (status={b.status}); aborting")
+            return
+        content += client.files.content(b.output_file_id).text
     skip = _already_rescued()
     kept, assigned, abstain, dropped_fam, conflict = {}, 0, 0, 0, 0
     fam_counts = Counter()
