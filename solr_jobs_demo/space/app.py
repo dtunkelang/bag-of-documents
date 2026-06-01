@@ -385,19 +385,62 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
     }
 
 
+class QSpec:
+    """A retrieval intent that the whole pipeline (search, facets, pagination,
+    personalization) operates on, so a typed query and a "more jobs like this" seed
+    travel the SAME code path. Two flavours:
+      * typed text  -> bm25_text == dense_text == the query, no exclusion.
+      * seed job     -> bm25_text = the seed title (crisp lexical anchor), dense_text =
+        title + description lead (semantic intent), and `exclude` drops the seed itself
+        from its own neighbour list. e5_vec is stored=false, so the seed text is
+        re-embedded at query time — the same asymmetric "query: " prefix bridges to the
+        indexed "passage: " vectors, exactly as a typed query does.
+    A seed sets `exclude`; that also signals the employer-dominance bypass should be OFF
+    (the user clicked a role, not an employer)."""
+
+    __slots__ = ("bm25_text", "dense_text", "exclude")
+
+    def __init__(self, bm25_text: str, dense_text: str, exclude: int | None = None):
+        self.bm25_text = bm25_text or ""
+        self.dense_text = dense_text or ""
+        self.exclude = exclude
+
+    @property
+    def active(self) -> bool:
+        return bool(self.bm25_text.strip() or self.dense_text.strip())
+
+    @property
+    def is_seed(self) -> bool:
+        return self.exclude is not None
+
+
+def qspec_text(q: str) -> QSpec:
+    q = (q or "").strip()
+    return QSpec(q, q)
+
+
 def _fused_topk(
-    query: str,
+    spec: QSpec,
     k: int,
     filters: dict[str, str] | None = None,
     pool: int = RRF_POOL,
 ) -> list[tuple[int, float]]:
-    """Run BM25 + e5-small lanes and RRF-fuse to top-k."""
+    """Run BM25 + e5-small lanes for a QSpec and RRF-fuse to top-k. When the spec
+    excludes a doc (a seed), each lane pulls one extra so dropping the seed still leaves
+    a full pool."""
+    depth = pool + (1 if spec.exclude is not None else 0)
     contrib: dict[int, float] = defaultdict(float)
-    for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
-        contrib[idx] += 1.0 / (RRF_K + rank)
+    if spec.bm25_text.strip():
+        for rank, (idx, _) in enumerate(_topk_bm25(spec.bm25_text, depth, filters), 1):
+            if idx != spec.exclude:
+                contrib[idx] += 1.0 / (RRF_K + rank)
     # Solr field "e5_vec" holds e5-small-v2 vectors (384-dim, passage: prefix at index time).
-    for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
-        contrib[idx] += 1.0 / (RRF_K + rank)
+    if spec.dense_text.strip():
+        for rank, (idx, _) in enumerate(
+            _topk_knn("e5_vec", _dense_qv(spec.dense_text), depth, filters), 1
+        ):
+            if idx != spec.exclude:
+                contrib[idx] += 1.0 / (RRF_K + rank)
     return sorted(contrib.items(), key=lambda x: -x[1])[:k]
 
 
@@ -447,22 +490,174 @@ def _cap_employers(
     return kept
 
 
+# "More jobs like this" is a similarity read, not a navigational filter — so a seed
+# does NOT get the per-employer diversity cap. Instead we only collapse literal reprints:
+# the exact same req (one employer, same normalized title) posted across many locations,
+# which would otherwise fill the page with identical rows. SEED_EMPLOYER_CAP (default 0 =
+# uncapped) can still bound any single employer if a softer limit is ever wanted.
+SEED_EMPLOYER_CAP = int(os.environ.get("SEED_EMPLOYER_CAP", "0"))
+_TITLE_NORM = re.compile(r"[^a-z0-9]+")
+_TOK = re.compile(r"[a-z0-9]+")
+_SEG_SEP = re.compile(r"\s*[-–—]\s*")  # ATS titles delimit geo prefixes with hyphen/dash
+
+# US state codes + names — leading title segments matching one of these (or a token from
+# the job's own location) are stripped before the reprint check, so "GA - Atlanta - RN
+# Case Manager" and "PA - Philadelphia - RN Case Manager" collapse to one role.
+_STATE_CODES = (  # noqa: SIM905 — a space-split string reads better than 51 quoted items
+    "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO "
+    "MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY"
+).split()
+_US_STATES = frozenset(
+    [c.lower() for c in _STATE_CODES]
+    + [
+        "alabama",
+        "alaska",
+        "arizona",
+        "arkansas",
+        "california",
+        "colorado",
+        "connecticut",
+        "delaware",
+        "florida",
+        "georgia",
+        "hawaii",
+        "idaho",
+        "illinois",
+        "indiana",
+        "iowa",
+        "kansas",
+        "kentucky",
+        "louisiana",
+        "maine",
+        "maryland",
+        "massachusetts",
+        "michigan",
+        "minnesota",
+        "mississippi",
+        "missouri",
+        "montana",
+        "nebraska",
+        "nevada",
+        "new hampshire",
+        "new jersey",
+        "new mexico",
+        "new york",
+        "north carolina",
+        "north dakota",
+        "ohio",
+        "oklahoma",
+        "oregon",
+        "pennsylvania",
+        "rhode island",
+        "south carolina",
+        "south dakota",
+        "tennessee",
+        "texas",
+        "utah",
+        "vermont",
+        "virginia",
+        "washington",
+        "west virginia",
+        "wisconsin",
+        "wyoming",
+        "district of columbia",
+        "remote",
+    ]
+)
+
+
+def _norm_title(t: str) -> str:
+    return _TITLE_NORM.sub(" ", (t or "").lower()).strip()
+
+
+def _loc_tokens(d: dict) -> set[str]:
+    """Lowercased word tokens from a doc's location strings (e.g. 'Atlanta, GA' ->
+    {'atlanta','ga'}) — corroborating evidence that a leading title segment is geo."""
+    toks: set[str] = set()
+    for loc in d.get("locations") or []:
+        toks.update(_TOK.findall((loc or "").lower()))
+    return toks
+
+
+def _strip_geo_prefix(title: str, loc_tokens: set[str]) -> str:
+    """Drop leading 'STATE - [City -]' location prefixes (a common ATS title convention)
+    so the same role posted across locations collapses in the reprint check. A leading
+    segment is stripped only if it's a US state code/name OR shares a token with the
+    job's own location; the scan stops at the first non-geo segment, so a legitimate
+    title like 'TX - Senior Manager - Clinical Quality' keeps 'Senior Manager - …'. The
+    final segment is never stripped, so a fully-geo title can't vanish."""
+    parts = _SEG_SEP.split(title.strip())
+    i = 0
+    while i < len(parts) - 1:
+        seg = parts[i].strip().lower()
+        seg_toks = _TOK.findall(seg)
+        if seg in _US_STATES or (
+            loc_tokens and seg_toks and any(t in loc_tokens for t in seg_toks)
+        ):
+            i += 1
+        else:
+            break
+    return " - ".join(parts[i:]).strip()
+
+
+def _reprint_key(d: dict) -> tuple[str, str]:
+    """(employer, geo-stripped normalized title) — the identity used to collapse the same
+    req reposted across locations within one employer's seed neighbourhood."""
+    emp = (d.get("employer") or "").strip().lower()
+    title = _strip_geo_prefix(d.get("title_display") or "", _loc_tokens(d))
+    return (emp, _norm_title(title))
+
+
+def _diversify_seed(
+    items: list[tuple[int, float]], hyd: dict[int, dict], k: int
+) -> list[tuple[int, float]]:
+    """Seed diversification: keep similarity order, but drop reprints (same employer +
+    same geo-stripped title) so the same role reposted across cities doesn't crowd out
+    genuinely distinct similar jobs. No per-employer cap unless SEED_EMPLOYER_CAP > 0."""
+    kept: list[tuple[int, float]] = []
+    seen_reprint: set[tuple[str, str]] = set()
+    emp_count: dict[str, int] = defaultdict(int)
+    for idx, score in items:
+        d = hyd.get(idx, {})
+        emp = (d.get("employer") or "").strip().lower()
+        key = _reprint_key(d)
+        if emp and key in seen_reprint:
+            continue
+        if SEED_EMPLOYER_CAP > 0 and emp and emp_count[emp] >= SEED_EMPLOYER_CAP:
+            continue
+        kept.append((idx, score))
+        if emp:
+            seen_reprint.add(key)
+            emp_count[emp] += 1
+        if len(kept) >= k:
+            break
+    return kept
+
+
 def search_default(
-    query: str,
+    spec: QSpec,
     k: int = 10,
     filters: dict[str, str] | None = None,
     offset: int = 0,
 ) -> list[dict]:
-    """RRF(BM25, e5-small) with optional facet filters, then cap to
-    EMPLOYER_CAP results per employer for display diversity. `offset` paginates:
-    the employer cap is applied across the full ranked list, then the [offset, offset+k]
-    window is returned, so paging is stable (page 2 never repeats a page-1 row)."""
+    """RRF(BM25, e5-small) for a QSpec (typed query or seed job) with optional facet
+    filters, then cap to EMPLOYER_CAP results per employer for display diversity.
+    `offset` paginates: the employer cap is applied across the full ranked list, then the
+    [offset, offset+k] window is returned, so paging is stable (page 2 never repeats a
+    page-1 row). A seed disables the dominance bypass — near-duplicate postings from one
+    shop add little when the user picked a role, not an employer."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
     need = offset + k
     pool_k = max(need * (cap + 2), need + 20) if cap > 0 else need
-    items = _fused_topk(query, pool_k, filters, max(RRF_POOL, pool_k))
+    # A seed keeps a deeper fused pool so reprint collapsing still fills the page.
+    if spec.is_seed:
+        pool_k = max(pool_k, RRF_POOL)
+    items = _fused_topk(spec, pool_k, filters, max(RRF_POOL, pool_k))
     hyd = _hydrate([i for i, _ in items])
-    items = _cap_employers(items, hyd, need, filters)[offset : offset + k]
+    if spec.is_seed:
+        items = _diversify_seed(items, hyd, need)[offset : offset + k]
+    else:
+        items = _cap_employers(items, hyd, need, filters)[offset : offset + k]
     return [_make_result(offset + r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
 
 
@@ -517,13 +712,14 @@ def browse_default(
     return [_make_result(offset + r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(items)]
 
 
-# ===== "more jobs like this one": doc -> similar docs =====
-# Same RRF(BM25, e5-small) machinery as search_default, but the "query" is a source
-# job rather than typed text: the title drives the BM25 lane, and title + the lead of
-# the description drives the e5 dense lane. e5_vec is stored=false so we can't read the
-# source doc's stored vector back — re-embedding its text at query time is the only way
-# to KNN from it, and it lets the same asymmetric "query: " prefix bridge to the indexed
-# "passage: " vectors. The source doc is dropped from its own neighbour list.
+# ===== "more jobs like this one": a seed job becomes a QSpec =====
+# A seed job is just an alternate query SOURCE: the title drives the BM25 lane (a crisp
+# lexical anchor), and title + the lead of the description drives the e5 dense lane. From
+# there it rides the identical search_default / compute_facets / pagination /
+# personalization pipeline as a typed query — so a seed search gets the full facet rail,
+# filters, paging, and profile re-rank for free. e5_vec is stored=false, so the seed text
+# is re-embedded at query time (the asymmetric "query: " prefix bridges to the indexed
+# "passage: " vectors). The seed is dropped from its own neighbour list via QSpec.exclude.
 
 MLT_DESC_CHARS = 900  # lead of the description fed to the dense encoder (e5-small @ 512 tok)
 
@@ -539,33 +735,22 @@ def _source_doc(idx: int) -> dict | None:
     return docs[0] if docs else None
 
 
-def more_like_this(idx: int, k: int = 10) -> dict:
-    """Find jobs similar to job `idx` via RRF(BM25-on-title, e5-dense-on-title+lead)."""
+def qspec_seed(idx: int) -> QSpec | None:
+    """Build the QSpec for a "more jobs like this" seed: BM25 on the seed title, dense on
+    title + description lead, excluding the seed itself. Returns None if idx isn't found."""
     src = _source_doc(idx)
     if src is None:
-        return {"source": None, "results": []}
+        return None
     title = (src.get("title_display") or "").strip()
     desc = (src.get("description") or "").strip()
-    seed = (title + ". " + desc)[: len(title) + 2 + MLT_DESC_CHARS] if desc else title
-    contrib: dict[int, float] = defaultdict(float)
-    # dense lane (+1 pool depth so dropping the source doc leaves a full pool)
-    for rank, (i, _) in enumerate(_topk_knn("e5_vec", _dense_qv(seed), RRF_POOL + 1), 1):
-        if i != idx:
-            contrib[i] += 1.0 / (RRF_K + rank)
-    # bm25 lane on the source title
-    if title:
-        for rank, (i, _) in enumerate(_topk_bm25(title, RRF_POOL + 1), 1):
-            if i != idx:
-                contrib[i] += 1.0 / (RRF_K + rank)
-    ranked = sorted(contrib.items(), key=lambda x: -x[1])
-    pool = ranked[: max(k * (EMPLOYER_CAP + 2), k + 20)]
-    hyd = _hydrate([i for i, _ in pool])
-    capped = _cap_employers(pool, hyd, k, None, dominance_bypass=False)
-    results = [_make_result(r + 1, s, i, hyd.get(i, {})) for r, (i, s) in enumerate(capped)]
-    return {
-        "source": {"idx": idx, "title": _clean_text(title)},
-        "results": results,
-    }
+    dense = (title + ". " + desc)[: len(title) + 2 + MLT_DESC_CHARS] if desc else title
+    return QSpec(bm25_text=title, dense_text=dense or title, exclude=idx)
+
+
+def seed_title(idx: int) -> str:
+    """Cleaned display title for a seed job (used to label the seed in the UI)."""
+    src = _source_doc(idx)
+    return _clean_text((src.get("title_display") or "").strip()) if src else ""
 
 
 # ===== personalized search (keyword query re-ranked by an uploaded profile) =====
@@ -574,24 +759,30 @@ PROF_WEIGHT = float(os.environ.get("PROF_WEIGHT", "1.0"))
 
 
 def _personalized_topk(
-    query: str,
+    spec: QSpec,
     qv_profile: list[float],
     k: int,
     filters: dict[str, str] | None = None,
     pool: int = RRF_POOL,
     prof_weight: float = PROF_WEIGHT,
 ) -> tuple[list[tuple[int, float]], dict[int, float]]:
-    """RRF(BM25, e5-small) for the query, then a third lane that re-ranks the query's
-    OWN candidates by profile fit. The keyword query still defines what's eligible
-    (we never inject off-query jobs), but every candidate is scored against the profile
-    — so a profile reshapes essentially any query, including ones far from it (a
+    """RRF(BM25, e5-small) for the QSpec (typed query OR seed job), then a third lane
+    that re-ranks the candidates by profile fit. The query/seed still defines what's
+    eligible (we never inject off-query jobs), but every candidate is scored against the
+    profile — so a profile reshapes essentially any query, including ones far from it (a
     data-engineer profile floats the most data/eng-flavored 'manager' jobs up). Returns
     (ranked, prof_cos) where prof_cos maps idx -> profile cosine for EVERY candidate."""
     contrib: dict[int, float] = defaultdict(float)
-    for rank, (idx, _) in enumerate(_topk_bm25(query, pool, filters), 1):
-        contrib[idx] += 1.0 / (RRF_K + rank)
-    for rank, (idx, _) in enumerate(_topk_knn("e5_vec", _dense_qv(query), pool, filters), 1):
-        contrib[idx] += 1.0 / (RRF_K + rank)
+    if spec.bm25_text.strip():
+        for rank, (idx, _) in enumerate(_topk_bm25(spec.bm25_text, pool, filters), 1):
+            if idx != spec.exclude:
+                contrib[idx] += 1.0 / (RRF_K + rank)
+    if spec.dense_text.strip():
+        for rank, (idx, _) in enumerate(
+            _topk_knn("e5_vec", _dense_qv(spec.dense_text), pool, filters), 1
+        ):
+            if idx != spec.exclude:
+                contrib[idx] += 1.0 / (RRF_K + rank)
     # Rank the query candidates by profile fit and blend that rank in as a third lane.
     prof_hits = _knn_over_ids("e5_vec", qv_profile, list(contrib.keys()))
     prof_cos = {idx: cos for idx, cos in prof_hits}
@@ -611,24 +802,27 @@ def _make_result_personalized(
 
 
 def search_personalized(
-    query: str,
+    spec: QSpec,
     r: dict,
     qv_profile: list[float],
     k: int = 10,
     filters: dict[str, str] | None = None,
     hard_filter: bool = False,
 ) -> list[dict]:
-    """Keyword search re-ranked by profile fit. Soft by default (profile-KNN RRF
+    """Keyword/seed search re-ranked by profile fit. Soft by default (profile-KNN RRF
     boost + per-result 3-axis badges); when hard_filter is set, drop results the
     candidate doesn't qualify for (under-seniority / location / years-degree-cred
-    gates), mirroring the profile lane's filtered panel."""
-    cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
-    ranked, prof_cos = _personalized_topk(query, qv_profile, RRF_POOL, filters)
+    gates), mirroring the profile lane's filtered panel. A seed drops the employer
+    diversity cap in favour of reprint collapsing (similarity, not filtering), matching
+    the non-personalized seed path."""
+    cap = 0 if (filters and filters.get("employer") or spec.is_seed) else EMPLOYER_CAP
+    ranked, prof_cos = _personalized_topk(spec, qv_profile, RRF_POOL, filters)
     ids = [i for i, _ in ranked]
     hyd = _hydrate_for_match(ids)
     exempt = _dominant_employers(ranked, hyd) if cap > 0 else set()
     rows: list[dict] = []
     seen: dict[str, int] = {}
+    seen_reprint: set[tuple[str, str]] = set()
     for idx, score in ranked:
         d = hyd.get(idx)
         if not d:
@@ -638,11 +832,17 @@ def search_personalized(
         if hard_filter and not st["all"]:
             continue
         emp = (d.get("employer") or "").strip().lower()
-        if cap > 0 and emp and emp not in exempt and seen.get(emp, 0) >= cap:
+        if spec.is_seed:
+            key = _reprint_key(d)
+            if emp and key in seen_reprint:
+                continue
+        elif cap > 0 and emp and emp not in exempt and seen.get(emp, 0) >= cap:
             continue
         rows.append(_make_result_personalized(len(rows) + 1, score, idx, d, st, prof_cos.get(idx)))
         if emp:
             seen[emp] = seen.get(emp, 0) + 1
+            if spec.is_seed:
+                seen_reprint.add(key)
         if len(rows) >= k:
             break
     return rows
@@ -699,29 +899,33 @@ FACET_DECAY_POW = float(os.environ.get("FACET_DECAY_POW", "2.0"))
 
 
 def _facet_pool(
-    query: str,
+    spec: QSpec,
     filters: dict[str, str | list[str]],
     pool: int,
     qv_profile: list[float] | None = None,
 ) -> tuple[list[tuple[int, float]], dict[int, dict]]:
     """The employer-capped, ranked list we facet over — the SAME list the user pages
     through, so facet ordering reconciles with the visible results rather than being
-    driven by a deeper, uncapped pool. Fused query results when there's a query; else a
+    driven by a deeper, uncapped pool. Fused results when there's a query/seed; else a
     profile-KNN pool when a profile drives a blank personalized browse; else the blank
-    recency-browse pool. Returns (capped_items, hydration)."""
-    if query and query.strip():
-        items = _fused_topk(query, pool, filters, pool)
-        dominance_bypass = True
+    recency-browse pool. A seed disables the employer dominance bypass. Returns
+    (capped_items, hydration)."""
+    is_seed = spec.active and spec.is_seed
+    if spec.active:
+        items = _fused_topk(spec, pool, filters, pool)
     elif qv_profile is not None:
         items = _topk_knn("e5_vec", qv_profile, pool, filters)
-        dominance_bypass = False
     else:
         items = _browse_topk(pool, filters, pool)
-        dominance_bypass = False
     hyd = _hydrate([i for i, _ in items], with_facets=True)
-    # Same per-employer cap as search_default/browse_default, so one shop posting many
+    # Facet over the SAME post-processed pool the user pages through: seeds get reprint
+    # collapsing (no employer cap, to read as similarity), everything else gets the same
+    # per-employer cap as search_default/browse_default so one shop posting many
     # near-identical roles can't dominate the facet tally any more than it dominates the page.
-    items = _cap_employers(items, hyd, pool, filters, dominance_bypass=dominance_bypass)
+    if is_seed:
+        items = _diversify_seed(items, hyd, pool)
+    else:
+        items = _cap_employers(items, hyd, pool, filters)
     return items, hyd
 
 
@@ -777,26 +981,25 @@ def _native_facet_options(
 
 
 def compute_facets(
-    query: str,
+    spec: QSpec,
     filters: dict[str, str | list[str]] | None = None,
     pool: int = 200,
     qv_profile: list[float] | None = None,
 ) -> dict[str, list[tuple[str, float]]]:
-    """Facet value tallies over the top-`pool` results. Returns {field: [(value, w)]}.
-    For multi-select usability, each actively-filtered field's options are recomputed
-    against the pool filtered by all OTHER fields — otherwise a field constrained by its
-    own selection would only show the chosen values, leaving no way to add OR options.
-    When qv_profile is given (personalized blank browse), the pool is the profile-KNN
-    set, so facets reflect the profile-ranked results, not the generic recency browse."""
+    """Facet value tallies over the top-`pool` results for a QSpec (typed query or seed
+    job). Returns {field: [(value, w)]}. For multi-select usability, each
+    actively-filtered field's options are recomputed against the pool filtered by all
+    OTHER fields — otherwise a field constrained by its own selection would only show the
+    chosen values, leaving no way to add OR options. When qv_profile is given
+    (personalized blank browse), the pool is the profile-KNN set, so facets reflect the
+    profile-ranked results, not the generic recency browse."""
     filters = filters or {}
-    out = _aggregate_facets(*_facet_pool(query, filters, pool, qv_profile))
+    out = _aggregate_facets(*_facet_pool(spec, filters, pool, qv_profile))
     for f in list(filters):
         if not filters[f]:
             continue
         alt = {k: v for k, v in filters.items() if k != f}
-        out[f] = _aggregate_facets(*_facet_pool(query, alt, pool, qv_profile)).get(
-            f, out.get(f, [])
-        )
+        out[f] = _aggregate_facets(*_facet_pool(spec, alt, pool, qv_profile)).get(f, out.get(f, []))
     # posted_bucket is a navigational time ladder, not a relevance read: on a blank
     # browse the recency boost (past_24h^8) makes the top-`pool` almost entirely
     # past_24h, so a pool-derived tally would offer that single option. Pull its full
@@ -804,7 +1007,7 @@ def compute_facets(
     # selection, so all rungs stay clickable) so every present bucket shows. Counts
     # aren't rendered for facets, so the only thing that matters here is the value set.
     pb_alt = {k: v for k, v in filters.items() if k != "posted_bucket"}
-    pb_opts = _native_facet_options("posted_bucket", query, pb_alt)
+    pb_opts = _native_facet_options("posted_bucket", spec.bm25_text, pb_alt)
     if pb_opts:
         out["posted_bucket"] = pb_opts
     return out
@@ -883,7 +1086,6 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .detail.loading { color: #888; font-style: italic; }
 .mlt-pivot { margin-top: 10px; display: inline-block; font-size: 0.85em; font-weight: 600; color: #2b6cb0; cursor: pointer; }
 .mlt-pivot:hover { text-decoration: underline; }
-.mlt-head .hl { font-size: 1.0em; }
 .empty { color: #999; padding: 30px; text-align: center; }
 .empty .clearlink { color: #0a5fbf; cursor: pointer; text-decoration: underline; }
 .timing { font-size: 0.8em; color: #888; padding-top: 8px; }
@@ -901,6 +1103,10 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .active-filters { font-size: 0.85em; color: #666; margin-bottom: 8px; }
 .active-filters .chip { display: inline-block; background: #eef4fb; color: #0a5fbf; padding: 2px 8px; border-radius: 10px; margin-right: 6px; cursor: pointer; }
 .active-filters .chip::after { content: ' ×'; color: #888; }
+.seed-banner { margin-bottom: 8px; }
+.seed-chip { display: inline-flex; align-items: center; gap: 8px; background: #eef9f0; color: #1f7a45; border: 1px solid #bfe6cb; border-radius: 14px; padding: 4px 12px; font-size: 0.88em; }
+.seed-chip .seed-x { cursor: pointer; color: #4a9c6a; font-weight: 700; }
+.seed-chip .seed-x:hover { color: #1f7a45; }
 .ownbox { border: 1px solid #ddd; border-radius: 6px; background: #fff; margin-bottom: 16px; }
 .ownbox > summary { padding: 9px 12px; cursor: pointer; font-size: 0.92em; font-weight: 600; color: #2b6cb0; list-style: none; }
 .ownbox > summary::-webkit-details-marker { display: none; }
@@ -913,12 +1119,6 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 #own-go { padding: 7px 16px; font-size: 0.88em; background: #2b6cb0; color: #fff; border: 1px solid #2b6cb0; border-radius: 5px; cursor: pointer; }
 #own-go:hover { background: #245a96; }
 .ownstatus { font-size: 0.82em; color: #b3261e; margin-top: 7px; min-height: 1em; }
-.rsum { border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; background: #fafbfc; margin-bottom: 14px; }
-.rsum .nm { font-weight: 600; font-size: 1.05em; }
-.rsum .hl { color: #444; margin: 3px 0; }
-.rsum .facts { color: #555; font-size: 0.85em; margin-top: 6px; }
-.rsum .facts b { color: #222; }
-.rsum .back { float: right; font-size: 0.82em; color: #2b6cb0; cursor: pointer; }
 .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .panel { border: 1px solid #ddd; border-radius: 6px; background: #fff; }
 .panel h3 { margin: 0; padding: 9px 12px; font-size: 0.9em; border-bottom: 1px solid #eee; }
@@ -1037,6 +1237,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
   <span class="pz-name" id="pz-name"></span>
 </div>
 <div id="badge-row"></div>
+<div id="seed-banner" class="seed-banner"></div>
 <div id="active-filters" class="active-filters"></div>
 <button id="facet-toggle" class="facet-toggle" onclick="toggleFacets()">&#9776; Filters</button>
 <div class="layout">
@@ -1064,6 +1265,8 @@ let suggestActive = -1;
 let suggestTimer = null;
 let profile = null;   // parsed profile {r, qv} from /api/match_profile; client-held, re-sent to personalize
 let profileSuggestions = [];   // [{q, n}] profile-derived searches; shown in the related slot on a blank personalized browse
+let seedJob = null;   // {idx, title} when searching by a "more jobs like this" seed instead of typed keywords
+let lastSeedQs = '';  // '&seed=<idx>' appended to /api/search & /api/facets while a seed is active
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toggleFacets() { document.querySelector('.layout').classList.toggle('show-facets'); }
@@ -1172,33 +1375,26 @@ async function toggleDetail(idx, container) {
   }
 }
 
-// ===== "more jobs like this one" pivot — loads the similar set into the main pane =====
-let lastQuery = '';   // restored by the pivot's "back to search" affordance
-async function pivotMoreLikeThis(idx, title) {
-  const div = document.getElementById('results');
-  document.getElementById('badge-row').innerHTML = '';
-  document.getElementById('facets').innerHTML = '';
-  document.getElementById('active-filters').innerHTML = '';
-  document.getElementById('related').innerHTML = '';
-  div.innerHTML = '<div class="empty">finding similar jobs…</div>';
-  let d;
-  try { d = await fetch('/api/more_like_this?idx=' + idx).then(r => r.json()); }
-  catch (e) { div.innerHTML = '<div class="empty">(failed to load similar jobs)</div>'; return; }
-  const srcTitle = (d.source && d.source.title) || title;
-  if (d.served_with) {
-    document.getElementById('badge-row').innerHTML =
-      `<span class="badge cached">Served with: ${esc(d.served_with)}</span>`;
-  }
-  div.innerHTML = `<div class="rsum mlt-head">
-      <span class="back">&larr; back to search</span>
-      <div class="hl">Jobs similar to: <b>${esc(srcTitle)}</b></div>
-      <div class="lc" style="color:#888;font-size:0.85em">RRF(BM25 + e5-small) seeded by this posting</div>
-    </div>
-    <div id="mlt-list"></div>`;
-  div.querySelector('.back').addEventListener('click', () => {
-    if (lastQuery) { input.value = lastQuery; runSearch(); } else { clearMatch(); }
+// ===== "more jobs like this one" — re-seeds the normal search with this job =====
+// A seed behaves exactly like a typed query: same RRF retrieval, facet rail, filters,
+// pagination, and profile re-rank. The seed and the keyword box are mutually exclusive —
+// seeding clears the query box, and typing a query clears the seed (see runSearch).
+let lastQuery = '';   // last typed query (used by clearMatch to return to it)
+function pivotMoreLikeThis(idx, title) {
+  seedJob = { idx, title };
+  input.value = '';     // mutual exclusion: a seed replaces the keyword query
+  closeSuggest();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  runSearch();
+}
+function renderSeedBanner() {
+  const el = document.getElementById('seed-banner');
+  if (!seedJob || input.value.trim()) { el.innerHTML = ''; return; }
+  el.innerHTML = `<span class="seed-chip">&rarr; Jobs like: <b>${esc(seedJob.title)}</b>`
+    + `<span class="seed-x" title="clear seed">&times;</span></span>`;
+  el.querySelector('.seed-x').addEventListener('click', () => {
+    seedJob = null; input.value = ''; runSearch();
   });
-  renderResults(div.querySelector('#mlt-list'), d.results, d.ms);
 }
 function renderResults(div, items, ms) {
   if (!items || !items.length) { div.innerHTML = '<div class="empty">no results</div>'; return; }
@@ -1521,7 +1717,7 @@ async function fetchResultsPage(q) {
   const div = document.getElementById('results');
   div.innerHTML = q ? '<div class="empty">searching...</div>' : '<div class="empty">loading recent jobs…</div>';
   const searchRes = await fetch(
-    `/api/search?q=${encodeURIComponent(q)}&start=${resultsOffset}${lastSearchQs}`
+    `/api/search?q=${encodeURIComponent(q)}&start=${resultsOffset}${lastSeedQs}${lastSearchQs}`
   ).then(r => r.json());
   if (searchRes.served_with) {
     document.getElementById('badge-row').innerHTML =
@@ -1539,7 +1735,10 @@ function changePage(delta) {
 
 async function runSearch() {
   const q = input.value.trim();
+  if (q) seedJob = null;        // typing a query overrides any active seed (mutual exclusion)
   lastQuery = q;
+  lastSeedQs = (seedJob && !q) ? ('&seed=' + seedJob.idx) : '';
+  renderSeedBanner();
   closeSuggest();
   if (profile && document.getElementById('pz-on').checked) { return runPersonalized(q); }
   document.getElementById('badge-row').innerHTML = '';
@@ -1547,10 +1746,11 @@ async function runSearch() {
   renderActiveFilters();
   lastSearchQs = buildFilterQS();
   // Facets are page-independent, so fetch them once alongside the first page.
-  const facetP = fetch(`/api/facets?q=${encodeURIComponent(q)}${lastSearchQs}`).then(r => r.json());
+  const facetP = fetch(`/api/facets?q=${encodeURIComponent(q)}${lastSeedQs}${lastSearchQs}`).then(r => r.json());
   await fetchResultsPage(q);
   renderFacets((await facetP).facets);
-  loadRelated(q);
+  // Related searches need a text anchor — use the typed query, or the seed's title.
+  loadRelated(q || (seedJob ? seedJob.title : ''));
 }
 
 // ===== suggested-searches slot at the top of the results panel =====
@@ -1588,7 +1788,8 @@ async function runPersonalized(q) {
   div.innerHTML = '<div class="empty">personalizing to your profile…</div>';
   renderActiveFilters();
   const hard = document.getElementById('pz-hard').checked;
-  const body = { q, k: 10, hard_filter: hard, filters: activeFilters, profile };
+  const seedIdx = (seedJob && !q) ? seedJob.idx : null;
+  const body = { q, seed: seedIdx, k: 10, hard_filter: hard, filters: activeFilters, profile };
   // Facets come back inline, computed over the SAME profile-ranked pool as the results
   // (a separate /api/facets call would be profile-blind and mismatch the listing).
   const searchRes = await fetch('/api/search_personalized', {
@@ -1616,9 +1817,10 @@ async function runPersonalized(q) {
     renderResults(div, searchRes.results, searchRes.ms);
   }
   renderFacets(searchRes.facets);
-  // On a blank profile-driven browse, surface the profile's suggested searches;
-  // on a typed query, surface query-related role moves.
+  // Typed query -> query-related role moves; seed -> moves around the seed's title;
+  // blank profile-driven browse -> the profile's suggested searches.
   if (q) loadRelated(q);
+  else if (seedJob) loadRelated(seedJob.title);
   else renderRelated('Suggested searches from your profile', profileSuggestions);
 }
 function showPersonalize(name) {
@@ -1816,19 +2018,36 @@ def _parse_filters(request: Request) -> dict[str, str | list[str]]:
 
 
 @app.get("/api/search")
-def api_search(request: Request, q: str = Query(""), k: int = Query(10), start: int = Query(0)):
-    """Keyword search, or — when q is blank — the recent/low-barrier browse default.
-    `start` is the pagination offset (0-based) into the employer-capped ranked list."""
+def api_search(
+    request: Request,
+    q: str = Query(""),
+    seed: int | None = Query(None),
+    k: int = Query(10),
+    start: int = Query(0),
+):
+    """Keyword search, "more jobs like this" when `seed` (a job idx) is given, or — when
+    both are blank — the recent/low-barrier browse default. A typed query takes
+    precedence over a seed (the two are mutually exclusive in the UI). `start` is the
+    pagination offset (0-based) into the employer-capped ranked list."""
     filters = _parse_filters(request)
     start = max(0, start)
+    spec = qspec_text(q) if q.strip() else (qspec_seed(seed) if seed is not None else None)
     t0 = time.time()
-    res = search_default(q, k, filters, start) if q.strip() else browse_default(k, filters, start)
+    if spec is not None and spec.active:
+        res = search_default(spec, k, filters, start)
+        retriever = "rrf_bm25_e5_seed" if spec.is_seed else "rrf_bm25_e5"
+        served = SERVING_MODE + (" — seeded by a job" if spec.is_seed else "")
+    else:
+        res = browse_default(k, filters, start)
+        retriever = "browse_recent"
+        served = "Browse: recent + low-barrier [via Solr]"
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
-            "retriever": "rrf_bm25_e5" if q.strip() else "browse_recent",
-            "served_with": SERVING_MODE if q.strip() else "Browse: recent + low-barrier [via Solr]",
+            "seed": seed,
+            "retriever": retriever,
+            "served_with": served,
             "filters": filters,
             "start": start,
             "results": res,
@@ -1838,17 +2057,21 @@ def api_search(request: Request, q: str = Query(""), k: int = Query(10), start: 
 
 
 @app.get("/api/facets")
-def api_facets(request: Request, q: str = Query(""), pool: int = Query(200)):
-    """Facet counts over the top-`pool` results (fused query results, or the blank-browse
-    pool when q is empty) with the same filters the search uses, so counts stay coherent
-    with what the user sees."""
+def api_facets(
+    request: Request, q: str = Query(""), seed: int | None = Query(None), pool: int = Query(200)
+):
+    """Facet counts over the top-`pool` results (fused query/seed results, or the
+    blank-browse pool when both are empty) with the same filters the search uses, so
+    counts stay coherent with what the user sees."""
     filters = _parse_filters(request)
+    spec = qspec_text(q) if q.strip() else (qspec_seed(seed) if seed is not None else None)
     t0 = time.time()
-    facets = compute_facets(q, filters, pool=pool)
+    facets = compute_facets(spec or qspec_text(""), filters, pool=pool)
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
+            "seed": seed,
             "filters": filters,
             "pool": pool,
             "facets": facets,
@@ -1896,16 +2119,6 @@ def api_detail(idx: int = Query(...)):
             "department": d.get("department") or "",
         }
     )
-
-
-@app.get("/api/more_like_this")
-def api_more_like_this(idx: int = Query(...), k: int = Query(10)):
-    """Jobs similar to job `idx` — RRF(BM25-on-title, e5-dense-on-title+lead)."""
-    t0 = time.time()
-    out = more_like_this(idx, k)
-    out["ms"] = int((time.time() - t0) * 1000)
-    out["served_with"] = SERVING_MODE
-    return JSONResponse(out)
 
 
 # ===== "find jobs for yourself": profile -> jobs with 3-axis constraint filter =====
@@ -2116,6 +2329,7 @@ async def api_search_personalized(request: Request):
     Stateless: the profile (features + e5 vector) is sent in the body each call."""
     body = await request.json()
     q = (body.get("q") or "").strip()
+    seed = body.get("seed")
     prof = body.get("profile") or {}
     r, qv = prof.get("r"), prof.get("qv")
     if not r or not qv:
@@ -2132,23 +2346,34 @@ async def api_search_personalized(request: Request):
             filters[f] = str(v).strip()
     k = int(body.get("k") or 10)
     hard = bool(body.get("hard_filter"))
+    spec = qspec_text(q) if q else (qspec_seed(int(seed)) if seed is not None else None)
     t0 = time.time()
-    # Blank query + profile: rank the whole (filtered) catalog by profile fit.
-    res = (
-        search_personalized(q, r, qv, k, filters, hard)
-        if q
-        else browse_personalized(r, qv, k, filters, hard)
+    # A query or seed defines eligibility (re-ranked by profile fit); a blank browse
+    # ranks the whole (filtered) catalog by profile fit.
+    if spec is not None and spec.active:
+        res = search_personalized(spec, r, qv, k, filters, hard)
+        served = (
+            SERVING_MODE + (" — seeded by a job" if spec.is_seed else "") + " + profile re-rank"
+        )
+        retriever = "rrf_bm25_e5_seed+profile" if spec.is_seed else "rrf_bm25_e5+profile"
+    else:
+        res = browse_personalized(r, qv, k, filters, hard)
+        served = "Browse + profile re-rank"
+        retriever = "browse+profile"
+    # Facets must reflect the SAME pool the user sees: for a query/seed that's the fused
+    # pool (profile-blind ranking is fine here), for a blank personalized browse it's the
+    # profile-KNN pool. Returned inline so the client doesn't make a second,
+    # profile-blind /api/facets call.
+    facets = compute_facets(
+        spec or qspec_text(""), filters, qv_profile=(None if (spec and spec.active) else qv)
     )
-    # Facets must reflect the SAME pool the user sees: for a blank personalized browse
-    # that's the profile-KNN pool (not the generic recency browse). Returned inline so
-    # the client doesn't make a second, profile-blind /api/facets call.
-    facets = compute_facets(q, filters, qv_profile=(None if q else qv))
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
             "query": q,
-            "retriever": "rrf_bm25_e5+profile" if q else "browse+profile",
-            "served_with": (SERVING_MODE if q else "Browse") + " + profile re-rank",
+            "seed": seed,
+            "retriever": retriever,
+            "served_with": served,
             "filters": filters,
             "hard_filter": hard,
             "results": res,
