@@ -893,11 +893,71 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "public_safety",
     ),
-    # ai_ml: AI-training / speech-data roles
+    # ai_data_annotation: crowdsourced AI-training / data-annotation gigs (voice
+    # actors, language specialists, coding specialists generating/reviewing LLM
+    # training data). Deliberately separated from ai_ml so ML-engineer/researcher
+    # browsing stays clean. Absorbs the former ai_ml speech/transcription rescue.
     (
-        _ci(r"\b(ai (data expert|speech)|audio transcription( specialist)?)\b"),
-        "ai_ml",
+        _ci(
+            r"\b(ai trainer|freelance ai trainer|data annotat(or|ion|ions)|"
+            r"ai data (specialist|expert)|ai speech|audio transcription( specialist)?|"
+            r"ai evaluator)\b"
+        ),
+        "ai_data_annotation",
     ),
+    # ===== second-pass search-mined 'other' rescues (2026-06-01 PM) =====
+    # healthcare_clinical: licensed clinical roles still in 'other'
+    (
+        _ci(
+            r"\b(nurse|medical director|clinical (director|educator)|outpatient|"
+            r"inpatient|hospice|anesthetist|advanced practice (nurse|provider))\b"
+        ),
+        "healthcare_clinical",
+    ),
+    # software_engineering: skill-named SWE titles + forward-deployed engineers
+    (
+        _ci(r"\b(android|react|forward[ -]deployed engineer(ing)?)\b"),
+        "software_engineering",
+    ),
+    # sales: enterprise/account-exec roles (user-approved; ~20% CS spill accepted)
+    (
+        _ci(
+            r"\b(enterprise (sales|account)|account executives?|"
+            r"(vice president|vp),? sales|strategic account director|"
+            r"supplemental sales)\b"
+        ),
+        "sales",
+    ),
+    # retail
+    (
+        _ci(
+            r"\b(key holder|sales service manager|grocery associate|lot attendant|"
+            r"associate store leader|e-?commerce specialist)\b"
+        ),
+        "retail",
+    ),
+    # food_service_hospitality
+    (_ci(r"\b(dishwasher|kitchen manager|waitstaff|busser)\b"), "food_service_hospitality"),
+    # public_safety
+    (
+        _ci(
+            r"\b(lifeguard|correctional treatment specialist|"
+            r"occupational health (specialist|manager))\b"
+        ),
+        "public_safety",
+    ),
+    # education_teaching
+    (_ci(r"\b(education teachers?|mathematics specialist)\b"), "education_teaching"),
+    # legal
+    (_ci(r"\b(compliance associate|legal specialist)\b"), "legal"),
+    # transportation_logistics
+    (_ci(r"\btransportation specialist\b"), "transportation_logistics"),
+    # healthcare_allied
+    (_ci(r"\bdirect care worker\b"), "healthcare_allied"),
+    # hr_people_ops
+    (_ci(r"\brecruitment coordinator\b"), "hr_people_ops"),
+    # manufacturing_production
+    (_ci(r"\bmanufacturing supervisor\b"), "manufacturing_production"),
 ]
 
 

@@ -1495,6 +1495,7 @@ const FACET_VALUE_LABELS = {
     data_science_ml: 'Data science',
     data_analytics: 'Analytics / BI',
     ai_ml: 'AI / ML',
+    ai_data_annotation: 'AI data annotation',
     devops_sre_infra: 'DevOps / SRE / Infra',
     security: 'Security',
     design_ux: 'Design / UX',
