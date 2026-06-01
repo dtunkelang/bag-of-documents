@@ -1492,7 +1492,8 @@ const FACET_VALUE_LABELS = {
   role_family: {
     software_engineering: 'Software engineering',
     data_engineering: 'Data engineering',
-    data_science_ml: 'Data science / Analytics',
+    data_science_ml: 'Data science',
+    data_analytics: 'Analytics / BI',
     ai_ml: 'AI / ML',
     devops_sre_infra: 'DevOps / SRE / Infra',
     security: 'Security',

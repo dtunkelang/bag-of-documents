@@ -177,16 +177,33 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "ai_ml",
     ),
-    # data science / analytics — AI/ML engineering titles are claimed by ai_ml
-    # above; this keeps data scientists, data/BI/quant analysts and generic
-    # research/applied scientists.
+    # data science — AI/ML engineering titles are claimed by ai_ml above; this
+    # keeps data scientists and generic research/applied scientists. Analyst
+    # titles are split out into data_analytics below — but this block comes
+    # FIRST so "Data Scientist / Data Analyst" hybrids resolve to the scientist
+    # family (the more specialized role) rather than to analytics.
+    (
+        _ci(r"\b(data scientist|research scientist|applied scientist)\b"),
+        "data_science_ml",
+    ),
+    # analytics / BI — standalone data/business/BI/quant analysts, analytics
+    # analysts and BI developers. Distinct from data_science_ml (model-building
+    # scientists, claimed above) and data_engineering (pipeline/ETL/analytics
+    # *engineers*, claimed earlier). Deliberately NARROW on two axes:
+    #  - bare "analytics manager/lead/specialist" is NOT matched, so
+    #    domain-specialized roles ("Marketing Analytics Manager", "Retail
+    #    Analytics Manager", "People Analytics Specialist") stay in their
+    #    functional family rather than being re-carved into analytics.
+    #  - bare "reporting analyst" / "insights analyst" are NOT matched, since
+    #    those pull financial/compliance reporting and market-research roles
+    #    that belong in finance_accounting / marketing, not data/BI analytics.
     (
         _ci(
-            r"\b(data scientist|research scientist|applied scientist|"
-            r"data analyst|business analyst|BI analyst|"
-            r"quantitative analyst|quant analyst)\b"
+            r"\b(data analyst|business analyst|BI analyst|"
+            r"business intelligence analyst|business intelligence developer|"
+            r"analytics analyst|quantitative analyst|quant analyst)\b"
         ),
-        "data_science_ml",
+        "data_analytics",
     ),
     # civil / construction engineering — must come before generic
     # software_engineering, otherwise "engineer\b" catches "Highway Engineer",
@@ -709,7 +726,7 @@ _CATEGORY_SUB_TO_ROLE: dict[str, str] = {
     "Information & Communication Technology / Database Development & Administration": "data_engineering",
     "Information & Communication Technology / Engineering - Network": "devops_sre_infra",
     "Information & Communication Technology / Engineering - Hardware": "devops_sre_infra",
-    "Information & Communication Technology / Business/Systems Analysts": "data_science_ml",
+    "Information & Communication Technology / Business/Systems Analysts": "data_analytics",
     "Information & Communication Technology / Consultants": "consulting_strategy",
     "Information & Communication Technology / Sales - Pre & Post": "sales",
     "Information & Communication Technology / Telecommunications": "devops_sre_infra",
