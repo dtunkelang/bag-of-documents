@@ -31,7 +31,7 @@ from classify_other_llm import (
     user_msg,
 )
 
-CONJ_FAMILIES = {"sales", "finance_accounting"}
+CONJ_FAMILIES = {"sales", "finance_accounting"}  # default; override with --families
 K = 25
 
 
@@ -123,7 +123,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--audit", type=int, metavar="N")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--families", help="comma-separated override of CONJ_FAMILIES")
     args = ap.parse_args()
+    if args.families:
+        CONJ_FAMILIES = set(args.families.split(","))
+        print(f"CONJ_FAMILIES = {sorted(CONJ_FAMILIES)}")
     if args.audit:
         audit(args.audit)
     elif args.apply:
