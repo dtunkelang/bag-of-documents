@@ -675,6 +675,229 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (_ci(r"\bstylist\b|\bsalesperson\b"), "retail"),
     (_ci(r"\binterior (designer|design|architecture)\b"), "creative_content"),
     (_ci(r"\b(data annotator|data labeler|labeler)\b"), "data_engineering"),
+    # ==================================================================
+    # role_family:other rescues mined via mine_all_families.py (Strategy A:
+    # e5 dense KNN within 'other' -> high-lift title n-grams -> target-aware
+    # risk scoring). Placed LAST so they fire only on titles every earlier
+    # (more-specific) pattern missed -- pure additive rescue of 'other'.
+    # Garbage tokens, foreign non-role words (domicile/teilzeit), and grams
+    # that spill >~20% into a third family were deliberately dropped.
+    # ==================================================================
+    # healthcare_clinical: plural/counselor/psych-NP gaps the singular missed
+    (
+        _ci(
+            r"\btherapists\b|(licensed |clinical )?professional counselor|"
+            r"\bpmhnp\b|certified occupational( therapy| therapist)?|"
+            r"clinical research nurse|\bresearch nurse\b|(child )?adolescent mental health"
+        ),
+        "healthcare_clinical",
+    ),
+    # healthcare_allied: aides/assistants below the licensed-clinician line
+    (
+        _ci(
+            r"\b((health )?care aide|nursing attendant|therapy assistant|"
+            r"physical therapy assistant|\bPTA\b)\b"
+        ),
+        "healthcare_allied",
+    ),
+    # healthcare_admin: medical records / billing / reimbursement back-office
+    (
+        _ci(
+            r"\b((clinical )?data abstractor|abstractor|health information specialist|"
+            r"medical support assistant|chart retrieval|"
+            r"field reimbursement( manager)?|reimbursement manager|\bFRM\b)\b"
+        ),
+        "healthcare_admin",
+    ),
+    # sales: exec/SDR-BDR/enablement forms the existing block missed
+    (
+        _ci(
+            r"\b(sales executive|sales enablement|sales leader|commercial sales|"
+            r"(sales |business |account )?development representative|"
+            r"account development executive|enterprise account director|"
+            r"president,?\s+enterprise sales)\b"
+        ),
+        "sales",
+    ),
+    # customer_success_support
+    (
+        _ci(
+            r"\b(client service associate|associate client service|"
+            r"customer care specialist|retention specialist|"
+            r"service desk (specialist|analyst)|success associate|kundenservice)\b"
+        ),
+        "customer_success_support",
+    ),
+    # marketing
+    (
+        _ci(
+            r"\b(media planner|paid search|director,?\s+digital|founding marketer|"
+            r"media content manager)\b"
+        ),
+        "marketing",
+    ),
+    # operations_admin
+    (
+        _ci(
+            r"\b(office assistant|operations administrator|executive administrator|"
+            r"workplace coordinator|(administrative|executive) business partner)\b"
+        ),
+        "operations_admin",
+    ),
+    # hr_people_ops
+    (
+        _ci(
+            r"\b(people business partner|recruiting coordinator|technical recruiting|"
+            r"director,?\s+people|talent (partner|coordinator)|"
+            r"employee relations (specialist|manager))\b"
+        ),
+        "hr_people_ops",
+    ),
+    # legal: counsel variants + contract/antitrust/compliance
+    (
+        _ci(
+            r"\b((senior|associate|lead|managing|product|corporate|compliance|"
+            r"general|deputy|division|regional|in[- ]house|house)\s+counsel|"
+            r"contract specialist|commercial legal|antitrust|"
+            r"legal (consultant|intern|director|assistant)|"
+            r"director,?\s+(legal|compliance)|competition practice)\b"
+        ),
+        "legal",
+    ),
+    # product_management
+    (
+        _ci(
+            r"\b(director,?\s+product management|product director|"
+            r"vp,?\s+product management|technical program management)\b"
+        ),
+        "product_management",
+    ),
+    # project_program_management
+    (
+        _ci(
+            r"\b(director,?\s+project( management)?|director,?\s+program management|"
+            r"project controls manager)\b"
+        ),
+        "project_program_management",
+    ),
+    # security
+    (
+        _ci(
+            r"\b(security specialist|(network )?exploitation analyst|"
+            r"digital network exploitation|soc architect|"
+            r"security (compliance analyst|control assessor))\b"
+        ),
+        "security",
+    ),
+    # software_engineering: "software development X" the catch-all missed
+    (
+        _ci(
+            r"\b(software development (manager|lead|director|engineer)|"
+            r"senior software development)\b"
+        ),
+        "software_engineering",
+    ),
+    # data_science_ml: quant + data-science management
+    (
+        _ci(
+            r"\b(data science manager|(senior |junior )?quantitative "
+            r"(researcher|analyst|developer))\b"
+        ),
+        "data_science_ml",
+    ),
+    # data_analytics
+    (
+        _ci(r"\b(director,?\s+analytics|business intelligence manager|revenue analyst)\b"),
+        "data_analytics",
+    ),
+    # research_academic
+    (
+        _ci(
+            r"\b((associate|clinical|laboratory|staff) scientist|"
+            r"clinical laboratory scientist|sr scientist)\b"
+        ),
+        "research_academic",
+    ),
+    # design_ux
+    (
+        _ci(
+            r"\b(senior ux\b|director,?\s+ux|ux researcher|"
+            r"product design intern|director,?\s+product design)\b"
+        ),
+        "design_ux",
+    ),
+    # creative_content
+    (
+        _ci(
+            r"\b(freelance producer|event producer|multimedia designer|"
+            r"digital reporter|video artist)\b"
+        ),
+        "creative_content",
+    ),
+    # retail
+    (
+        _ci(
+            r"\b(floor leader|sales ambassador|store advisor|\bkeyholder\b|"
+            r"sales service lead|merchandise planner|store representative|"
+            r"magazziniere|capo reparto|reparto)\b"
+        ),
+        "retail",
+    ),
+    # food_service_hospitality
+    (
+        _ci(
+            r"\b(grill cook|kitchen (position|porter|assistant)|entry level kitchen|"
+            r"guest services?|barback|room attendant|housekeeper|"
+            r"member experience (associate|manager)|soho house)\b"
+        ),
+        "food_service_hospitality",
+    ),
+    # skilled_trades_construction
+    (
+        _ci(
+            r"\b(roofers?|maintenance worker|\bfitter\b|welding inspector|"
+            r"door technicians?|technicien)\b"
+        ),
+        "skilled_trades_construction",
+    ),
+    # manufacturing_production
+    (
+        _ci(
+            r"\b(manufacturing (associate|specialist)|press operator|"
+            r"production supervisor)\b"
+        ),
+        "manufacturing_production",
+    ),
+    # transportation_logistics
+    (
+        _ci(
+            r"\b(fulfillment associate|inventory specialist|fleet assistant|"
+            r"(global )?supply (chain )?manager|conductor recolector|dashmart)\b"
+        ),
+        "transportation_logistics",
+    ),
+    # education_teaching
+    (_ci(r"\b(instructional coach|academic coach)\b"), "education_teaching"),
+    # consulting_strategy
+    (_ci(r"\b(consulting director|client value partner)\b"), "consulting_strategy"),
+    # nonprofit_social_services
+    (
+        _ci(r"\b(peer navigator|certified peer|aod counselor|outreach specialist)\b"),
+        "nonprofit_social_services",
+    ),
+    # public_safety
+    (
+        _ci(
+            r"\b(correctional officer|supervisory correctional|"
+            r"emergency management specialist|unarmed security|protection specialist)\b"
+        ),
+        "public_safety",
+    ),
+    # ai_ml: AI-training / speech-data roles
+    (
+        _ci(r"\b(ai (data expert|speech)|audio transcription( specialist)?)\b"),
+        "ai_ml",
+    ),
 ]
 
 
