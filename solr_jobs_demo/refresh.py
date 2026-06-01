@@ -86,10 +86,23 @@ JAVA_HOME = (
 )
 CORE = os.environ.get("JOBS_CORE", "jobs")
 
-# Artifact reuse: the slug->industry label CSV is slug-keyed (corpus-independent),
-# so it carries over from the previous build into the fresh OUT dir.
+# Artifact reuse: the slug->industry label CSVs are slug-keyed (corpus-independent),
+# so they carry over from the previous build into the fresh OUT dir. INDUSTRY_CSV is the
+# gated propagation; OVERRIDE_CSV is the hand-curated correction layer push_docs applies
+# on top (see industry_filter.load_overrides). Both must reach STAGE for push_docs.
 INDUSTRY_CSV = "slug_industry_labels_round2.csv"
+OVERRIDE_CSV = "slug_industry_overrides.csv"
 LEGACY_UNIFIED = ROOT / "unified_jobs"
+
+
+def _seed_label_csvs(out: Path, tag: str) -> None:
+    """Copy the slug->industry label CSVs from the persistent build into a fresh OUT dir
+    so push_docs (which reads them from STAGE) sees both the gated labels and overrides."""
+    for name in (INDUSTRY_CSV, OVERRIDE_CSV):
+        src, dst = LEGACY_UNIFIED / name, out / name
+        if src.exists() and not dst.exists():
+            shutil.copy2(src, dst)
+            print(f"[{tag}] copied {name} into {out}", flush=True)
 
 
 def run(cmd: list[str], cwd: Path = ROOT, env: dict | None = None) -> None:
@@ -667,6 +680,12 @@ def stage_facets(args) -> None:
                 for r in csv.DictReader(f):
                     known_slugs.add(r["slug"])
             print(f"[3] loaded {len(known_slugs):,} known slugs from {csv_path}", flush=True)
+            # Hand-curated overrides are also "known" -- fold them in so already-labeled
+            # slugs don't resurface in the new-slug-to-label byproduct.
+            ov_path = base / OVERRIDE_CSV
+            if ov_path.exists():
+                with open(ov_path) as f:
+                    known_slugs.update(r["slug"] for r in csv.DictReader(f))
             break
 
     new_slugs: set[str] = set()
@@ -709,12 +728,9 @@ def stage_solr(args) -> None:
     if getattr(args, "delta", False):
         return _stage_solr_delta(args, out, demo, solr_bin)
 
-    # The fresh OUT dir needs the slug->industry CSV that push_docs reads from STAGE.
-    src_csv = LEGACY_UNIFIED / INDUSTRY_CSV
+    # The fresh OUT dir needs the slug->industry CSVs that push_docs reads from STAGE.
+    _seed_label_csvs(out, "4")
     dst_csv = out / INDUSTRY_CSV
-    if src_csv.exists() and not dst_csv.exists():
-        shutil.copy2(src_csv, dst_csv)
-        print(f"[4] copied {INDUSTRY_CSV} into {out}", flush=True)
 
     # Start Solr (idempotent).
     def solr_up() -> bool:
@@ -867,11 +883,7 @@ def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
     import time
     import urllib.request as u
 
-    src_csv = LEGACY_UNIFIED / INDUSTRY_CSV
-    dst_csv = out / INDUSTRY_CSV
-    if src_csv.exists() and not dst_csv.exists():
-        shutil.copy2(src_csv, dst_csv)
-        print(f"[4d] copied {INDUSTRY_CSV} into {out}", flush=True)
+    _seed_label_csvs(out, "4d")
 
     def solr_up() -> bool:
         try:

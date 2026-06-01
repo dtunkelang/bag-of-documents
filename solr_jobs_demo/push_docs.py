@@ -88,7 +88,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
     # and require any other propagated label to clear a similarity floor (see
     # industry_filter.py). Loading round2 verbatim is what filled education_higher with
     # ~75% wrong members (you.com, NIST, ...).
-    from industry_filter import DEFAULT_SIM_FLOOR, load_slug_industry  # noqa: E402
+    from industry_filter import DEFAULT_SIM_FLOOR, load_overrides, load_slug_industry  # noqa: E402
 
     industry_csv = os.path.join(STAGE, "slug_industry_labels_round2.csv")
     slug_to_industry: dict[str, str] = {}
@@ -97,6 +97,23 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
         print(
             f"  loaded {len(slug_to_industry):,} slug -> industry labels "
             f"(confidence-gated: seeds+rules + propagated >= {DEFAULT_SIM_FLOOR:g} sim)",
+            flush=True,
+        )
+
+    # Hand-curated overrides WIN over the gated propagation: they add trusted labels for
+    # gated-out slugs AND correct wrong ones (incl. wrong seeds the similarity floor can't
+    # prune). Staffing agencies are still per-job resolved below, so a slug-level override
+    # of an agency is harmless -- _resolve_industry overrides it from the job's role_family.
+    overrides = load_overrides(os.path.join(STAGE, "slug_industry_overrides.csv"))
+    if overrides:
+        n_new = sum(1 for s in overrides if s not in slug_to_industry)
+        n_fix = sum(
+            1 for s, v in overrides.items() if s in slug_to_industry and slug_to_industry[s] != v
+        )
+        slug_to_industry.update(overrides)
+        print(
+            f"  applied {len(overrides):,} hand-curated overrides "
+            f"({n_new:,} new slugs, {n_fix:,} relabels)",
             flush=True,
         )
 

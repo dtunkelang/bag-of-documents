@@ -57,3 +57,23 @@ def load_slug_industry(csv_path: str, floor: float = DEFAULT_SIM_FLOOR) -> dict[
             if accept((r.get("method") or "").strip(), _to_float(r.get("top1_sim")), floor):
                 out[r["slug"]] = ind
     return out
+
+
+def load_overrides(csv_path: str) -> dict[str, str]:
+    """Hand-curated slug -> industry corrections (LLM-tail self-labels + audited fixes).
+
+    These are trusted ground truth that OVERRIDES the gated propagation. Crucially they
+    are the only thing that can fix a wrong *seed*: a seed's self-similarity is 1.0, so
+    the gate's floor structurally cannot prune it (see this module's docstring). Format:
+    slug,industry,note -- the note column is documentation, not consumed here. Missing
+    file -> empty dict, so callers degrade to gate-only labels.
+    """
+    out: dict[str, str] = {}
+    if not os.path.exists(csv_path):
+        return out
+    with open(csv_path) as f:
+        for r in csv.DictReader(f):
+            ind = (r.get("industry") or "").strip()
+            if ind and ind != "unclassified":
+                out[r["slug"]] = ind
+    return out
