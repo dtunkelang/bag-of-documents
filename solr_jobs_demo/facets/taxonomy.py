@@ -8,6 +8,7 @@ ROLE_FAMILY: list[str] = [
     "software_engineering",
     "data_engineering",
     "data_science_ml",
+    "ai_ml",
     "devops_sre_infra",
     "security",
     "design_ux",

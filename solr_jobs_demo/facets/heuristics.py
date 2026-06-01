@@ -121,13 +121,50 @@ ROLE_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "data_engineering",
     ),
-    # data science / ML — broad
+    # AI / ML — must come before data_science_ml and the broad
+    # software_engineering catch-all so AI/ML titles land here rather than in
+    # "other" (where they were suppressed from facets) or software_engineering.
+    # Requires AI/ML to be a genuine technical or leadership *domain*, not an
+    # incidental token: "(AI archetype)" game design, "AI Governance" legal
+    # counsel, "AI Trainer" data-labeling gigs and "AI Video Artist" creative
+    # spam are deliberately NOT matched (no bare-AI catch-all; nouns are limited
+    # to technical/leadership functions).
     (
         _ci(
-            r"\b(data scientist|ML engineer|machine learning engineer|"
-            r"AI engineer|AI scientist|research scientist|applied scientist|"
-            r"MLOps|deep learning|NLP engineer|computer vision engineer|"
-            r"data analyst|business analyst|BI analyst|quantitative analyst|quant analyst)\b"
+            # 1. unambiguous ML/AI domain signals anywhere in the title
+            r"\b(machine learning|deep learning|reinforcement learning|"
+            r"\bMLOps\b|ML ?ops|large language models?|\bLLMs?\b|"
+            r"generative ai|gen ?ai|genai|agentic ai|computer vision|"
+            r"neural network|\bNLP\b|"
+            r"ML (engineer|scientist|researcher|research|architect|"
+            r"infrastructure|platform|ops|lead)|"
+            r"(ML/AI|AI/ML))\b"
+            # 2. "<rank>[,] [of] [applied/generative] AI" leadership forms.
+            #    "manager" is intentionally excluded so "Product Manager, AI",
+            #    "Marketing Manager, AI", "Sales Manager AI" stay in their own
+            #    functional families (only genuine AI leadership lands here).
+            r"|\b(head|director|vp|svp|evp|chief|lead)[,\s]+"
+            r"(of\s+)?(applied\s+|generative\s+|gen\s+)?a\.?i\.?\b"
+            # 3. "AI <technical/leadership role-noun>" — noun stems (no trailing
+            #    \b) so "AI Engineering", "AI Solutions", "AI Analytics" match.
+            #    "product" is excluded so "AI Product Manager" stays in
+            #    product_management.
+            r"|\ba\.?i\.?\s+(engineer|scientist|research|architect|developer|"
+            r"lead|special|consult|analy|director|strateg|"
+            r"transformation|enablement|adoption|deployment|delivery|"
+            r"implementation|solution|platform|infrastructure|"
+            r"operation|ops|tech lead|team lead|intern|program)"
+        ),
+        "ai_ml",
+    ),
+    # data science / analytics — AI/ML engineering titles are claimed by ai_ml
+    # above; this keeps data scientists, data/BI/quant analysts and generic
+    # research/applied scientists.
+    (
+        _ci(
+            r"\b(data scientist|research scientist|applied scientist|"
+            r"data analyst|business analyst|BI analyst|"
+            r"quantitative analyst|quant analyst)\b"
         ),
         "data_science_ml",
     ),
