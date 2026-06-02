@@ -79,7 +79,19 @@ CORPORA = [
     ("jobs_data_themuse", "jobs_data_themuse"),
     ("jobs_data_findwork", "jobs_data_findwork"),
     ("jobs_data_francetravail", "jobs_data_francetravail"),
+    # Meta-aggregator LAST so unify can dedup it against everything above (see
+    # DEDUP_AGAINST_PRIOR). Jooble re-lists jobs we already get from the ATS/Adzuna/
+    # Reed/... sources, so only its genuinely-unique postings survive. Its docs are
+    # snippet-grade (~300 chars) but that still feeds both the title+desc dense
+    # vector and BM25, so the trade is "thinner body for more unique inventory".
+    ("jobs_data_jooble", "jobs_data_jooble"),
 ]
+
+# Corpora whose docs are DROPPED when they duplicate (by content signature) a
+# posting already contributed by an earlier corpus. Listed last in CORPORA so they
+# dedup against all the primary sources; primaries are never dropped (existing index
+# composition is unchanged -- only the aggregator's re-lists are removed).
+DEDUP_AGAINST_PRIOR = {"jobs_data_jooble"}
 
 # User-maintained Greenhouse/Lever/Ashby tenant slugs that are NOT in OpenApply's
 # cc_*_FINAL.txt lists (those ~15k tenants are already covered by stage-0's crawl).
@@ -518,11 +530,45 @@ def stage_pull(args) -> None:
             str(args.francetravail_publiee_depuis),
         ],
     )
+    # Jooble: meta-aggregator for extra inventory. Snippet-grade docs, but stage-1
+    # unify dedups it against every other corpus so only unique postings land.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_jooble",
+        label="Jooble",
+        have_creds=bool(os.environ.get("JOOBLE_API_KEY")),
+        fetch_cmd=[
+            PY,
+            "download/fetch_jooble.py",
+            "--out-dir",
+            ROOT / "jobs_data_jooble" / "raw",
+            "--max-pages",
+            str(args.jooble_max_pages),
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
 # Stage 1: unify (te3-free, 2 corpora, NO vectors)
 # ---------------------------------------------------------------------------
+def _dedup_sig(rec: dict) -> tuple:
+    """Content signature for cross-source dedup: normalized (title, company, primary
+    location). Conservative -- including location keeps genuinely-distinct postings of
+    the same role in different cities; the goal is to drop a meta-aggregator's re-lists,
+    not unique inventory."""
+    import re
+
+    def norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+    locs = rec.get("locations") or []
+    return (
+        norm(rec.get("title")),
+        (rec.get("source_slug") or "").lower(),
+        norm(locs[0] if locs else ""),
+    )
+
+
 def stage_unify(args) -> None:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -532,6 +578,8 @@ def stage_unify(args) -> None:
     all_sources: list[str] = []
     starts: dict[str, int] = {}
     cursor = 0
+    # Signatures of every doc kept so far; aggregator corpora dedup against it.
+    seen_sigs: set[tuple] = set()
 
     with open(out / "metadata.jsonl", "w") as meta_out:
         for corpus_dir, tag in CORPORA:
@@ -548,18 +596,38 @@ def stage_unify(args) -> None:
                 sys.exit(
                     f"[1] size mismatch in {corpus_dir}: {len(ids)} ids vs {len(titles)} titles"
                 )
-            n = len(ids)
+            dedup = tag in DEDUP_AGAINST_PRIOR
             starts[tag] = cursor
-            print(f"[1] {corpus_dir}: {n:,} docs starting at {cursor:,}", flush=True)
-            all_ids.extend(ids)
-            all_titles.extend(titles)
-            all_sources.extend([tag] * n)
+            kept = dropped = 0
             with open(d / "metadata.jsonl") as fin:
-                for line in fin:
+                for i, line in enumerate(fin):
+                    if i >= len(ids):
+                        sys.exit(f"[1] {corpus_dir}: more metadata rows than ids ({len(ids)})")
                     rec = json.loads(line)
+                    sig = _dedup_sig(rec)
+                    if dedup and sig in seen_sigs:
+                        dropped += 1
+                        continue
+                    seen_sigs.add(sig)
                     rec["source_corpus"] = tag
                     meta_out.write(json.dumps(rec) + "\n")
-            cursor += n
+                    all_ids.append(ids[i])
+                    all_titles.append(titles[i])
+                    all_sources.append(tag)
+                    kept += 1
+            if kept + dropped != len(ids):
+                sys.exit(
+                    f"[1] {corpus_dir}: processed {kept + dropped} metadata rows vs {len(ids)} ids"
+                )
+            cursor += kept
+            if dedup:
+                print(
+                    f"[1] {corpus_dir}: {kept:,} unique docs kept "
+                    f"({dropped:,} cross-source dupes dropped) starting at {starts[tag]:,}",
+                    flush=True,
+                )
+            else:
+                print(f"[1] {corpus_dir}: {kept:,} docs starting at {starts[tag]:,}", flush=True)
 
     total = cursor
     with open(out / "doc_ids.json", "w") as f:
@@ -1430,6 +1498,12 @@ def main() -> int:
         default=7,
         choices=[1, 3, 7, 14, 31],
         help="France Travail: only offers published within the last N days",
+    )
+    ap.add_argument(
+        "--jooble-max-pages",
+        type=int,
+        default=5,
+        help="Jooble result pages per keyword in job_search_queries.txt",
     )
     ap.add_argument(
         "--skip-ats-extra",
