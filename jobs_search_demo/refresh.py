@@ -71,6 +71,14 @@ CORPORA = [
     ("jobs_data_usajobs", "jobs_data_usajobs"),
     ("jobs_data_adzuna", "jobs_data_adzuna"),
     ("jobs_data_ats_extra", "jobs_data_ats_extra"),
+    # Additional public sources (full-description; each only contributes when its
+    # creds are set AND its dir was populated this run or carries over). The thin
+    # snippet/title-only adapters (Jooble/Careerjet/Bundesagentur) are built but
+    # deliberately NOT wired -- they'd dilute the embedding/snippet index.
+    ("jobs_data_reed", "jobs_data_reed"),
+    ("jobs_data_themuse", "jobs_data_themuse"),
+    ("jobs_data_findwork", "jobs_data_findwork"),
+    ("jobs_data_francetravail", "jobs_data_francetravail"),
 ]
 
 # User-maintained Greenhouse/Lever/Ashby tenant slugs that are NOT in OpenApply's
@@ -257,6 +265,34 @@ def _crawl_ats_extra(out_raw: Path) -> bool:
     return True
 
 
+def _pull_api_source(args, *, corpus_dir: str, label: str, have_creds: bool, fetch_cmd: list):
+    """Cred-gated fetch -> prep for a simple single-snapshot API source.
+
+    Mirrors the Adzuna block: when creds are present and not --skip-download, do a
+    fresh fetch (clearing stale raw first so closed postings don't linger), then
+    prep. Otherwise reuse existing raw if any, else skip the corpus entirely. The
+    same canonical 13-col parquet schema -> the same prep -> the same downstream
+    stages, so unify just picks up the extra corpus dir.
+    """
+    d = ROOT / corpus_dir
+    raw = d / "raw"
+    have_raw = raw.exists() and any(raw.glob("*.parquet"))
+    if args.skip_download or not have_creds:
+        if not have_raw:
+            print(
+                f"[0] no {label} creds and no raw parquet to reuse; skipping {label} corpus",
+                flush=True,
+            )
+            return
+        why = "--skip-download" if args.skip_download else f"no {label} creds"
+        print(f"[0] {why}: reusing existing {label} parquet under {raw}", flush=True)
+    else:
+        if raw.exists():
+            shutil.rmtree(raw)
+        run(fetch_cmd)
+    run([PY, "download/prep_open_apply.py", "--raw-dir", raw, "--out-dir", d, "--sample-n", "0"])
+
+
 def stage_pull(args) -> None:
     # --- OpenApply ---
     oa_raw = ROOT / "jobs_data" / "raw"
@@ -413,6 +449,75 @@ def stage_pull(args) -> None:
         # unify doesn't re-add stale extra-ATS jobs.
         shutil.rmtree(adx_dir)
         print("[0] ats-extra: cleared stale corpus (no current tenants)", flush=True)
+
+    # --- Reed (UK), The Muse, Findwork (remote/tech), France Travail (FR) ---
+    # Full-description public sources, each cred-gated like Adzuna.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_reed",
+        label="Reed",
+        have_creds=bool(os.environ.get("REED_API_KEY")),
+        fetch_cmd=[
+            PY,
+            "download/fetch_reed.py",
+            "--out-dir",
+            ROOT / "jobs_data_reed" / "raw",
+            "--max-pages",
+            str(args.reed_max_pages),
+            "--max-days-old",
+            str(args.reed_max_days_old),
+        ],
+    )
+    # The Muse key is optional (the endpoint works keyless), so this corpus is
+    # always attempted.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_themuse",
+        label="The Muse",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_themuse.py",
+            "--out-dir",
+            ROOT / "jobs_data_themuse" / "raw",
+            "--max-pages",
+            str(args.themuse_max_pages),
+            "--max-days-old",
+            str(args.themuse_max_days_old),
+        ],
+    )
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_findwork",
+        label="Findwork",
+        have_creds=bool(os.environ.get("FINDWORK_API_KEY")),
+        fetch_cmd=[
+            PY,
+            "download/fetch_findwork.py",
+            "--out-dir",
+            ROOT / "jobs_data_findwork" / "raw",
+            "--max-pages",
+            str(args.findwork_max_pages),
+            "--max-days-old",
+            str(args.findwork_max_days_old),
+        ],
+    )
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_francetravail",
+        label="France Travail",
+        have_creds=bool(
+            os.environ.get("FRANCETRAVAIL_CLIENT_ID") and os.environ.get("FRANCETRAVAIL_SECRET")
+        ),
+        fetch_cmd=[
+            PY,
+            "download/fetch_francetravail.py",
+            "--out-dir",
+            ROOT / "jobs_data_francetravail" / "raw",
+            "--publiee-depuis",
+            str(args.francetravail_publiee_depuis),
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1296,6 +1401,35 @@ def main() -> int:
     )
     ap.add_argument(
         "--adzuna-max-days-old", type=int, default=7, help="Adzuna: only postings newer than N days"
+    )
+    # Additional public sources (cred-gated). Modest defaults keep nightly --delta
+    # runs cheap; raise per source for a fuller backfill.
+    ap.add_argument("--reed-max-pages", type=int, default=20, help="Reed pages (100 jobs/page)")
+    ap.add_argument(
+        "--reed-max-days-old", type=int, default=14, help="Reed: only postings newer than N days"
+    )
+    ap.add_argument(
+        "--themuse-max-pages", type=int, default=50, help="The Muse pages (20 jobs/page)"
+    )
+    ap.add_argument(
+        "--themuse-max-days-old",
+        type=int,
+        default=14,
+        help="The Muse: only postings newer than N days",
+    )
+    ap.add_argument("--findwork-max-pages", type=int, default=20, help="Findwork pages")
+    ap.add_argument(
+        "--findwork-max-days-old",
+        type=int,
+        default=14,
+        help="Findwork: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--francetravail-publiee-depuis",
+        type=int,
+        default=7,
+        choices=[1, 3, 7, 14, 31],
+        help="France Travail: only offers published within the last N days",
     )
     ap.add_argument(
         "--skip-ats-extra",
