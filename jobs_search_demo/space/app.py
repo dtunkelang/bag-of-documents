@@ -585,12 +585,23 @@ def _resolve_passage_vecs(
     return resolved
 
 
+# Visible-match gate: if the semantically-best passage contains no query term but another
+# passage that DOES sits within this cosine of it, prefer the visible-match passage so the
+# snippet shows why the job matched. eps-bounded so the gate never trades away a real
+# relevance gap for a cosmetic highlight (offline bake-off: vs pure-semantic this lifts
+# highlight coverage 96%->100% at ~0 cosine regret; RRF/weighted blends over-correct).
+SNIPPET_GATE_EPS = 0.03
+
+
 def _semantic_snippets(
     query: str, terms: list[str], raw: dict[int, str], vecs_b64: dict[int, str]
 ) -> dict[int, str]:
-    """Pick each doc's snippet by embedding similarity: re-derive its candidate passages
-    from the description, pair each with its (stored or live-encoded) vector, keep the
-    passage closest to the query vector. Highlight any lexical term hits in the winner."""
+    """Pick each doc's snippet by embedding similarity, then apply the visible-match gate:
+    re-derive the candidate passages, pair each with its (stored or live-encoded) vector,
+    take the passage closest to the query vector — but if that passage has no query term
+    while a term-containing one sits within SNIPPET_GATE_EPS cosine, prefer the latter so
+    the snippet visibly shows the match. Reduces to pure-semantic when no near-tie visible
+    match exists. Lexical term hits in the winner are highlighted either way."""
     doc_passages = {i: passages_for(t) for i, t in raw.items()}
     pvecs = _resolve_passage_vecs(doc_passages, vecs_b64)
     qv = np.asarray(_dense_qv(query), dtype=np.float32)
@@ -600,17 +611,26 @@ def _semantic_snippets(
             cleaned = clean_text(raw[i])
             out[i] = html.escape(_lead(cleaned)) if cleaned else ""
             continue
-        best = ps[int(np.argmax(pvecs[i] @ qv))]
-        out[i] = _highlight(_window(best, terms), terms)
+        sims = pvecs[i] @ qv
+        pick = int(np.argmax(sims))
+        if terms and _distinct_hits(ps[pick], terms) == 0:
+            floor = float(sims[pick]) - SNIPPET_GATE_EPS
+            hit_cands = [
+                j for j in range(len(ps)) if sims[j] >= floor and _distinct_hits(ps[j], terms) > 0
+            ]
+            if hit_cands:
+                pick = max(hit_cands, key=lambda j: sims[j])
+        out[i] = _highlight(_window(ps[pick], terms), terms)
     return out
 
 
 def _snippets(query: str, ids: list[int]) -> dict[int, str]:
     """Fetch descriptions + stored passage vectors for the displayed ids in one Solr call
     and build a snippet for each. With a query, selection is semantic (best passage by e5
-    cosine, dot against the stored snippet_vecs) with lexical <em> highlighting layered on;
-    blank query (seed/browse) shows the description lead. Falls back to lexical most-terms
-    selection if the semantic path raises."""
+    cosine, dot against the stored snippet_vecs) with an eps-bounded visible-match gate
+    (see _semantic_snippets) and lexical <em> highlighting layered on; blank query
+    (seed/browse) shows the description lead. Falls back to lexical most-terms selection if
+    the semantic path raises."""
     if not ids:
         return {}
     id_clause = " OR ".join(f'id:"{i}"' for i in ids)
