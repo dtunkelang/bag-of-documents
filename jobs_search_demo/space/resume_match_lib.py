@@ -258,6 +258,7 @@ def resume_features(row):
         "headline": head[:160],
         "loc": g("Location").strip(),
         "loc_tok": sorted(geo_tokens(g("Location"))),
+        "country": loc_country(g("Location")),
         "text": g("text")[:2000],
         "seniority": sen,
         "years": resume_years(g("Experience")),
@@ -536,6 +537,7 @@ def features_from_text(text, loc=""):
         "headline": headline[:160],
         "loc": loc_eff,
         "loc_tok": sorted(loc_tok),
+        "country": loc_country(loc_eff),
         "text": text[:2000],
         "seniority": sen,
         "seniority_known": sen_known,
@@ -551,12 +553,18 @@ def job_features(d):
     txt = d.get("text") or ""
     locs = job_locations(d)
     loc_tok = set().union(*[geo_tokens(str(x)) for x in locs]) if locs else set()
+    # countries the posting offers as a WHOLE-country location (e.g. a 'UK' entry in a
+    # multi-location list) — lets a same-country seeker pass the location axis even with
+    # no city overlap. City-only entries ('London') contribute nothing here, so two
+    # different cities in one country still require token overlap as before.
+    loc_countries = sorted({loc_country(str(x)) for x in locs if is_country_only(str(x))})
     return {
         "title": d.get("title", ""),
         "sen": seniority_of(d.get("title", "")),
         "remote": job_is_remote(d),
         "loc": "; ".join(str(x) for x in locs),
         "loc_tok": sorted(loc_tok),
+        "loc_countries": loc_countries,
         "years_req": job_years_req(txt),
         "degree_req": job_degree_req(txt),
         "cred_gates": sorted(job_cred_gates(txt)),
@@ -622,6 +630,88 @@ def _expand_geo(tokens):
     return out
 
 
+# --- country-level location fallback ---
+# Country tokens are too coarse for the normal city/region token overlap (every US city
+# would "match" every other on "states"), so geo_tokens drops them via STOP_GEO. But that
+# leaves a posting located only at a country ("UK", "United States", or one country entry
+# in a multi-location list) with no tokens to overlap, so it can never pass the location
+# axis even for someone plainly in that country. These helpers recover that case WITHOUT
+# loosening city-level matching: a country-granular location matches a same-country seeker.
+# Single-token aliases are kept unambiguous (no 2-letter forms like CA/IN/IT that collide
+# with US states / English words); multi-word names are matched as substrings.
+_COUNTRY_WORD = {
+    "uk": "gb",
+    "usa": "us",
+    "us": "us",
+    "britain": "gb",
+    "england": "gb",
+    "scotland": "gb",
+    "wales": "gb",
+    "kingdom": "gb",
+    "america": "us",
+    "canada": "ca",
+    "germany": "de",
+    "deutschland": "de",
+    "france": "fr",
+    "spain": "es",
+    "espana": "es",
+    "italy": "it",
+    "italia": "it",
+    "netherlands": "nl",
+    "ireland": "ie",
+    "india": "in",
+    "australia": "au",
+    "poland": "pl",
+    "portugal": "pt",
+    "brazil": "br",
+    "mexico": "mx",
+    "japan": "jp",
+    "singapore": "sg",
+    "switzerland": "ch",
+    "sweden": "se",
+    "norway": "no",
+    "denmark": "dk",
+    "finland": "fi",
+    "belgium": "be",
+    "austria": "at",
+}
+_COUNTRY_PHRASES = [
+    ("united kingdom", "gb"),
+    ("great britain", "gb"),
+    ("u.k", "gb"),
+    ("united states", "us"),
+    ("u.s.a", "us"),
+    ("u.s", "us"),
+    ("new zealand", "nz"),
+    ("south africa", "za"),
+    ("united arab emirates", "ae"),
+    ("hong kong", "hk"),
+    ("czech republic", "cz"),
+    ("south korea", "kr"),
+]
+# country words to subtract when deciding whether a location is country-granular
+_COUNTRY_TOKENS = set(_COUNTRY_WORD) | {w for phrase, _ in _COUNTRY_PHRASES for w in phrase.split()}
+
+
+def loc_country(s):
+    """Canonical 2-letter country code a location string denotes, or '' if none."""
+    t = (s or "").lower()
+    for phrase, code in _COUNTRY_PHRASES:
+        if phrase in t:
+            return code
+    for tok in re.findall(r"[a-z]+", t):
+        if tok in _COUNTRY_WORD:
+            return _COUNTRY_WORD[tok]
+    return ""
+
+
+def is_country_only(s):
+    """True if a location names ONLY a country (no city/region): it resolves to a country
+    and, once country words are removed, has no remaining geo tokens. So 'UK' / 'United
+    Kingdom' are country-only but 'London, UK' is not."""
+    return bool(loc_country(s)) and not (geo_tokens(s) - _COUNTRY_TOKENS)
+
+
 def axis_status(r, j):
     """Return per-axis pass/fail + human-readable reasons for a (resume, job) pair.
 
@@ -650,8 +740,12 @@ def axis_status(r, j):
     else:
         sen_reason = ""
 
-    # location
+    # location — city/region token overlap, OR remote, OR (country-level fallback) the
+    # posting lists the seeker's whole country as one of its locations, which a bare-country
+    # posting ('UK') otherwise can't express in city tokens.
     loc_ok = j["remote"] or bool(r_loc & j_loc)
+    if not loc_ok and r.get("country") and r["country"] in set(j.get("loc_countries", [])):
+        loc_ok = True
     loc_reason = "" if loc_ok else "location mismatch (not remote, no geo overlap)"
 
     # gate
