@@ -1,0 +1,42 @@
+# Broad occupation/keyword seeds for the query-driven job sources (Jooble,
+# Careerjet). These aggregators have no "list everything" endpoint, so we sweep a
+# spread of common occupation terms to approximate broad coverage. One query per
+# line; '#' comments and blank lines are ignored.
+software engineer
+data scientist
+data analyst
+product manager
+project manager
+machine learning engineer
+devops engineer
+nurse
+physician
+teacher
+accountant
+financial analyst
+sales representative
+account executive
+marketing manager
+customer service
+human resources
+recruiter
+mechanical engineer
+electrical engineer
+civil engineer
+administrative assistant
+operations manager
+business analyst
+graphic designer
+ux designer
+warehouse
+truck driver
+retail
+construction
+electrician
+plumber
+chef
+lawyer
+pharmacist
+social worker
+security
+consultant
