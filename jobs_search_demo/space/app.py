@@ -2263,28 +2263,38 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
         return JSONResponse({"suggestions": []})
     prefix = q.strip().lower()
     prefixes = _expand_prefix(prefix)
-    tiers = [
+    # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
+    # is the catch-all fallback (it also carries strings the tagged tiers deliberately
+    # excluded), so it's consulted only to fill out the list.
+    tagged = [
         R["tier_keys"].get("title", []),
         R["tier_keys"].get("combo", []),
         R["tier_keys"].get("head", []),
         R["tier_keys"].get("tail", []),
         R["tier_keys"].get("synth", []),
-        R["sorted_keys"],
     ]
-    seen: set[str] = set()
-    out: list[dict] = []
-    for tier in tiers:
+    # Gather the whole candidate pool first (best/lowest tier index per unique string),
+    # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
+    # truncated before it can rank. Shorter suggestions sort above the longer ones that
+    # extend them (string length ascending: a prefix is always strictly shorter than what
+    # extends it, so "product manager" precedes "product manager - cloud" and "data"
+    # precedes "databricks"), then by source tier, then alphabetically.
+    best_tier: dict[str, int] = {}
+    for ti, tier in enumerate(tagged):
         for p in prefixes:
-            for k in _prefix_matches(tier, p, limit * 2):
-                if k not in seen:
-                    seen.add(k)
-                    out.append({"text": k})
-                    if len(out) >= limit:
-                        break
+            for k in _prefix_matches(tier, p, limit * 4):
+                if k not in best_tier or ti < best_tier[k]:
+                    best_tier[k] = ti
+    pool = sorted(best_tier, key=lambda k: (len(k), best_tier[k], k))
+    seen: set[str] = set(best_tier)
+    out: list[dict] = [{"text": k} for k in pool[:limit]]
+    if len(out) < limit:  # fall back to the catch-all tier, same stem-first ordering
+        fb = {k for p in prefixes for k in _prefix_matches(R["sorted_keys"], p, limit * 4)}
+        for k in sorted(fb - seen, key=lambda k: (len(k), k)):
+            seen.add(k)
+            out.append({"text": k})
             if len(out) >= limit:
                 break
-        if len(out) >= limit:
-            break
     if len(out) < limit:
         for s in _solr_suggest(prefix, limit - len(out)):
             if s and s not in seen:
