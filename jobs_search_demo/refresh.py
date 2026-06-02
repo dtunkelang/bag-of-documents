@@ -79,6 +79,7 @@ CORPORA = [
     ("jobs_data_themuse", "jobs_data_themuse"),
     ("jobs_data_findwork", "jobs_data_findwork"),
     ("jobs_data_francetravail", "jobs_data_francetravail"),
+    ("jobs_data_remoteok", "jobs_data_remoteok"),
     # Meta-aggregator LAST so unify can dedup it against everything above (see
     # DEDUP_AGAINST_PRIOR). Jooble re-lists jobs we already get from the ATS/Adzuna/
     # Reed/... sources, so only its genuinely-unique postings survive. Its docs are
@@ -528,6 +529,22 @@ def stage_pull(args) -> None:
             ROOT / "jobs_data_francetravail" / "raw",
             "--publiee-depuis",
             str(args.francetravail_publiee_depuis),
+        ],
+    )
+    # RemoteOK: keyless remote-first board (full HTML descriptions). One endpoint
+    # returns the latest ~100 active postings; stable ids let --delta accumulate.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_remoteok",
+        label="RemoteOK",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_remoteok.py",
+            "--out-dir",
+            ROOT / "jobs_data_remoteok" / "raw",
+            "--max-days-old",
+            str(args.remoteok_max_days_old),
         ],
     )
     # Jooble: meta-aggregator for extra inventory. Snippet-grade docs, but stage-1
@@ -1498,6 +1515,12 @@ def main() -> int:
         default=7,
         choices=[1, 3, 7, 14, 31],
         help="France Travail: only offers published within the last N days",
+    )
+    ap.add_argument(
+        "--remoteok-max-days-old",
+        type=int,
+        default=30,
+        help="RemoteOK: only postings newer than N days",
     )
     ap.add_argument(
         "--jooble-max-pages",
