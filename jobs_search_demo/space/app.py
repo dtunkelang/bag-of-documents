@@ -1349,10 +1349,9 @@ h1 { font-size: 1.4em; margin-bottom: 8px; }
 .badge.uncached { background: #f4eee8; color: #6b4a18; border: 1px solid #ddc8a8; }
 button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #888; border-radius: 4px; background: #fafafa; }
 .results-panel { border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; background: #fff; }
-.result { display: grid; grid-template-columns: 28px 60px 70px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dotted #eee; font-size: 0.95em; align-items: start; cursor: pointer; }
+.result { display: grid; grid-template-columns: 28px 70px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dotted #eee; font-size: 0.95em; align-items: start; cursor: pointer; }
 .result:hover { background: #fafafa; }
 .r-rank { color: #aaa; text-align: right; }
-.r-score { color: #555; font-variant-numeric: tabular-nums; }
 .r-source { color: #888; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.5px; }
 .r-title { color: #222; word-break: break-word; }
 .r-title .t { font-weight: 500; }
@@ -1480,7 +1479,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
   .facet { margin-bottom: 10px; }
   /* result rows: drop the rank/score debug columns, let the title own the width. */
   .result { grid-template-columns: 1fr; gap: 3px; padding: 11px 0; }
-  .r-rank, .r-score { display: none; }
+  .r-rank { display: none; }
   .r-source { font-size: 0.72em; }
   .detail { grid-column: 1 / -1; max-height: 60vh; }
   /* profile cos-vs-filter panels stack instead of sitting two-up. */
@@ -1686,7 +1685,7 @@ function renderResults(div, items, ms) {
       const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
       fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}</div>`;
     }
-    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-score">${r.score.toFixed(4)}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}</span>`;
+    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}</span>`;
     if (r.idx != null && r.idx >= 0) {
       const titleCell = row.querySelector('.r-title');
       row.addEventListener('click', () => toggleDetail(r.idx, titleCell));
