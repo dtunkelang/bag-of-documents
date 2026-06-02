@@ -658,6 +658,106 @@ def stage_encode(args) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stage 2b: snippet passage vectors (content-addressed, like stage_encode)
+# ---------------------------------------------------------------------------
+def stage_snippet_encode(args) -> None:
+    """Pre-encode result-snippet passage vectors so the Space picks snippet passages by
+    dot product instead of encoding at query time. Split every staged doc's description
+    into candidate passages (snippet_lib), dedup, encode ONLY passages whose vector isn't
+    already cached, and write the positional inputs push_docs consumes:
+      snippet_passages.vecs.fp16.npy  (row j == j-th unique passage, normalized fp16)
+      snippet_doc_rows.json           ({metadata position: [unique-row, ...]})
+    The {passage-hash -> vector} cache makes a nightly delta cheap (only NEW postings'
+    passages encode). Passages share the title encoder's model + "passage: " prefix, so
+    _title_hash keys them in the same namespace. Without this stage push_docs finds no
+    artifacts and ships docs WITHOUT snippet_vecs (Space silently falls back to live
+    encode). Delete snippet_passages.cache.* to force a clean re-encode."""
+    import numpy as np
+
+    out = Path(args.out_dir)
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    from encode_snippet_vecs import build_passages
+
+    unique, doc_rows, stats = build_passages(str(out))
+    with open(out / "snippet_doc_rows.json", "w") as f:
+        json.dump(doc_rows, f)
+    n_uniq = len(unique)
+    print(
+        f"[2b] {stats['n_docs']:,} docs -> {n_uniq:,} unique passages "
+        f"({stats['total_passages']:,} total)",
+        flush=True,
+    )
+
+    vec = out / "snippet_passages.vecs.fp16.npy"
+    cache_vec_path = out / "snippet_passages.cache.vecs.fp16.npy"
+    cache_key_path = out / "snippet_passages.cache_keys.json"
+    hashes = [_title_hash(p) for p in unique]
+
+    cache_vecs: list = []
+    cache_idx: dict[str, int] = {}
+    if cache_vec_path.exists() and cache_key_path.exists():
+        loaded = np.load(cache_vec_path)
+        with open(cache_key_path) as f:
+            cache_keys = json.load(f)
+        cache_vecs = [np.array(loaded[i], dtype=np.float16) for i in range(len(cache_keys))]
+        cache_idx = {k: i for i, k in enumerate(cache_keys)}
+        print(f"[2b] passage cache: {len(cache_idx):,} cached vectors", flush=True)
+    elif vec.exists() and (out / "snippet_passages.json").exists():
+        # Bootstrap from a prior backfill encode: snippet_passages.json aligns row-for-row
+        # with the vecs file, so seed the cache from it (don't re-encode what we paid for).
+        with open(out / "snippet_passages.json") as f:
+            prior = json.load(f)
+        existing = np.load(vec, mmap_mode="r")
+        if existing.shape[0] == len(prior):
+            for row, p in enumerate(prior):
+                h = _title_hash(p)
+                if h not in cache_idx:
+                    cache_idx[h] = len(cache_vecs)
+                    cache_vecs.append(np.array(existing[row], dtype=np.float16))
+            print(
+                f"[2b] seeded passage cache from backfill ({len(cache_idx):,} vectors)", flush=True
+            )
+
+    need: dict[str, str] = {}
+    for h, p in zip(hashes, unique):
+        if h not in cache_idx and h not in need:
+            need[h] = p
+    if need:
+        n_new = len(need)
+        print(f"[2b] delta encode: {n_new:,}/{n_uniq:,} passages new", flush=True)
+        delta_file = "snippet_delta.json"
+        with open(out / delta_file, "w") as f:
+            json.dump(list(need.values()), f)
+        delta_vec = _run_encode(args, delta_file, "snippet_passages_delta", n_new)
+        new_vecs = np.load(delta_vec)
+        if new_vecs.shape[0] != n_new:
+            sys.exit(f"[2b] passage delta encode size mismatch: {new_vecs.shape[0]} vs {n_new}")
+        for row, h in enumerate(need.keys()):
+            cache_idx[h] = len(cache_vecs)
+            cache_vecs.append(np.array(new_vecs[row], dtype=np.float16))
+    else:
+        print(f"[2b] delta encode: 0 new passages, all {n_uniq:,} reused", flush=True)
+
+    # Assemble the positional vecs file (row j == unique[j]) push_docs expects.
+    dim = cache_vecs[0].shape[0] if cache_vecs else 384
+    if n_uniq:
+        cache_arr = np.asarray(cache_vecs, dtype=np.float16)
+        row_for_uniq = np.fromiter((cache_idx[h] for h in hashes), dtype=np.int64, count=n_uniq)
+        np.save(vec, cache_arr[row_for_uniq])
+    else:
+        np.save(vec, np.empty((0, dim), dtype=np.float16))
+
+    # Prune the cache to today's passages so it stays bounded, then persist.
+    today = set(hashes)
+    keep = [(h, cache_idx[h]) for h in cache_idx if h in today]
+    pruned = np.asarray([cache_vecs[i] for _, i in keep], dtype=np.float16)
+    np.save(cache_vec_path, pruned)
+    with open(cache_key_path, "w") as f:
+        json.dump([h for h, _ in keep], f)
+    print(f"[2b] wrote {vec} ({n_uniq:,} rows); passage cache now {len(keep):,}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Stage 3: facets (+ new-slug byproduct)
 # ---------------------------------------------------------------------------
 def stage_facets(args) -> None:
@@ -903,6 +1003,11 @@ def stage_solr(args) -> None:
     if qc.returncode != 0:
         print(f"[4] *** industry-label QC raised red flags — review {qc_out} ***", flush=True)
 
+    # Snippet passage vectors are a push precondition: produce them now (right before the
+    # push) so push_docs attaches snippet_vecs. Done here rather than as a numbered stage
+    # so the integer --from/--to-stage range (and the >=4 live-mutation guard) is unchanged.
+    stage_snippet_encode(args)
+
     # push_docs reads from STAGE (hardcoded to unified_jobs). If we built into a
     # different dir, point it there via env override.
     push_env = {"JOBS_STAGE": str(out)} if str(out) != str(LEGACY_UNIFIED) else {}
@@ -1041,6 +1146,10 @@ def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
     )
 
     if add_positions:
+        # Produce snippet passage vectors before the push so the added docs carry
+        # snippet_vecs. Content-addressed, so a delta only encodes the new postings'
+        # passages (cache hits cover the rest).
+        stage_snippet_encode(args)
         pos_file = out / "_delta_positions.json"
         with open(pos_file, "w") as f:
             json.dump(add_positions, f)
