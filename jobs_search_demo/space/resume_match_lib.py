@@ -414,6 +414,94 @@ def role_titles(text):
     return out
 
 
+# --- employer extraction (for self-employer suppression in personalized results) ---
+# A "jobs for you" feed should not surface the seeker's own current/recent employer, so
+# we parse the company names out of the profile and let the serving layer drop them.
+_DURATION_RX = re.compile(r"^\s*\d+\s+(?:year|yr|month|mo)s?(?:\s+\d+\s+(?:month|mo)s?)?\s*$", re.I)
+_BULLET_RX = re.compile(r"^\s*[•·–—*\-]")
+_HEADLINE_AT_RX = re.compile(r"\b(?:at|@)\s+(.+)$", re.I)
+# common corporate suffixes stripped before comparing two employer names
+_EMP_SUFFIX_RX = re.compile(
+    r"\b(?:inc|incorporated|llc|ltd|limited|corp|corporation|co|company|gmbh|plc|ag|sa|"
+    r"srl|bv|pty|group|holdings|technologies|technology|labs|systems|solutions)\b",
+    re.I,
+)
+
+
+def norm_employer(s):
+    """Normalize an employer name for comparison: lowercase, drop punctuation and common
+    corporate suffixes (Inc/LLC/Ltd/Co/...), collapse whitespace."""
+    s = re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower())
+    s = _EMP_SUFFIX_RX.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def same_employer(a, b):
+    """True if two employer names denote the same company. Single-token names must match
+    exactly (so 'Square' does not match 'Times Square'); a multi-word resume name may
+    match as a whole-word substring of the job's employer ('Berkeley Payments' in
+    'Berkeley Payments Inc.')."""
+    na, nb = norm_employer(a), norm_employer(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    short, long = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if " " not in short:  # single-token name -> require an exact normalized match
+        return False
+    return re.search(r"\b" + re.escape(short) + r"\b", long) is not None
+
+
+def _employer_from_headline(headline):
+    """Current employer from a LinkedIn-style headline ('Staff PM at Algolia')."""
+    m = _HEADLINE_AT_RX.search(headline or "")
+    if not m:
+        return ""
+    # the tail can carry trailing clauses ('at Algolia | building search'); keep the first
+    cand = re.split(r"[|•·–—/,]", m.group(1))[0].strip()
+    return cand if 2 <= len(cand) <= 60 else ""
+
+
+def employers(text, headline=""):
+    """Recent employer names (most-recent first) for self-employer suppression.
+
+    Reads the LinkedIn 'Experience' block, whose per-role layout is
+        Company / [duration] / Title / Month Year - ... / [Location]
+    (consecutive roles at one company repeat Title/Dates under a single Company line).
+    For each date-range line the title is the line directly above it and the company the
+    line above that, skipping a 'N years M months' duration line; when that company slot
+    is the previous role's date/location line it's a promotion within the same company and
+    is attributed to the company already seen. The headline's '... at <Company>' (the
+    current employer) is prepended. De-duplicated case-insensitively, order preserved."""
+    out, seen = [], set()
+
+    def add(name):
+        name = (name or "").strip()
+        key = norm_employer(name)
+        if name and key and key not in seen and 2 <= len(name) <= 60:
+            seen.add(key)
+            out.append(name)
+
+    add(_employer_from_headline(headline))
+    exp = _experience_section(text or "")
+    lines = [ln.strip() for ln in exp.split("\n") if ln.strip()]
+    date_idx = {i for i, ln in enumerate(lines) if _MONTH_YEAR.search(ln)}
+    loc_idx = {d + 1 for d in date_idx}  # the line after a date range is that role's location
+    for d in sorted(date_idx):
+        c = d - 2  # company slot: the line above the title (which sits above the date)
+        if c >= 0 and _DURATION_RX.match(lines[c]):
+            c -= 1
+        if c < 0:
+            continue
+        if c in date_idx or c in loc_idx:
+            continue  # another role under a company already named above
+        cand = lines[c]
+        if _BULLET_RX.match(cand) or _MONTH_YEAR.search(cand) or _DURATION_RX.match(cand):
+            continue
+        add(cand)
+    return out
+
+
 def query_text(text):
     """Text to embed for matching. Leans on DEMONSTRATED experience — the most-recent
     role title (weighted by repetition) plus the Experience section — rather than a
@@ -454,6 +542,7 @@ def features_from_text(text, loc=""):
         "years": _years_from_free_text(text),
         "degree": resume_degree(text),
         "creds": sorted(resume_creds(text, "", text)),
+        "employers": employers(text, headline),
     }
 
 

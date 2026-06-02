@@ -1034,6 +1034,25 @@ def seed_title(idx: int) -> str:
 
 PROF_WEIGHT = float(os.environ.get("PROF_WEIGHT", "1.0"))
 
+# Personalized results should not surface the seeker's OWN current/recent employer —
+# being shown jobs at the company you already work at (or just left) is noise in a "jobs
+# for you" feed. We drop the most-recent SELF_EMPLOYER_MAX employers parsed from the
+# profile, except when the user has explicitly filtered to that employer (they asked).
+SELF_EMPLOYER_MAX = int(os.environ.get("SELF_EMPLOYER_MAX", "3"))
+
+
+def _self_employers(r: dict, filters: dict | None = None) -> list[str]:
+    """The seeker's recent employer names to suppress — empty when the user explicitly
+    filtered by employer (an explicit ask overrides the self-employer suppression)."""
+    if filters and filters.get("employer"):
+        return []
+    emps = r.get("employers") or []
+    return emps[:SELF_EMPLOYER_MAX] if SELF_EMPLOYER_MAX > 0 else []
+
+
+def _is_self_employer(emp: str, self_emps: list[str]) -> bool:
+    return bool(emp) and any(L.same_employer(emp, se) for se in self_emps)
+
 
 def _personalized_topk(
     spec: QSpec,
@@ -1097,6 +1116,7 @@ def search_personalized(
     ids = [i for i, _ in ranked]
     hyd = _hydrate_for_match(ids)
     exempt = _dominant_employers(ranked, hyd) if cap > 0 else set()
+    self_emps = _self_employers(r, filters)
     rows: list[dict] = []
     seen: dict[str, int] = {}
     seen_reprint: set[tuple[str, str]] = set()
@@ -1104,6 +1124,8 @@ def search_personalized(
         d = hyd.get(idx)
         if not d:
             continue
+        if _is_self_employer(d.get("employer") or "", self_emps):
+            continue  # don't surface the seeker's own current/recent employer
         jf = _job_feats_from_solr(d)
         st = L.axis_status(r, jf)
         if hard_filter and not st["all"]:
@@ -1140,12 +1162,15 @@ def browse_personalized(
     pool = max(PROFILE_POOL, k * (cap + 2), k + 20)
     hits = _topk_knn("e5_vec", qv_profile, pool, filters)  # (idx, cosine), best-first
     hyd = _hydrate_for_match([i for i, _ in hits])
+    self_emps = _self_employers(r, filters)
     rows: list[dict] = []
     seen: dict[str, int] = {}
     for idx, cos in hits:
         d = hyd.get(idx)
         if not d:
             continue
+        if _is_self_employer(d.get("employer") or "", self_emps):
+            continue  # don't surface the seeker's own current/recent employer
         jf = _job_feats_from_solr(d)
         st = L.axis_status(r, jf)
         if hard_filter and not st["all"]:
@@ -2480,6 +2505,7 @@ def _run_profile_match(r: dict, qv: list[float]) -> dict:
     computed live from the hydrated Solr docs."""
     hits = _topk_knn("e5_vec", qv, PROFILE_POOL)  # [(idx, cosine), ...] best-first
     hyd = _hydrate_for_match([i for i, _ in hits])
+    self_emps = _self_employers(r)
     cosine_list: list[dict] = []
     filtered_list: list[dict] = []
     filtered_count = 0
@@ -2487,6 +2513,8 @@ def _run_profile_match(r: dict, qv: list[float]) -> dict:
         d = hyd.get(idx)
         if not d:
             continue
+        if _is_self_employer(d.get("employer") or "", self_emps):
+            continue  # don't surface the seeker's own current/recent employer
         jf = _job_feats_from_solr(d)
         st = L.axis_status(r, jf)
         brief = _profile_job_brief(idx, cos, st, d, jf)
