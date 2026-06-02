@@ -82,6 +82,8 @@ CORPORA = [
     ("jobs_data_remoteok", "jobs_data_remoteok"),
     ("jobs_data_smartrecruiters", "jobs_data_smartrecruiters"),
     ("jobs_data_workable", "jobs_data_workable"),
+    ("jobs_data_recruitee", "jobs_data_recruitee"),
+    ("jobs_data_breezy", "jobs_data_breezy"),
     # Meta-aggregator LAST so unify can dedup it against everything above (see
     # DEDUP_AGAINST_PRIOR). Jooble re-lists jobs we already get from the ATS/Adzuna/
     # Reed/... sources, so only its genuinely-unique postings survive. Its docs are
@@ -588,6 +590,47 @@ def stage_pull(args) -> None:
             str(args.workable_max_postings),
             "--max-days-old",
             str(args.workable_max_days_old),
+        ],
+    )
+    # Recruitee + Breezy: keyless slug-driven ATSes (SMB-heavy), net-new vs the
+    # Greenhouse/Lever/Ashby crawl. Recruitee's offers API carries the full
+    # description; Breezy's board JSON does not, so its adapter pulls each
+    # position's JobPosting JSON-LD for the body. Slugs verified live; lists in
+    # jobs_search_demo/{recruitee,breezy}_slugs.txt.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_recruitee",
+        label="Recruitee",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_recruitee.py",
+            "--out-dir",
+            ROOT / "jobs_data_recruitee" / "raw",
+            "--slugs-file",
+            ROOT / "jobs_search_demo" / "recruitee_slugs.txt",
+            "--max-postings-per-company",
+            str(args.recruitee_max_postings),
+            "--max-days-old",
+            str(args.recruitee_max_days_old),
+        ],
+    )
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_breezy",
+        label="Breezy",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_breezy.py",
+            "--out-dir",
+            ROOT / "jobs_data_breezy" / "raw",
+            "--slugs-file",
+            ROOT / "jobs_search_demo" / "breezy_slugs.txt",
+            "--max-postings-per-company",
+            str(args.breezy_max_postings),
+            "--max-days-old",
+            str(args.breezy_max_days_old),
         ],
     )
     # Jooble: meta-aggregator for extra inventory. Snippet-grade docs, but stage-1
@@ -1588,6 +1631,30 @@ def main() -> int:
         type=int,
         default=30,
         help="Workable: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--recruitee-max-postings",
+        type=int,
+        default=0,
+        help="Recruitee: max postings per company (0 = all)",
+    )
+    ap.add_argument(
+        "--recruitee-max-days-old",
+        type=int,
+        default=30,
+        help="Recruitee: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--breezy-max-postings",
+        type=int,
+        default=0,
+        help="Breezy: max postings per company (0 = all)",
+    )
+    ap.add_argument(
+        "--breezy-max-days-old",
+        type=int,
+        default=30,
+        help="Breezy: only postings newer than N days",
     )
     ap.add_argument(
         "--jooble-max-pages",

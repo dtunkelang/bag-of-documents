@@ -1,0 +1,19 @@
+# Recruitee company subdomains to poll (one per line, # = comment).
+# The subdomain is the path segment in a company's careers URL, e.g.
+#   https://greatminds.recruitee.com  -> greatminds
+# Polled by download/fetch_recruitee.py via the public offers API (no auth);
+# the offers response carries the full HTML description (no detail fetch needed).
+#
+# Harvested via site-scoped web search of *.recruitee.com careers URLs, then
+# VERIFIED live against /api/offers/ (kept only count>0, 2026-06-02; ~137 active
+# postings across these 9). Sorted by volume at probe time.
+# To grow: harvest more slugs, re-run the probe, append the live ones.
+intralot
+lomography
+iliabeauty
+greatminds
+snapeda
+petalmd
+thefactory
+newlawbusinessmodel
+elaphepropulsiontechnologies
