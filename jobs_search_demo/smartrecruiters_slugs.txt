@@ -3,5 +3,39 @@
 #   https://careers.smartrecruiters.com/Visa  -> Visa
 #   https://jobs.smartrecruiters.com/Square   -> Square
 # Polled by download/fetch_smartrecruiters.py via the public Posting API (no auth).
+#
+# Harvested via site-scoped web search of jobs/careers.smartrecruiters.com URLs,
+# then VERIFIED live against /v1/companies/{slug}/postings (kept only totalFound>0,
+# 2026-06-02; ~15.2k active postings across these 31). Sorted by volume at probe time.
+# To grow: harvest more slugs, re-run the probe, append the live ones.
+SGS
+LextorahLDS
+AbbVie
+northwesternmedicine
+HealthcareSupportStaffing1
+Experian
+MunsonHealthcare1
+servicenow
+aristanetworks
+ifs1
+TheWonderfulCompany
+xplor
+UniversityHealthNetwork
+linkedin3
+AlixaRx
+PAConsulting
+TheWarehouseGroup1
+TheNielsenCompany
+AspenSkiingCompany
+MyJobCompany1
+OfficeDepot
+HaltonHealthcare1
+GeeksRecruiting
 Visa
-Square
+UtilityWarehouse1
+Voxelcloud
+StratostaffEALimited
+goldstonepartners
+AmenitiesHealth
+KofileInc
+TheCoca-ColaCompany

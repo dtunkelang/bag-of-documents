@@ -80,6 +80,8 @@ CORPORA = [
     ("jobs_data_findwork", "jobs_data_findwork"),
     ("jobs_data_francetravail", "jobs_data_francetravail"),
     ("jobs_data_remoteok", "jobs_data_remoteok"),
+    ("jobs_data_smartrecruiters", "jobs_data_smartrecruiters"),
+    ("jobs_data_workable", "jobs_data_workable"),
     # Meta-aggregator LAST so unify can dedup it against everything above (see
     # DEDUP_AGAINST_PRIOR). Jooble re-lists jobs we already get from the ATS/Adzuna/
     # Reed/... sources, so only its genuinely-unique postings survive. Its docs are
@@ -545,6 +547,47 @@ def stage_pull(args) -> None:
             ROOT / "jobs_data_remoteok" / "raw",
             "--max-days-old",
             str(args.remoteok_max_days_old),
+        ],
+    )
+    # SmartRecruiters + Workable: keyless slug-driven ATSes (full HTML descriptions
+    # via a per-posting detail fetch). Companies are NOT in OpenApply's Greenhouse/
+    # Lever/Ashby crawl, so they bring net-new inventory. Slug lists were harvested
+    # via site-scoped search + verified live (jobs_search_demo/{smartrecruiters,
+    # workable}_slugs.txt). Per-company caps bound the nightly detail-fetch cost.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_smartrecruiters",
+        label="SmartRecruiters",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_smartrecruiters.py",
+            "--out-dir",
+            ROOT / "jobs_data_smartrecruiters" / "raw",
+            "--slugs-file",
+            ROOT / "jobs_search_demo" / "smartrecruiters_slugs.txt",
+            "--max-postings-per-company",
+            str(args.smartrecruiters_max_postings),
+            "--max-days-old",
+            str(args.smartrecruiters_max_days_old),
+        ],
+    )
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_workable",
+        label="Workable",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_workable.py",
+            "--out-dir",
+            ROOT / "jobs_data_workable" / "raw",
+            "--slugs-file",
+            ROOT / "jobs_search_demo" / "workable_slugs.txt",
+            "--max-postings-per-company",
+            str(args.workable_max_postings),
+            "--max-days-old",
+            str(args.workable_max_days_old),
         ],
     )
     # Jooble: meta-aggregator for extra inventory. Snippet-grade docs, but stage-1
@@ -1521,6 +1564,30 @@ def main() -> int:
         type=int,
         default=30,
         help="RemoteOK: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--smartrecruiters-max-postings",
+        type=int,
+        default=300,
+        help="SmartRecruiters: max postings per company (0 = all; caps detail-fetch cost)",
+    )
+    ap.add_argument(
+        "--smartrecruiters-max-days-old",
+        type=int,
+        default=30,
+        help="SmartRecruiters: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--workable-max-postings",
+        type=int,
+        default=0,
+        help="Workable: max postings per company (0 = all)",
+    )
+    ap.add_argument(
+        "--workable-max-days-old",
+        type=int,
+        default=30,
+        help="Workable: only postings newer than N days",
     )
     ap.add_argument(
         "--jooble-max-pages",
