@@ -1,0 +1,7 @@
+# Workable account subdomains to poll (one per line, # = comment).
+# The subdomain is the path segment in a company's hosted careers URL, e.g.
+#   https://apply.workable.com/acme  -> acme
+# Polled by download/fetch_workable.py via the public "apply" API (no auth).
+pearltalent
+hospitable
+gbg

@@ -1,0 +1,7 @@
+# SmartRecruiters company identifiers to poll (one per line, # = comment).
+# The identifier is the path segment in a company's hosted careers URL, e.g.
+#   https://careers.smartrecruiters.com/Visa  -> Visa
+#   https://jobs.smartrecruiters.com/Square   -> Square
+# Polled by download/fetch_smartrecruiters.py via the public Posting API (no auth).
+Visa
+Square
