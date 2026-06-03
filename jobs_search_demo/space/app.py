@@ -35,6 +35,7 @@ from snippet_lib import (
     passages_for,
     unpack_vecs,
 )
+from suggest_lib import degender_fr
 
 # ===== configuration =====
 
@@ -230,6 +231,11 @@ def load_resources() -> None:
     # folded prefix -> originals, so "ingenieur" matches "ingénieur".
     folded_pairs = sorted((_fold(k), k) for k in set(sorted_keys) | set(fr_roles))
     folded_keys = [p[0] for p in folded_pairs]
+    # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
+    # autocomplete match an accent-free prefix WITHIN the quality tiers ("electr" ->
+    # "électricien" in the fr tier) instead of only via a final alphabetical catch-all
+    # pass, where US-geo/company keys ("electric...") would otherwise crowd it out.
+    tier_folded = {tag: sorted((_fold(x), x) for x in keys) for tag, keys in by_tag.items()}
     # French roles longest-first, for dictionary-matching a French resume to roles.
     fr_roles_folded = sorted(
         ((_fold(r), r) for r in dict.fromkeys(fr_roles)), key=lambda p: -len(p[0])
@@ -239,11 +245,15 @@ def load_resources() -> None:
         {
             "dense_model": dense_model,
             "sorted_keys": sorted_keys,
+            # set form for O(1) "is this a known English query?" membership, used to keep
+            # franglais English queries ("data scientist") out of the French ROME lane.
+            "query_key_set": set(sorted_keys),
             "tier_keys": dict(by_tag),
             "role_suggester": role_suggester,
             "fr_related": fr_related,
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
+            "tier_folded": tier_folded,
             "fr_roles_folded": fr_roles_folded,
         }
     )
@@ -1429,6 +1439,20 @@ def _prefix_matches(keys: list[str], prefix: str, limit: int) -> list[str]:
     return out
 
 
+def _prefix_matches_folded(pairs: list[tuple[str, str]], fprefix: str, limit: int) -> list[str]:
+    """Accent-insensitive prefix match within a tier: `pairs` is (folded_key, original)
+    sorted by folded_key; returns the originals whose folded form starts with `fprefix`."""
+    lo = bisect.bisect_left(pairs, (fprefix,))
+    out: list[str] = []
+    for i in range(lo, len(pairs)):
+        if not pairs[i][0].startswith(fprefix):
+            break
+        out.append(pairs[i][1])
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _expand_prefix(prefix: str) -> list[str]:
     parts = prefix.split(" ", 1)
     head = parts[0]
@@ -2374,24 +2398,20 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tagged = [
-        R["tier_keys"].get("title", []),
-        R["tier_keys"].get("fr", []),
-        R["tier_keys"].get("combo", []),
-        R["tier_keys"].get("head", []),
-        R["tier_keys"].get("tail", []),
-        R["tier_keys"].get("synth", []),
-    ]
+    tier_order = ("title", "fr", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
-    # truncated before it can rank. Shorter suggestions sort above the longer ones that
-    # extend them (string length ascending: a prefix is always strictly shorter than what
-    # extends it, so "product manager" precedes "product manager - cloud" and "data"
-    # precedes "databricks"), then by source tier, then alphabetically.
+    # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
+    # prefix and the tier keys are folded), so "electr"/"électr" both reach the fr-tier
+    # "électricien" instead of losing to US-geo/company keys in the alphabetical catch-all
+    # below. Shorter suggestions sort above the longer ones that extend them (string
+    # length ascending), then by source tier, then alphabetically.
+    fprefixes = [_fold(p) for p in prefixes]
     best_tier: dict[str, int] = {}
-    for ti, tier in enumerate(tagged):
-        for p in prefixes:
-            for k in _prefix_matches(tier, p, limit * 4):
+    for ti, tag in enumerate(tier_order):
+        fl = R["tier_folded"].get(tag, [])
+        for fp in fprefixes:
+            for k in _prefix_matches_folded(fl, fp, limit * 4):
                 if k not in best_tier or ti < best_tier[k]:
                     best_tier[k] = ti
     pool = sorted(best_tier, key=lambda k: (len(k), best_tier[k], k))
@@ -2436,19 +2456,26 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
     if not q.strip():
         return JSONResponse({"suggestions": []})
     fr = R.get("fr_related")
-    # Confidently-French queries use the grounded ROME lane directly: the e5-small-v2
-    # suggester clusters French by morphology, not meaning ("développeur" -> "educateur"),
-    # so French gets France-Travail-validated career moves instead (query -> ROME ->
-    # mobilite -> a corpus-mined French role per related ROME).
-    if query_lang_mode(q) == "fr" and fr is not None:
+    # Route to the grounded ROME lane when the query is French. The e5-small-v2 suggester
+    # clusters French by morphology, not meaning ("développeur" -> "educateur"), so French
+    # gets France-Travail-validated career moves instead (query -> ROME -> mobilite -> a
+    # corpus-mined French role per related ROME). French is signalled by EITHER the
+    # high-precision lang gate (diacritic/function word) OR the query resolving to a real
+    # France-Travail appellation -- the latter catches bare cognate roles the gate misses
+    # ("pharmacien", "agent d'entretien", "avocat"), which the English lane otherwise
+    # answers with wrong-language neighbours ("Pharmacy Technician"). The corpus-membership
+    # guard keeps franglais English queries that are ALSO ROME appellations ("data
+    # scientist", "product manager") in the English lane.
+    if fr is not None and (
+        query_lang_mode(q) == "fr"
+        or (q.strip().lower() not in R.get("query_key_set", set()) and fr._resolve(q) is not None)
+    ):
         return JSONResponse({"suggestions": fr.suggest(q, k=k)})
     # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
     en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []
-    # A bare French role ("plombier", "infirmier") isn't caught by the high-precision
-    # query-lang gate (no diacritic/function word) and the English lane returns nothing
-    # for it. Fall back to the ROME lane, which only fires if the query resolves to a
-    # real French appellation — so these get grounded suggestions instead of nothing.
+    # A French role the checks above missed and the English lane can't answer: last-ditch
+    # ROME fallback (only fires if the query resolves to a real French appellation).
     if not en and fr is not None:
         return JSONResponse({"suggestions": fr.suggest(q, k=k)})
     return JSONResponse({"suggestions": en})
@@ -2702,6 +2729,12 @@ _TITLE_AT = re.compile(
 _ASPIRATIONAL = re.compile(r"\b(aspiring|seeking|looking for|recent grad)", re.I)
 
 
+# Folded single-token French "roles" that recur inside common phrases and so produce
+# spurious resume matches (e.g. "charge" from "prise en charge"). Qualified multi-token
+# variants ("chargé de recrutement") are unaffected.
+_FR_RESUME_STOP = {"charge"}
+
+
 def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
     """Deterministic query suggestions from the parsed profile, validated against the
     live index. Sources (most-specific first): the recent role title, a seniority-
@@ -2716,8 +2749,16 @@ def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
         # yields nothing for a French CV. Instead dictionary-match the resume against the
         # mined French role vocab (longest-first so "aide-soignant" beats "aide"); every
         # hit is a corpus-grounded role, then BM25-validated below like any other.
-        fb = _fold(blob)
+        # Degender the blob so feminine CVs ("infirmière", "vendeuse") match the masculine
+        # vocab -- without this an "infirmière" resume matched nothing and fell through to
+        # the generic "chargé" picked out of "prise en charge".
+        fb = degender_fr(_fold(blob))
         for folded_role, role in fr_folded:
+            # generic tokens that recur INSIDE French phrases, not as standalone roles
+            # here ("charge" <- "prise en charge"); the qualified forms ("chargé de ...")
+            # are multi-token and unaffected.
+            if folded_role in _FR_RESUME_STOP:
+                continue
             if re.search(r"\b" + re.escape(folded_role) + r"\b", fb):
                 cands.append(role)
             if len(cands) >= limit * 2:

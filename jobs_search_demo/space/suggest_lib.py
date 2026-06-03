@@ -160,6 +160,35 @@ def _fr_fold(s: str) -> str:
     return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
 
 
+# Feminine occupational suffix -> masculine, applied per token to an already-FOLDED
+# string (accents stripped) so a feminine free-text query or resume ("infirmière",
+# "vendeuse", "technicienne", "directrice") matches the masculine canonical role
+# vocabulary. Longest/most-specific suffix first; only fires when the stem stays >=3
+# chars so a short word isn't mangled into a spurious root.
+_FR_FEM = [
+    ("trice", "teur"),  # directrice->directeur, animatrice->animateur, formatrice->formateur
+    ("ienne", "ien"),  # technicienne->technicien, pharmacienne->pharmacien, gardienne->gardien
+    ("iere", "ier"),  # (folded ière) infirmiere->infirmier, ouvriere->ouvrier, caissiere->caissier
+    ("euse", "eur"),  # vendeuse->vendeur, serveuse->serveur, coiffeuse->coiffeur
+    ("ante", "ant"),  # assistante->assistant, consultante->consultant
+    ("ente", "ent"),  # agente->agent
+    ("ere", "er"),  # (folded ère) boulangere->boulanger
+]
+
+
+def degender_fr(folded: str) -> str:
+    """Map feminine French occupational tokens to their masculine form on an already
+    accent-folded string, so feminine surface forms match a masculine role vocabulary."""
+    out = []
+    for tok in folded.split():
+        for suf, rep in _FR_FEM:
+            if len(tok) >= len(suf) + 3 and tok.endswith(suf):
+                tok = tok[: -len(suf)] + rep
+                break
+        out.append(tok)
+    return " ".join(out)
+
+
 class FrRelatedSuggester:
     def __init__(self, bundle_path: str | None = None):
         path = bundle_path or os.path.join(HERE, "fr_related.json")
@@ -205,6 +234,14 @@ class FrRelatedSuggester:
             rome = self._match(" ".join(toks[:j]))
             if rome:
                 return rome
+        # Feminine free-text ("vendeuse", "infirmière") won't match the degendered
+        # masculine appellation table -- retry on the degendered form.
+        dg = degender_fr(_fr_fold(query)).split()
+        if dg != toks:
+            for j in range(len(dg), 0, -1):
+                rome = self._match(" ".join(dg[:j]))
+                if rome:
+                    return rome
         return None
 
     def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
