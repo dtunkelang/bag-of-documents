@@ -86,6 +86,11 @@ CORPORA = [
     ("jobs_data_workable", "jobs_data_workable"),
     ("jobs_data_recruitee", "jobs_data_recruitee"),
     ("jobs_data_breezy", "jobs_data_breezy"),
+    # JobTech (Arbetsförmedlingen, Sweden): keyless, full-description Swedish national
+    # inventory with a pre-attached occupation taxonomy. Tagged lang=sv at unify so the
+    # query-language gate scopes Swedish queries to it (and keeps it out of fr-scoped
+    # results); English queries see it as the same mild low-rank noise as French.
+    ("jobs_data_jobtech", "jobs_data_jobtech"),
     # Meta-aggregator LAST so unify can dedup it against everything above (see
     # DEDUP_AGAINST_PRIOR). Jooble re-lists jobs we already get from the ATS/Adzuna/
     # Reed/... sources, so only its genuinely-unique postings survive. Its docs are
@@ -635,6 +640,24 @@ def stage_pull(args) -> None:
             str(args.breezy_max_days_old),
         ],
     )
+    # JobTech (Arbetsförmedlingen): keyless Swedish national board. The JobStream
+    # `/stream?date=` endpoint returns every ad changed since a cutoff (full text +
+    # pre-attached occupation taxonomy); --max-days-old maps onto that cutoff and
+    # stable ids let --delta accumulate. Forced to lang=sv at unify.
+    _pull_api_source(
+        args,
+        corpus_dir="jobs_data_jobtech",
+        label="JobTech (Sweden)",
+        have_creds=True,
+        fetch_cmd=[
+            PY,
+            "download/fetch_jobtech_se.py",
+            "--out-dir",
+            ROOT / "jobs_data_jobtech" / "raw",
+            "--max-days-old",
+            str(args.jobtech_max_days_old),
+        ],
+    )
     # Jooble: meta-aggregator for extra inventory. Snippet-grade docs, but stage-1
     # unify dedups it against every other corpus so only unique postings land.
     _pull_api_source(
@@ -715,11 +738,15 @@ def stage_unify(args) -> None:
                         continue
                     seen_sigs.add(sig)
                     rec["source_corpus"] = tag
-                    # Language tag (en/fr) for the query-language gate + lang facet.
-                    # France Travail is French by construction (and detects fr 100% of
-                    # the time anyway), so force it and skip the detector for that ~33%.
-                    if (rec.get("source") or tag) == "francetravail":
+                    # Language tag (en/fr/sv) for the query-language gate + lang facet.
+                    # France Travail (fr) and JobTech (sv) are single-language by
+                    # construction, so force them and skip the detector; everything else
+                    # is detected.
+                    src = rec.get("source") or tag
+                    if src == "francetravail":
                         rec["lang"] = "fr"
+                    elif src == "jobtech":
+                        rec["lang"] = "sv"
                     else:
                         rec["lang"] = detect_lang(rec.get("text") or rec.get("title") or "")[0]
                     meta_out.write(json.dumps(rec) + "\n")
@@ -1671,6 +1698,12 @@ def main() -> int:
         type=int,
         default=30,
         help="Breezy: only postings newer than N days",
+    )
+    ap.add_argument(
+        "--jobtech-max-days-old",
+        type=int,
+        default=7,
+        help="JobTech (Sweden): pull the JobStream delta covering the last N days",
     )
     ap.add_argument(
         "--jooble-max-pages",

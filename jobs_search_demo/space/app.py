@@ -307,10 +307,14 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     (France Travail) under an English-only encoder; English queries already pick up
     only ~5% French docs (low harm), but a confidently-French query should be scoped
     to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
-    only an unmistakably-French query flips the gate, so a short ambiguous query never
-    strands a user. We setdefault so an explicit user `lang` facet selection wins."""
-    if query and query.strip() and query_lang_mode(query) == "fr":
-        filters.setdefault("lang", "fr")
+    only an unmistakably-French (or Swedish, from JobTech) query flips the gate, so a
+    short ambiguous query never strands a user. We setdefault so an explicit user `lang`
+    facet selection wins."""
+    if not (query and query.strip()):
+        return
+    mode = query_lang_mode(query)
+    if mode in ("fr", "sv"):
+        filters.setdefault("lang", mode)
 
 
 def _filter_clauses(filters: dict[str, str | list[str]]) -> list[str]:
@@ -1843,7 +1847,7 @@ const FACET_LABELS = {
   lang: 'Language',
 };
 const FACET_VALUE_LABELS = {
-  lang: { en: 'English', fr: 'French' },
+  lang: { en: 'English', fr: 'French', sv: 'Swedish' },
   posted_bucket: {
     past_24h: 'Past 24 hours',
     past_7d: 'Past 7 days',
