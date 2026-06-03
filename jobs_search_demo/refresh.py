@@ -1495,19 +1495,21 @@ def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
 
 
 def _regen_fr_suggestions(demo: Path) -> None:
-    """Regenerate the two serve-time French suggestion bundles from the freshly
+    """Regenerate the per-language serve-time suggestion bundles from the freshly
     built live Solr corpus so they track current inventory (they are otherwise
     frozen snapshots that drift as postings turn over):
       * space/fr_roles.json   (mine_fr_roles.py)   — French role vocab for
         autocomplete + resume matching.
       * space/fr_related.json (build_fr_related.py) — the grounded ROME
         related-search lane, whose display labels must EXIST in the live corpus.
-    Both read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
+      * space/sv_roles.json   (mine_sv_roles.py)   — Swedish (JobTech) role vocab
+        for the Swedish autocomplete tier.
+    All read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
     stage-7 deploy uploads them. Non-fatal: a failure keeps the last-good bundle
     rather than aborting the index refresh. build_fr_related needs a one-time
-    ROME open-data download (cached at .rome_opendata.zip); mine_fr_roles writes
-    a cwd-relative path, hence cwd=demo for both."""
-    for script in ("mine_fr_roles.py", "build_fr_related.py"):
+    ROME open-data download (cached at .rome_opendata.zip); the miners write
+    cwd-relative paths, hence cwd=demo for all."""
+    for script in ("mine_fr_roles.py", "build_fr_related.py", "mine_sv_roles.py"):
         try:
             run([PY, script], cwd=demo)
             print(f"[4] regenerated French suggestions via {script}", flush=True)
@@ -1573,6 +1575,7 @@ def stage_deploy(args) -> None:
         "role_vocab_emb.npy",
         "fr_roles.json",
         "fr_related.json",
+        "sv_roles.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),

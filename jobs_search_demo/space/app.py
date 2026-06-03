@@ -227,9 +227,18 @@ def load_resources() -> None:
         with open(fr_path) as f:
             fr_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
         by_tag["fr"] = sorted(dict.fromkeys(fr_roles))
-    # Accent-folded index over every suggestion key (curated corpus + French roles):
-    # folded prefix -> originals, so "ingenieur" matches "ingénieur".
-    folded_pairs = sorted((_fold(k), k) for k in set(sorted_keys) | set(fr_roles))
+    # Swedish canonical roles mined from JobTech titles (mine_sv_roles.py) -> a dedicated
+    # autocomplete tier, same rationale as French: the English corpus carries no Swedish,
+    # so without this a Swedish prefix ("lära") only hits English keys ("laravel").
+    sv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sv_roles.json")
+    sv_roles: list[str] = []
+    if os.path.exists(sv_path):
+        with open(sv_path) as f:
+            sv_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["sv"] = sorted(dict.fromkeys(sv_roles))
+    # Accent-folded index over every suggestion key (curated corpus + FR + SV roles):
+    # folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" -> "lärare".
+    folded_pairs = sorted((_fold(k), k) for k in set(sorted_keys) | set(fr_roles) | set(sv_roles))
     folded_keys = [p[0] for p in folded_pairs]
     # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
     # autocomplete match an accent-free prefix WITHIN the quality tiers ("electr" ->
@@ -258,6 +267,7 @@ def load_resources() -> None:
         }
     )
     print(f"  french roles: {len(fr_roles)}", flush=True)
+    print(f"  swedish roles: {len(sv_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -2398,7 +2408,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tier_order = ("title", "fr", "combo", "head", "tail", "synth")
+    tier_order = ("title", "fr", "sv", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
     # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
