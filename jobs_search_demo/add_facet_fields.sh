@@ -15,7 +15,8 @@ curl -sS -X POST -H 'Content-Type: application/json' \
     {"name": "posted_bucket",           "type": "string", "indexed": true, "stored": true, "multiValued": false},
     {"name": "salary_band_usd_annual",  "type": "string", "indexed": true, "stored": true, "multiValued": false},
     {"name": "tech_stack",              "type": "string", "indexed": true, "stored": true, "multiValued": true},
-    {"name": "lang",                    "type": "string", "indexed": true, "stored": true, "multiValued": false}
+    {"name": "lang",                    "type": "string", "indexed": true, "stored": true, "multiValued": false},
+    {"name": "rome_code",               "type": "string", "indexed": true, "stored": true, "multiValued": false}
   ]
 }
 JSON

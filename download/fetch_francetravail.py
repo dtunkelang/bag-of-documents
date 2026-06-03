@@ -176,6 +176,11 @@ def transform(offer: dict) -> dict[str, Any]:
         "salary_max": None,
         "salary_currency": None,
         "posted_at": offer.get("dateCreation") or None,  # ISO 8601
+        # ROME occupation taxonomy (France Travail's national job classification) — kept
+        # for grounded French related-roles (same/neighbouring ROME family). Older cached
+        # rows lack it; it populates going forward (nightly) and on a full reindex.
+        "rome_code": offer.get("romeCode") or None,
+        "rome_label": offer.get("romeLibelle") or None,
         "source": "francetravail",
     }
 

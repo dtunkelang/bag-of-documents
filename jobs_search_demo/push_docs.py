@@ -194,6 +194,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "employment_type": rec.get("employment_type") or "",
                 "salary_currency": rec.get("salary_currency") or "",
                 "department": rec.get("department") or "",
+                "rome_code": rec.get("rome_code") or "",  # France Travail ROME occupation code
                 "posted_at": rec.get("posted_at") or "",
                 "source_corpus": sources[i],
                 "lang": rec.get("lang") or "en",

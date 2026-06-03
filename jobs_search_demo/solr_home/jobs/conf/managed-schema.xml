@@ -473,6 +473,7 @@
   <field name="industry" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="lang" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_city" type="string" multiValued="false" indexed="true" stored="true"/>
+  <field name="rome_code" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_country" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_state" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="locations" type="string" multiValued="true" indexed="false" stored="true"/>
