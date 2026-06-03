@@ -17,6 +17,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -25,6 +26,7 @@ import requests
 import resume_match_lib as L
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+from lang_detect import detect_lang, query_lang_mode
 from maps_svg import US_STATES_SVG, WORLD_SVG
 from snippet_lib import (
     SNIPPET_LEN,
@@ -111,6 +113,15 @@ def _is_clean(q: str) -> bool:
     return not _DOUBLE_SPACE.search(q)
 
 
+def _fold(s: str) -> str:
+    """Lowercase + strip diacritics and apostrophes, so an accent-free query
+    ('ingenieur') matches an accented suggestion ('ingénieur') — French speakers
+    routinely type without accents, and the title suggester is accent-sensitive."""
+    nfkd = unicodedata.normalize("NFKD", s)
+    base = "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+    return base.replace("'", "").replace("’", "")
+
+
 # ===== resources =====
 
 R: dict = {}
@@ -194,14 +205,36 @@ def load_resources() -> None:
         v.sort()
     sorted_keys = sorted(qkey_src.keys())
 
+    # French canonical roles mined from France Travail titles (mine_fr_roles.py) ->
+    # a dedicated autocomplete tier. The English query corpus carries no French, so
+    # without this French prefixes only hit the (accent-sensitive) Solr title suggester.
+    fr_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fr_roles.json")
+    fr_roles: list[str] = []
+    if os.path.exists(fr_path):
+        with open(fr_path) as f:
+            fr_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["fr"] = sorted(dict.fromkeys(fr_roles))
+    # Accent-folded index over every suggestion key (curated corpus + French roles):
+    # folded prefix -> originals, so "ingenieur" matches "ingénieur".
+    folded_pairs = sorted((_fold(k), k) for k in set(sorted_keys) | set(fr_roles))
+    folded_keys = [p[0] for p in folded_pairs]
+    # French roles longest-first, for dictionary-matching a French resume to roles.
+    fr_roles_folded = sorted(
+        ((_fold(r), r) for r in dict.fromkeys(fr_roles)), key=lambda p: -len(p[0])
+    )
+
     R.update(
         {
             "dense_model": dense_model,
             "sorted_keys": sorted_keys,
             "tier_keys": dict(by_tag),
             "role_suggester": role_suggester,
+            "folded_pairs": folded_pairs,
+            "folded_keys": folded_keys,
+            "fr_roles_folded": fr_roles_folded,
         }
     )
+    print(f"  french roles: {len(fr_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -240,6 +273,7 @@ FACET_FIELDS = (
     "posted_bucket",
     "salary_band_usd_annual",
     "tech_stack",
+    "lang",
 )
 
 
@@ -253,6 +287,17 @@ POSTED_BUCKET_NESTING = {
     "past_90d": ["past_24h", "past_7d", "past_30d", "past_90d"],
     "older": ["older"],
 }
+
+
+def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
+    """Confident-French query-language gate (in place). The index is ~33% French
+    (France Travail) under an English-only encoder; English queries already pick up
+    only ~5% French docs (low harm), but a confidently-French query should be scoped
+    to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
+    only an unmistakably-French query flips the gate, so a short ambiguous query never
+    strands a user. We setdefault so an explicit user `lang` facet selection wins."""
+    if query and query.strip() and query_lang_mode(query) == "fr":
+        filters.setdefault("lang", "fr")
 
 
 def _filter_clauses(filters: dict[str, str | list[str]]) -> list[str]:
@@ -345,6 +390,38 @@ def _knn_over_ids(field: str, qv: list[float], ids: list[int]) -> list[tuple[int
     )
     r.raise_for_status()
     return [(int(d["id"]), float(d["score"])) for d in r.json()["response"]["docs"]]
+
+
+def _prof_vecs(qv, qvs=None) -> list[list[float]]:
+    """Profile vector list for max-sim matching: the multi-vector `qvs` when present
+    (full lead-sharpened vector + a dense specialization vector), else just `qv`.
+    Backward-compatible with old clients that only hold a single `qv`."""
+    vs = [v for v in (qvs or []) if v]
+    return vs or [qv]
+
+
+def _max_prof_cos(vecs: list[list[float]], ids: list[int]) -> dict[int, float]:
+    """Max profile cosine per candidate id over all profile vectors (max-sim): a
+    specialist scores high if ANY facet of their profile fits, so a long generic
+    experience centroid no longer washes out the on-specialty signal."""
+    best: dict[int, float] = {}
+    for v in vecs:
+        for idx, cos in _knn_over_ids("e5_vec", v, ids):
+            if cos > best.get(idx, -2.0):
+                best[idx] = cos
+    return best
+
+
+def _topk_knn_multi(vecs: list[list[float]], k: int, filters=None) -> list[tuple[int, float]]:
+    """Candidate pool ranked by MAX profile cosine across `vecs`. Unions each vector's
+    top-k KNN, then rescores the union by max-sim so a doc near ANY profile facet ranks."""
+    if len(vecs) == 1:
+        return _topk_knn("e5_vec", vecs[0], k, filters)
+    pool: set[int] = set()
+    for v in vecs:
+        pool.update(idx for idx, _ in _topk_knn("e5_vec", v, k, filters))
+    best = _max_prof_cos(vecs, list(pool))
+    return sorted(best.items(), key=lambda x: -x[1])[:k]
 
 
 # ===== RRF fusion + result hydration =====
@@ -1061,6 +1138,7 @@ def _personalized_topk(
     filters: dict[str, str] | None = None,
     pool: int = RRF_POOL,
     prof_weight: float = PROF_WEIGHT,
+    qvs: list[list[float]] | None = None,
 ) -> tuple[list[tuple[int, float]], dict[int, float]]:
     """RRF(BM25, e5-small) for the QSpec (typed query OR seed job), then a third lane
     that re-ranks the candidates by profile fit. The query/seed still defines what's
@@ -1080,9 +1158,8 @@ def _personalized_topk(
             if idx != spec.exclude:
                 contrib[idx] += 1.0 / (RRF_K + rank)
     # Rank the query candidates by profile fit and blend that rank in as a third lane.
-    prof_hits = _knn_over_ids("e5_vec", qv_profile, list(contrib.keys()))
-    prof_cos = {idx: cos for idx, cos in prof_hits}
-    for rank, (idx, _) in enumerate(prof_hits, 1):
+    prof_cos = _max_prof_cos(_prof_vecs(qv_profile, qvs), list(contrib.keys()))
+    for rank, (idx, _c) in enumerate(sorted(prof_cos.items(), key=lambda x: -x[1]), 1):
         contrib[idx] += prof_weight * (1.0 / (RRF_K + rank))
     ranked = sorted(contrib.items(), key=lambda x: -x[1])[:k]
     return ranked, prof_cos
@@ -1104,6 +1181,7 @@ def search_personalized(
     k: int = 10,
     filters: dict[str, str] | None = None,
     hard_filter: bool = False,
+    qvs: list[list[float]] | None = None,
 ) -> list[dict]:
     """Keyword/seed search re-ranked by profile fit. Soft by default (profile-KNN RRF
     boost + per-result 3-axis badges); when hard_filter is set, drop results the
@@ -1112,7 +1190,7 @@ def search_personalized(
     diversity cap in favour of reprint collapsing (similarity, not filtering), matching
     the non-personalized seed path."""
     cap = 0 if (filters and filters.get("employer") or spec.is_seed) else EMPLOYER_CAP
-    ranked, prof_cos = _personalized_topk(spec, qv_profile, RRF_POOL, filters)
+    ranked, prof_cos = _personalized_topk(spec, qv_profile, RRF_POOL, filters, qvs=qvs)
     ids = [i for i, _ in ranked]
     hyd = _hydrate_for_match(ids)
     exempt = _dominant_employers(ranked, hyd) if cap > 0 else set()
@@ -1153,6 +1231,7 @@ def browse_personalized(
     k: int = 10,
     filters: dict[str, str | list[str]] | None = None,
     hard_filter: bool = False,
+    qvs: list[list[float]] | None = None,
 ) -> list[dict]:
     """Blank-query browse personalized to an uploaded profile: rank purely by profile
     fit (e5 KNN over filtered candidates), with the same 3-axis qualification badges as
@@ -1160,7 +1239,7 @@ def browse_personalized(
     cosine here — the profile IS the intent when there's no query."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
     pool = max(PROFILE_POOL, k * (cap + 2), k + 20)
-    hits = _topk_knn("e5_vec", qv_profile, pool, filters)  # (idx, cosine), best-first
+    hits = _topk_knn_multi(_prof_vecs(qv_profile, qvs), pool, filters)  # (idx, max-sim cos)
     hyd = _hydrate_for_match([i for i, _ in hits])
     self_emps = _self_employers(r, filters)
     rows: list[dict] = []
@@ -1377,7 +1456,7 @@ button { padding: 8px 18px; font-size: 1em; cursor: pointer; border: 1px solid #
 .result { display: grid; grid-template-columns: 28px 70px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dotted #eee; font-size: 0.95em; align-items: start; cursor: pointer; }
 .result:hover { background: #fafafa; }
 .r-rank { color: #aaa; text-align: right; }
-.r-source { color: #888; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.5px; }
+.r-source { color: #888; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .r-title { color: #222; word-break: break-word; }
 .r-title .t { font-weight: 500; }
 .r-title .m { color: #666; font-size: 0.85em; margin-top: 3px; }
@@ -1627,11 +1706,20 @@ input.addEventListener('keydown', e => {
 });
 input.addEventListener('blur', () => setTimeout(closeSuggest, 120));
 const SRC_SHORT = {
-  'jobs_data': 'OAP', 'jobs_data_usajobs': 'USA', 'jobs_data_adzuna': 'ADZ', 'jobs_data_ats_extra': 'ATS'
+  'jobs_data': 'OAP', 'jobs_data_usajobs': 'USA', 'jobs_data_adzuna': 'ADZ', 'jobs_data_ats_extra': 'ATS',
+  'jobs_data_francetravail': 'FT', 'jobs_data_jooble': 'JBL', 'jobs_data_smartrecruiters': 'SR',
+  'jobs_data_reed': 'REED', 'jobs_data_findwork': 'FW', 'jobs_data_workable': 'WRK',
+  'jobs_data_themuse': 'MUSE', 'jobs_data_remoteok': 'ROK', 'jobs_data_breezy': 'BRZ',
+  'jobs_data_recruitee': 'RCT'
 };
 const SRC_FULL = {
   'jobs_data': 'OpenApply (ATS crawl)', 'jobs_data_usajobs': 'USAJobs (federal)',
-  'jobs_data_adzuna': 'Adzuna (aggregator)', 'jobs_data_ats_extra': 'Extra-ATS poller'
+  'jobs_data_adzuna': 'Adzuna (aggregator)', 'jobs_data_ats_extra': 'Extra-ATS poller',
+  'jobs_data_francetravail': 'France Travail (FR public)', 'jobs_data_jooble': 'Jooble (aggregator)',
+  'jobs_data_smartrecruiters': 'SmartRecruiters (ATS)', 'jobs_data_reed': 'Reed (UK board)',
+  'jobs_data_findwork': 'Findwork (board)', 'jobs_data_workable': 'Workable (ATS)',
+  'jobs_data_themuse': 'The Muse (board)', 'jobs_data_remoteok': 'RemoteOK (remote board)',
+  'jobs_data_breezy': 'Breezy HR (ATS)', 'jobs_data_recruitee': 'Recruitee (ATS)'
 };
 function shortSrc(s) { return s == null ? '' : (SRC_SHORT[s] || s); }
 function srcFull(s) { return s == null ? '' : (SRC_FULL[s] || s); }
@@ -1708,7 +1796,7 @@ function renderResults(div, items, ms) {
     let fit = '';
     if (r.axes) {
       const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
-      fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}</div>`;
+      fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}${r.axes.field ? badge('field', r.axes.field) : ''}</div>`;
     }
     row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}</span>`;
     if (r.idx != null && r.idx >= 0) {
@@ -1727,7 +1815,7 @@ function renderResults(div, items, ms) {
 const FACET_FIELDS = [
   'role_family', 'seniority', 'industry', 'remote_mode',
   'location_country', 'location_state',
-  'posted_bucket', 'salary_band_usd_annual', 'tech_stack',
+  'posted_bucket', 'salary_band_usd_annual', 'tech_stack', 'lang',
 ];
 const FACET_LABELS = {
   role_family: 'Role family',
@@ -1739,8 +1827,10 @@ const FACET_LABELS = {
   posted_bucket: 'Posted',
   salary_band_usd_annual: 'Salary (USD/yr)',
   tech_stack: 'Tech stack',
+  lang: 'Language',
 };
 const FACET_VALUE_LABELS = {
+  lang: { en: 'English', fr: 'French' },
   posted_bucket: {
     past_24h: 'Past 24 hours',
     past_7d: 'Past 7 days',
@@ -2209,13 +2299,14 @@ def index():
         ).json()["response"]["numFound"]
         n_str = f"{n:,}"
     except Exception:
-        n_str = "~197,000"
-    title = f"Jobs Search Demo: {n_str} postings across 2 corpora"
+        n_str = "~300,000"
+    title = f"Jobs Search Demo: {n_str} postings from 14 sources"
     subtitle = (
-        f"{n_str} postings (OpenApply + USAJobs) · RRF(BM25 + e5-small) · "
+        f"{n_str} postings (OpenApply, USAJobs, France Travail, Adzuna, Reed, Jooble, "
+        "SmartRecruiters, Workable, The Muse + more) · RRF(BM25 + e5-small) · "
         "browse recent jobs by default, then narrow with facets (multi-select) or the "
         "country / US-state maps · click a result for the full description · "
-        "or paste your profile above to find jobs for yourself (3-axis constraint filter), "
+        "or paste your profile above to find jobs for yourself (4-axis constraint filter), "
         "get suggested searches, and personalize results"
     )
     return (
@@ -2268,6 +2359,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # excluded), so it's consulted only to fill out the list.
     tagged = [
         R["tier_keys"].get("title", []),
+        R["tier_keys"].get("fr", []),
         R["tier_keys"].get("combo", []),
         R["tier_keys"].get("head", []),
         R["tier_keys"].get("tail", []),
@@ -2295,6 +2387,19 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
             out.append({"text": k})
             if len(out) >= limit:
                 break
+    if len(out) < limit:  # accent-insensitive pass: "ingenieur" -> "ingénieur"
+        fp = _fold(prefix)
+        fkeys = R.get("folded_keys", [])
+        fpairs = R.get("folded_pairs", [])
+        for i in range(bisect.bisect_left(fkeys, fp), len(fkeys)):
+            if not fkeys[i].startswith(fp):
+                break
+            orig = fpairs[i][1]
+            if orig not in seen:
+                seen.add(orig)
+                out.append({"text": orig})
+                if len(out) >= limit:
+                    break
     if len(out) < limit:
         for s in _solr_suggest(prefix, limit - len(out)):
             if s and s not in seen:
@@ -2313,6 +2418,11 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
     suggestion is a corpus-grounded role, so it always has results."""
     rs = R.get("role_suggester")
     if not q.strip() or rs is None:
+        return JSONResponse({"suggestions": []})
+    # The role suggester is e5-small-v2 (English) cosine; on French it clusters by
+    # morphology, not meaning ("développeur" -> "educateur"/"conditionneur"), so a
+    # confidently-French query gets no related searches rather than noise.
+    if query_lang_mode(q) == "fr":
         return JSONResponse({"suggestions": []})
     qv = np.asarray(_dense_qv(q), dtype=np.float32)
     return JSONResponse({"suggestions": rs.suggest(q, qv, k=k)})
@@ -2345,6 +2455,7 @@ def api_search(
     precedence over a seed (the two are mutually exclusive in the UI). `start` is the
     pagination offset (0-based) into the employer-capped ranked list."""
     filters = _parse_filters(request)
+    _apply_lang_gate(q, filters)
     start = max(0, start)
     spec = qspec_text(q) if q.strip() else (qspec_seed(seed) if seed is not None else None)
     t0 = time.time()
@@ -2381,6 +2492,7 @@ def api_facets(
     blank-browse pool when both are empty) with the same filters the search uses, so
     counts stay coherent with what the user sees."""
     filters = _parse_filters(request)
+    _apply_lang_gate(q, filters)
     spec = qspec_text(q) if q.strip() else (qspec_seed(seed) if seed is not None else None)
     t0 = time.time()
     facets = compute_facets(spec or qspec_text(""), filters, pool=pool)
@@ -2443,7 +2555,7 @@ PROFILE_TOP_N = 10
 # Solr stores everything job_features() needs; seniority is derived from the title.
 _PROFILE_FL = (
     "id,title_display,description,locations,remote_mode,employer,"
-    "posted_at,source_corpus,industry,employment_type,department,"
+    "posted_at,source_corpus,industry,employment_type,department,role_family,"
     "salary_min,salary_max,salary_currency"
 )
 
@@ -2468,6 +2580,7 @@ def _job_feats_from_solr(d: dict) -> dict:
     return L.job_features(
         {
             "title": d.get("title_display") or "",
+            "role_family": d.get("role_family") or "other",
             "locations": d.get("locations") or [],
             "remote": "True" if d.get("remote_mode") == "remote" else "False",
             "text": d.get("description") or "",
@@ -2510,10 +2623,10 @@ def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dic
     }
 
 
-def _run_profile_match(r: dict, qv: list[float]) -> dict:
-    """e5-small KNN top-`PROFILE_POOL`, then the 3-axis filter with job_features
-    computed live from the hydrated Solr docs."""
-    hits = _topk_knn("e5_vec", qv, PROFILE_POOL)  # [(idx, cosine), ...] best-first
+def _run_profile_match(r: dict, qv: list[float], qvs: list[list[float]] | None = None) -> dict:
+    """e5-small KNN top-`PROFILE_POOL` (max-sim over the profile vectors), then the
+    3-axis filter with job_features computed live from the hydrated Solr docs."""
+    hits = _topk_knn_multi(_prof_vecs(qv, qvs), PROFILE_POOL)  # [(idx, cosine), ...] best
     hyd = _hydrate_for_match([i for i, _ in hits])
     self_emps = _self_employers(r)
     cosine_list: list[dict] = []
@@ -2570,16 +2683,35 @@ def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
     Each candidate is kept only if BM25 returns at least one job, and tagged with that
     count so the UI can show how many postings it would surface."""
     cands: list[str] = []
-    for t in L.role_titles(blob)[:3]:
-        t = _TITLE_AT.sub("", t).strip(" -|,")
-        if t:
-            cands.append(t)
-            broad = _SENIORITY_PREFIX.sub("", t).strip()
-            if broad and broad.lower() != t.lower():
-                cands.append(broad)
-    hl = (r.get("headline") or "").strip()
-    if hl and 2 <= len(hl) <= 60 and not _ASPIRATIONAL.search(hl) and not L._looks_like_name(hl):
-        cands.append(_TITLE_AT.sub("", hl).strip(" -|,"))
+    lang, prob = detect_lang(blob)
+    fr_folded = R.get("fr_roles_folded") or []
+    if lang == "fr" and prob >= 0.5 and fr_folded:
+        # The resume parser keys off English section headers/layouts, so role_titles()
+        # yields nothing for a French CV. Instead dictionary-match the resume against the
+        # mined French role vocab (longest-first so "aide-soignant" beats "aide"); every
+        # hit is a corpus-grounded role, then BM25-validated below like any other.
+        fb = _fold(blob)
+        for folded_role, role in fr_folded:
+            if re.search(r"\b" + re.escape(folded_role) + r"\b", fb):
+                cands.append(role)
+            if len(cands) >= limit * 2:
+                break
+    else:
+        for t in L.role_titles(blob)[:3]:
+            t = _TITLE_AT.sub("", t).strip(" -|,")
+            if t:
+                cands.append(t)
+                broad = _SENIORITY_PREFIX.sub("", t).strip()
+                if broad and broad.lower() != t.lower():
+                    cands.append(broad)
+        hl = (r.get("headline") or "").strip()
+        if (
+            hl
+            and 2 <= len(hl) <= 60
+            and not _ASPIRATIONAL.search(hl)
+            and not L._looks_like_name(hl)
+        ):
+            cands.append(_TITLE_AT.sub("", hl).strip(" -|,"))
     out: list[dict] = []
     seen: set[str] = set()
     for c in cands:
@@ -2627,11 +2759,15 @@ async def api_match_profile(
     # headline / skills sidebar — query_text isolates that, and BM25 is deliberately NOT
     # used here so the rest of the document can't dilute the most-recent-role emphasis.
     qv = _dense_qv(L.query_text(blob))
-    out = _run_profile_match(r, qv)
+    # Second profile vector: a dense title/headline specialization signal. Matching is
+    # max-sim over both, so a specialist isn't washed out by a long generic centroid.
+    spec_txt = L.specialization_text(blob)
+    qvs = [qv] + ([_dense_qv(spec_txt)] if spec_txt.strip() else [])
+    out = _run_profile_match(r, qv, qvs)
     # suggested searches (#1) + the parsed profile the client holds and re-sends to
     # personalize subsequent keyword searches (#2). Nothing is persisted server-side.
     out["suggestions"] = _suggest_queries(blob, r)
-    out["profile"] = {"r": r, "qv": qv}
+    out["profile"] = {"r": r, "qv": qv, "qvs": qvs}
     return JSONResponse(out)
 
 
@@ -2646,6 +2782,7 @@ async def api_search_personalized(request: Request):
     r, qv = prof.get("r"), prof.get("qv")
     if not r or not qv:
         return JSONResponse({"error": "no profile loaded"}, status_code=400)
+    qvs = _prof_vecs(qv, prof.get("qvs"))  # multi-vector when the client holds it
     raw_filters = body.get("filters") or {}
     filters: dict[str, str | list[str]] = {}
     for f in FACET_FIELDS:
@@ -2656,6 +2793,7 @@ async def api_search_personalized(request: Request):
                 filters[f] = vv[0] if f == "posted_bucket" else vv
         elif v and str(v).strip():
             filters[f] = str(v).strip()
+    _apply_lang_gate(q, filters)
     k = int(body.get("k") or 10)
     hard = bool(body.get("hard_filter"))
     spec = qspec_text(q) if q else (qspec_seed(int(seed)) if seed is not None else None)
@@ -2663,13 +2801,13 @@ async def api_search_personalized(request: Request):
     # A query or seed defines eligibility (re-ranked by profile fit); a blank browse
     # ranks the whole (filtered) catalog by profile fit.
     if spec is not None and spec.active:
-        res = search_personalized(spec, r, qv, k, filters, hard)
+        res = search_personalized(spec, r, qv, k, filters, hard, qvs=qvs)
         served = (
             SERVING_MODE + (" — seeded by a job" if spec.is_seed else "") + " + profile re-rank"
         )
         retriever = "rrf_bm25_e5_seed+profile" if spec.is_seed else "rrf_bm25_e5+profile"
     else:
-        res = browse_personalized(r, qv, k, filters, hard)
+        res = browse_personalized(r, qv, k, filters, hard, qvs=qvs)
         served = "Browse + profile re-rank"
         retriever = "browse+profile"
     # Facets must reflect the SAME pool the user sees: for a query/seed that's the fused

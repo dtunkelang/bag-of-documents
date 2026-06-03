@@ -38,10 +38,14 @@ COPY app.py /opt/app/app.py
 COPY snippet_lib.py /opt/app/snippet_lib.py
 COPY resume_match_lib.py /opt/app/resume_match_lib.py
 COPY maps_svg.py /opt/app/maps_svg.py
+# Language detection (per-doc lang tag + confident-French query gate).
+COPY lang_detect.py /opt/app/lang_detect.py
 # Related-searches suggester: lib + offline corpus role vocab/embeddings (self-contained).
 COPY suggest_lib.py /opt/app/suggest_lib.py
 COPY role_vocab.json /opt/app/role_vocab.json
 COPY role_vocab_emb.npy /opt/app/role_vocab_emb.npy
+# French canonical roles for autocomplete + French-resume suggested searches.
+COPY fr_roles.json /opt/app/fr_roles.json
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 

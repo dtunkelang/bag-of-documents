@@ -7,3 +7,4 @@ huggingface_hub>=0.27
 torch>=2.5,<3
 pypdf>=4.0
 python-multipart>=0.0.9
+py3langid>=0.3

@@ -379,11 +379,21 @@ def _years_from_free_text(text):
 def _experience_section(text):
     """The work-history block: text between an Experience-ish heading and the next
     section (Education). LinkedIn lists roles reverse-chronologically here."""
-    m = re.search(r"\b(experience|employment|work history)\b", text or "", re.I)
+    m = re.search(
+        r"\b(experience|employment|work history|expériences?|expérience professionnelle|"
+        r"parcours(?: professionnel)?|emplois?)\b",
+        text or "",
+        re.I,
+    )
     if not m:
         return ""
     rest = text[m.end() :]
-    e = re.search(r"\b(education|certifications|skills|volunteer)\b", rest, re.I)
+    e = re.search(
+        r"\b(education|certifications|skills|volunteer|formation|diplômes?|"
+        r"compétences|bénévolat)\b",
+        rest,
+        re.I,
+    )
     return rest[: e.start()] if e else rest
 
 
@@ -503,18 +513,72 @@ def employers(text, headline=""):
     return out
 
 
+# Recent-"role" lines that carry no domain signal — a sabbatical / self-directed gig.
+# When the most-recent title is one of these, leading with it (as the embedded text's
+# emphasis) drags the profile vector toward generic "building things" prose, so we skip
+# to the most-recent CONCRETE role instead.
+_PLACEHOLDER_TITLE_RX = re.compile(
+    r"\b(independent|freelance|self.?employed|self.?employment|sabbatical|"
+    r"career break|between roles|open to work|seeking|tbd|portfolio|personal project)\b",
+    re.I,
+)
+
+
+def _corroborated_headline(headline, exp):
+    """Headline tokens that actually appear in the work history — so an accurate
+    specialization summary ('Search | AI | ML' for someone whose roles are full of
+    search) is embedded, while an aspirational headline whose terms never show up in the
+    experience (the 'Aspiring AI/ML Engineer' with a sysadmin history) is dropped."""
+    if not headline:
+        return ""
+    low = exp.lower()
+    toks = re.findall(r"[A-Za-z][A-Za-z+/.#&-]+", headline)
+    kept = [t for t in toks if re.search(r"\b" + re.escape(t.lower()) + r"\b", low)]
+    return " ".join(kept)
+
+
 def query_text(text):
-    """Text to embed for matching. Leans on DEMONSTRATED experience — the most-recent
-    role title (weighted by repetition) plus the Experience section — rather than a
-    self-declared headline / LinkedIn 'Top Skills' sidebar, which over-state aspiration
-    (an 'Aspiring AI/ML Engineer' with a sysadmin work history should match sysadmin
-    roles). Falls back to the full blob when no Experience section is parseable."""
+    """Text to embed for matching. Leans on DEMONSTRATED experience rather than a
+    self-declared 'Top Skills' sidebar, but LEADS the embedded text with two dense,
+    low-boilerplate signals so the profile vector isn't a washed-out centroid of the
+    whole document: (1) the headline, but ONLY the part corroborated by the work history
+    (drops aspiration, keeps an accurate specialization summary); (2) the most-recent
+    CONCRETE role title, skipping placeholder gigs ('Independent Work', a sabbatical)
+    that would otherwise dominate with domain-free prose. Falls back to the full blob
+    when no Experience section is parseable."""
     text = (text or "").strip()
     exp = _experience_section(text).strip()
     if not exp:
         return text
+    lead = []
+    sig = _corroborated_headline(_parse_identity(text)[1], exp)
+    if sig:
+        lead.append(sig)
     rt = _recent_title(exp)
-    return f"{rt}. {exp}" if rt else exp
+    concrete = rt if (rt and not _PLACEHOLDER_TITLE_RX.search(rt)) else ""
+    if not concrete:
+        for t in role_titles(text):
+            if t and not _PLACEHOLDER_TITLE_RX.search(t):
+                concrete = t
+                break
+    if concrete:
+        lead.append(concrete)
+    prefix = ". ".join(lead)
+    return f"{prefix}. {exp}" if prefix else exp
+
+
+def specialization_text(text):
+    """A short, dense DOMAIN signal: corroborated headline + concrete role titles, with
+    NO experience prose. Embedded as a second profile vector for max-sim matching, so a
+    specialist (e.g. search) whose long experience centroid washes out to "generic
+    senior engineer" still scores high against on-specialty roles. Returns "" when there
+    is no distinctive title/headline signal (then the caller skips the second vector)."""
+    text = (text or "").strip()
+    exp = _experience_section(text)
+    head = _corroborated_headline(_parse_identity(text)[1], exp) if exp else ""
+    titles = [t for t in role_titles(text) if t and not _PLACEHOLDER_TITLE_RX.search(t)]
+    bits = [b for b in ([head] + titles[:6]) if b]
+    return ". ".join(bits)
 
 
 def features_from_text(text, loc=""):
@@ -535,6 +599,7 @@ def features_from_text(text, loc=""):
     return {
         "name": name or "(your profile)",
         "headline": headline[:160],
+        "field": profile_field(text, role_titles(text), headline),
         "loc": loc_eff,
         "loc_tok": sorted(loc_tok),
         "country": loc_country(loc_eff),
@@ -560,6 +625,7 @@ def job_features(d):
     loc_countries = sorted({loc_country(str(x)) for x in locs if is_country_only(str(x))})
     return {
         "title": d.get("title", ""),
+        "role_family": d.get("role_family") or "other",
         "sen": seniority_of(d.get("title", "")),
         "remote": job_is_remote(d),
         "loc": "; ".join(str(x) for x in locs),
@@ -712,6 +778,207 @@ def is_country_only(s):
     return bool(loc_country(s)) and not (geo_tokens(s) - _COUNTRY_TOKENS)
 
 
+# --- metro gazetteer (location-axis fallback) -------------------------------
+# Major commute markets: a seeker and a job in the same metro should pass the location
+# axis even with no shared geo token. Matched as case-insensitive substrings of the raw
+# location string (so "San Jose, CA" and "Bay Area" both resolve to sf_bay).
+_METRO_CITIES = {
+    "sf_bay": [
+        "san francisco",
+        "bay area",
+        "silicon valley",
+        "oakland",
+        "san jose",
+        "mountain view",
+        "palo alto",
+        "menlo park",
+        "sunnyvale",
+        "santa clara",
+        "cupertino",
+        "redwood city",
+        "san mateo",
+        "berkeley",
+        "fremont",
+        "foster city",
+        "emeryville",
+        "south san francisco",
+        "burlingame",
+    ],
+    "nyc": ["new york", "brooklyn", "manhattan", "queens", "jersey city", "newark", "hoboken"],
+    "la": [
+        "los angeles",
+        "santa monica",
+        "pasadena",
+        "burbank",
+        "culver city",
+        "el segundo",
+        "long beach",
+        "irvine",
+        "santa ana",
+        "anaheim",
+    ],
+    "seattle": ["seattle", "bellevue", "redmond", "kirkland", "tacoma", "everett"],
+    "boston": ["boston", "cambridge", "somerville", "waltham", "quincy", "newton"],
+    "dc": [
+        "washington, d",
+        "washington dc",
+        "arlington",
+        "alexandria",
+        "bethesda",
+        "reston",
+        "mclean",
+    ],
+    "austin": ["austin", "round rock"],
+    "chicago": ["chicago", "evanston", "naperville"],
+    "denver": ["denver", "boulder", "aurora"],
+    "atlanta": ["atlanta", "alpharetta", "marietta"],
+    "london": ["london"],
+    "paris": ["paris"],
+}
+
+
+def metros_of(s):
+    """Set of major metros a raw location string resolves to (substring match)."""
+    s = (s or "").lower()
+    return {m for m, cities in _METRO_CITIES.items() if any(c in s for c in cities)}
+
+
+# --- field / role-family alignment axis -------------------------------------
+# Coarse professional FIELD per index role_family. The field axis blocks cross-field
+# drift (a software/ML engineer should not be filtered INTO marketing / recruiting /
+# sales roles) while allowing in-field drift (search -> other software/ML/AI/data
+# engineering), which is expected and desirable. We map both the resume and the job to
+# a coarse field and check compatibility.
+TECH_FAMILIES = frozenset(
+    {
+        "software_engineering",
+        "data_engineering",
+        "data_science_ml",
+        "data_analytics",
+        "ai_ml",
+        "ai_data_annotation",
+        "devops_sre_infra",
+        "security",
+        "research_academic",
+    }
+)
+_FAMILY_FIELD = {
+    **{f: "tech" for f in TECH_FAMILIES},
+    "product_management": "product",
+    "project_program_management": "product",
+    "design_ux": "design",
+    "marketing": "marketing",
+    "sales": "sales",
+    "customer_success_support": "cs",
+    "operations_admin": "ops",
+    "finance_accounting": "finance",
+    "legal": "legal",
+    "hr_people_ops": "hr",
+    "healthcare_clinical": "healthcare",
+    "healthcare_allied": "healthcare",
+    "healthcare_admin": "healthcare",
+    "education_teaching": "education",
+    "skilled_trades_construction": "trades",
+    "transportation_logistics": "logistics",
+    "food_service_hospitality": "food",
+    "retail": "retail",
+    "creative_content": "creative",
+    "manufacturing_production": "manufacturing",
+    "public_safety": "safety",
+    "nonprofit_social_services": "nonprofit",
+    "consulting_strategy": "consulting",
+}
+# Job fields considered in-field for a given PROFILE field. A field maps to itself plus
+# genuinely adjacent fields; everything else is cross-field and blocked under the
+# qualify-filter. Unknown job field ("other") is never hard-dropped (low-confidence).
+_FIELD_COMPAT = {
+    "tech": {"tech", "product", "design"},
+    "product": {"product", "tech", "design"},
+    "design": {"design", "product", "tech", "creative"},
+    "marketing": {"marketing", "sales", "creative", "product"},
+    "sales": {"sales", "marketing", "cs"},
+    "cs": {"cs", "sales", "ops"},
+    "finance": {"finance", "consulting", "ops"},
+    "hr": {"hr", "ops"},
+    "ops": {"ops", "logistics", "hr"},
+    "healthcare": {"healthcare"},
+    "education": {"education"},
+    "trades": {"trades", "manufacturing", "logistics"},
+    "logistics": {"logistics", "trades", "ops"},
+    "food": {"food", "retail"},
+    "retail": {"retail", "sales", "food"},
+    "creative": {"creative", "marketing", "design"},
+    "manufacturing": {"manufacturing", "trades", "logistics"},
+    "consulting": {"consulting", "finance", "product", "tech"},
+}
+# Field keyword cues, scored over a title/headline blob (argmax wins). TECH is listed
+# first so it wins ties for hybrid "ML Engineer / Data Scientist"-type phrasings.
+_FIELD_CUES = [
+    (
+        "tech",
+        re.compile(
+            r"software|engineer|developer|programmer|architect|devops|\bsre\b|machine learning|\bml\b|\bai\b|data scien|research scientist|backend|front.?end|full.?stack|infrastructure|platform",
+            re.I,
+        ),
+    ),
+    (
+        "product",
+        re.compile(
+            r"product manager|product owner|product management|program manager|\bgroup pm\b", re.I
+        ),
+    ),
+    ("design", re.compile(r"designer|\bux\b|\bui\b|user experience|user research", re.I)),
+    ("marketing", re.compile(r"marketing|growth|\bseo\b|content strateg|brand|demand gen", re.I)),
+    (
+        "sales",
+        re.compile(
+            r"\bsales\b|account executive|business development|\bgtm\b|go.to.market|revenue|quota",
+            re.I,
+        ),
+    ),
+    ("hr", re.compile(r"recruit|talent|people ops|human resources|\bhr\b|sourcer", re.I)),
+    (
+        "finance",
+        re.compile(r"finance|accountant|accounting|controller|fp&a|bookkeep|treasury", re.I),
+    ),
+    ("cs", re.compile(r"customer success|customer support|account manager|client services", re.I)),
+    ("healthcare", re.compile(r"\bnurse\b|physician|clinical|therapist|\brn\b|caregiver", re.I)),
+]
+
+
+def field_of_text(blob):
+    """Coarse field for a title/headline blob (argmax over keyword cues), or "" if no
+    cue fires. Title-driven by design: a job description is often company boilerplate
+    (an AI startup's recruiter posting reads like an AI-eng role), so the TITLE is the
+    reliable field signal."""
+    blob = blob or ""
+    best, best_n = "", 0
+    for field, rx in _FIELD_CUES:
+        n = len(rx.findall(blob))
+        if n > best_n:
+            best, best_n = field, n
+    return best
+
+
+def profile_field(text, titles=None, headline=""):
+    """Best-effort coarse field for a resume. Scores role titles + headline (densest,
+    least-boilerplate signal) AND the resume body, by argmax over cue counts — so a
+    profile whose titles parse poorly (year-only dates, odd layout) still classifies
+    from its prose. A resume is the seeker's own text, not company boilerplate, so the
+    body is a safe signal here. "" (unknown) makes the field axis a no-op."""
+    blob = " ".join((titles or []) + [headline or "", (text or "")[:1500]])
+    return field_of_text(blob)
+
+
+def job_field(j):
+    """Coarse field for a job: its role_family when confidently classified, else the
+    title (cuts through boilerplate-heavy descriptions). "" when unknown."""
+    rf = j.get("role_family") or ""
+    if rf and rf != "other" and rf in _FAMILY_FIELD:
+        return _FAMILY_FIELD[rf]
+    return field_of_text(j.get("title") or "")
+
+
 def axis_status(r, j):
     """Return per-axis pass/fail + human-readable reasons for a (resume, job) pair.
 
@@ -746,6 +1013,13 @@ def axis_status(r, j):
     loc_ok = j["remote"] or bool(r_loc & j_loc)
     if not loc_ok and r.get("country") and r["country"] in set(j.get("loc_countries", [])):
         loc_ok = True
+    # metro fallback: a seeker in "San Francisco Bay Area" and a job in "Mountain View"
+    # share no geo TOKENS but are the same commute market. Pass when both resolve to the
+    # same major metro (cuts false location rejections of on-site, same-metro roles).
+    if not loc_ok:
+        rm, jm = metros_of(r.get("loc", "")), metros_of(j.get("loc", ""))
+        if rm & jm:
+            loc_ok = True
     loc_reason = "" if loc_ok else "location mismatch (not remote, no geo overlap)"
 
     # gate
@@ -770,9 +1044,21 @@ def axis_status(r, j):
             "missing " + ", ".join(CRED_LABELS.get(c, c) for c in sorted(missing_creds))
         )
 
+    # field — block cross-FIELD drift (don't route a tech profile INTO marketing /
+    # recruiting / sales). Enforced only when BOTH the profile field and the job field
+    # are known; in-field + adjacent drift stays allowed (_FIELD_COMPAT).
+    r_field = r.get("field") or ""
+    j_field = job_field(j)
+    if r_field and j_field and r_field in _FIELD_COMPAT:
+        field_ok = j_field in _FIELD_COMPAT[r_field]
+    else:
+        field_ok = True
+    field_reason = "" if field_ok else f"different field ({j_field} vs your {r_field} focus)"
+
     return {
         "sen": {"ok": sen_ok, "reason": sen_reason},
         "loc": {"ok": loc_ok, "reason": loc_reason},
         "gate": {"ok": gate_ok, "reason": "; ".join(gate_reasons)},
-        "all": sen_ok and loc_ok and gate_ok,
+        "field": {"ok": field_ok, "reason": field_reason},
+        "all": sen_ok and loc_ok and gate_ok and field_ok,
     }

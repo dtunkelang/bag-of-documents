@@ -7,12 +7,15 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: cc-by-4.0
-short_description: Hybrid search over ~197K job postings · RRF(BM25 + e5-small)
+short_description: Hybrid search over ~300K job postings · RRF(BM25 + e5-small)
 ---
 
 # Jobs Search Demo
 
-Hybrid job search over **~197,000 postings** from two corpora (OpenApply, USAJobs).
+Hybrid job search over **~300,000 postings** from ~14 sources — ATS crawls
+(OpenApply, SmartRecruiters, Workable, Recruitee, Breezy), public/federal feeds
+(USAJobs, France Travail), aggregators (Adzuna, Jooble), and job boards (Reed,
+Findwork, The Muse, RemoteOK).
 
 ## Retrieval
 
@@ -29,7 +32,7 @@ query/passage prefixes), each pooled to the top 100.
 - **More jobs like this** — pivot from any posting to similar roles via a
   re-embedded title + description, RRF-fused and employer-diversified.
 - **Match your profile** — paste or upload a resume / LinkedIn PDF to rank jobs by
-  fit (3-axis constraint filter).
+  fit (4-axis constraint filter: field, seniority, location, qualification).
 - **Personalized re-ranking** — a profile re-ranks every query via a candidate-
   prefiltered KNN over the e5 vectors.
 

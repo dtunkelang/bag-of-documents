@@ -196,6 +196,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "department": rec.get("department") or "",
                 "posted_at": rec.get("posted_at") or "",
                 "source_corpus": sources[i],
+                "lang": rec.get("lang") or "en",
                 "description": rec.get("description") or "",
                 "e5_vec": dense[i].astype(np.float32).tolist(),
             }

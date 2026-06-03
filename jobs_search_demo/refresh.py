@@ -45,6 +45,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from lang_detect import detect_lang  # sibling module; script dir is on sys.path
+
 ROOT = Path("/Users/dtunkelang/bagofdocs")
 PY = str(ROOT / ".venv" / "bin" / "python")
 
@@ -713,6 +715,13 @@ def stage_unify(args) -> None:
                         continue
                     seen_sigs.add(sig)
                     rec["source_corpus"] = tag
+                    # Language tag (en/fr) for the query-language gate + lang facet.
+                    # France Travail is French by construction (and detects fr 100% of
+                    # the time anyway), so force it and skip the detector for that ~33%.
+                    if (rec.get("source") or tag) == "francetravail":
+                        rec["lang"] = "fr"
+                    else:
+                        rec["lang"] = detect_lang(rec.get("text") or rec.get("title") or "")[0]
                     meta_out.write(json.dumps(rec) + "\n")
                     all_ids.append(ids[i])
                     all_titles.append(titles[i])
@@ -1503,12 +1512,14 @@ def stage_deploy(args) -> None:
         "snippet_lib.py",
         "resume_match_lib.py",
         "maps_svg.py",
+        "lang_detect.py",
         "requirements.txt",
         "Dockerfile",
         "entrypoint.sh",
         "suggest_lib.py",
         "role_vocab.json",
         "role_vocab_emb.npy",
+        "fr_roles.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),

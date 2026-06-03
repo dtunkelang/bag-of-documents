@@ -1,0 +1,2002 @@
+[
+{
+"text": "agent",
+"n": 749
+},
+{
+"text": "cuisinier",
+"n": 656
+},
+{
+"text": "vendeur",
+"n": 622
+},
+{
+"text": "serveur",
+"n": 582
+},
+{
+"text": "aide-soignant",
+"n": 498
+},
+{
+"text": "infirmier",
+"n": 483
+},
+{
+"text": "assistant",
+"n": 406
+},
+{
+"text": "auxiliaire de vie",
+"n": 363
+},
+{
+"text": "employé",
+"n": 354
+},
+{
+"text": "technicien",
+"n": 331
+},
+{
+"text": "technicien de maintenance",
+"n": 321
+},
+{
+"text": "mécanicien",
+"n": 299
+},
+{
+"text": "conducteur",
+"n": 282
+},
+{
+"text": "electricien",
+"n": 280
+},
+{
+"text": "aide à domicile",
+"n": 257
+},
+{
+"text": "aide ménager",
+"n": 256
+},
+{
+"text": "chef",
+"n": 253
+},
+{
+"text": "boulanger",
+"n": 248
+},
+{
+"text": "employé polyvalent",
+"n": 240
+},
+{
+"text": "maçon",
+"n": 239
+},
+{
+"text": "educateur spécialisé",
+"n": 218
+},
+{
+"text": "commis de cuisine",
+"n": 218
+},
+{
+"text": "valet",
+"n": 217
+},
+{
+"text": "cariste",
+"n": 214
+},
+{
+"text": "commis",
+"n": 208
+},
+{
+"text": "animateur",
+"n": 205
+},
+{
+"text": "boucher",
+"n": 205
+},
+{
+"text": "opérateur de production",
+"n": 196
+},
+{
+"text": "magasinier",
+"n": 196
+},
+{
+"text": "pâtissier",
+"n": 187
+},
+{
+"text": "préparateur de commandes",
+"n": 180
+},
+{
+"text": "plongeur",
+"n": 179
+},
+{
+"text": "agent d'entretien",
+"n": 176
+},
+{
+"text": "plombier",
+"n": 175
+},
+{
+"text": "auxiliaire de puériculture",
+"n": 172
+},
+{
+"text": "consultant en bilan de compétences",
+"n": 171
+},
+{
+"text": "comptable",
+"n": 162
+},
+{
+"text": "coiffeur",
+"n": 157
+},
+{
+"text": "consultant en bilan dorientation scolaire",
+"n": 156
+},
+{
+"text": "chauffeur",
+"n": 150
+},
+{
+"text": "soudeur",
+"n": 150
+},
+{
+"text": "opérateur",
+"n": 150
+},
+{
+"text": "manutentionnaire",
+"n": 149
+},
+{
+"text": "assistant administratif",
+"n": 144
+},
+{
+"text": "chauffeur pl",
+"n": 144
+},
+{
+"text": "préparateur",
+"n": 143
+},
+{
+"text": "plaquiste",
+"n": 143
+},
+{
+"text": "chargé",
+"n": 140
+},
+{
+"text": "aide soignant",
+"n": 140
+},
+{
+"text": "mécanicien automobile",
+"n": 137
+},
+{
+"text": "monteur",
+"n": 135
+},
+{
+"text": "collaborateur comptable",
+"n": 134
+},
+{
+"text": "electromécanicien",
+"n": 134
+},
+{
+"text": "commercial",
+"n": 134
+},
+{
+"text": "ouvrier",
+"n": 133
+},
+{
+"text": "couvreur",
+"n": 130
+},
+{
+"text": "conducteur de ligne",
+"n": 128
+},
+{
+"text": "menuisier",
+"n": 125
+},
+{
+"text": "chaudronnier",
+"n": 124
+},
+{
+"text": "assistant comptable",
+"n": 123
+},
+{
+"text": "accompagnant educatif et social",
+"n": 122
+},
+{
+"text": "gestionnaire de paie",
+"n": 121
+},
+{
+"text": "menuisier poseur",
+"n": 119
+},
+{
+"text": "barman",
+"n": 118
+},
+{
+"text": "assistant commercial",
+"n": 117
+},
+{
+"text": "moniteur éducateur",
+"n": 116
+},
+{
+"text": "psychologue",
+"n": 114
+},
+{
+"text": "aide ménager à domicile",
+"n": 113
+},
+{
+"text": "chauffeur spl",
+"n": 112
+},
+{
+"text": "peintre industriel",
+"n": 111
+},
+{
+"text": "maçon vrd",
+"n": 111
+},
+{
+"text": "agent de production",
+"n": 111
+},
+{
+"text": "chef de rang",
+"n": 109
+},
+{
+"text": "second de cuisine",
+"n": 108
+},
+{
+"text": "médecin généraliste",
+"n": 108
+},
+{
+"text": "technicien de maintenance industrielle",
+"n": 107
+},
+{
+"text": "conseiller",
+"n": 106
+},
+{
+"text": "peintre en bâtiment",
+"n": 105
+},
+{
+"text": "chef de partie",
+"n": 104
+},
+{
+"text": "ophtalmologue",
+"n": 102
+},
+{
+"text": "employé de ménage",
+"n": 98
+},
+{
+"text": "chef d'équipe",
+"n": 94
+},
+{
+"text": "hôte de caisse",
+"n": 93
+},
+{
+"text": "ingénieur",
+"n": 93
+},
+{
+"text": "hôte",
+"n": 92
+},
+{
+"text": "charpentier",
+"n": 92
+},
+{
+"text": "magasinier cariste",
+"n": 90
+},
+{
+"text": "plombier chauffagiste",
+"n": 89
+},
+{
+"text": "agent de propreté",
+"n": 87
+},
+{
+"text": "carrossier",
+"n": 83
+},
+{
+"text": "carreleur",
+"n": 83
+},
+{
+"text": "ergothérapeute",
+"n": 80
+},
+{
+"text": "chargé de recrutement",
+"n": 80
+},
+{
+"text": "comptable général",
+"n": 79
+},
+{
+"text": "assistant de direction",
+"n": 77
+},
+{
+"text": "travailleur social",
+"n": 77
+},
+{
+"text": "mécanicien poids lourds",
+"n": 76
+},
+{
+"text": "second",
+"n": 76
+},
+{
+"text": "conducteur de travaux",
+"n": 74
+},
+{
+"text": "directeur",
+"n": 73
+},
+{
+"text": "esthéticien",
+"n": 73
+},
+{
+"text": "conseiller de vente",
+"n": 72
+},
+{
+"text": "jardinier",
+"n": 72
+},
+{
+"text": "electricien industriel",
+"n": 72
+},
+{
+"text": "peintre",
+"n": 71
+},
+{
+"text": "formateur",
+"n": 70
+},
+{
+"text": "educateur de jeunes enfants",
+"n": 70
+},
+{
+"text": "agent de nettoyage",
+"n": 69
+},
+{
+"text": "approvisionneur",
+"n": 68
+},
+{
+"text": "professeur",
+"n": 68
+},
+{
+"text": "agent de fabrication",
+"n": 68
+},
+{
+"text": "conducteur d'engins",
+"n": 67
+},
+{
+"text": "assistant de vie",
+"n": 66
+},
+{
+"text": "boulanger 35h",
+"n": 66
+},
+{
+"text": "manoeuvre",
+"n": 65
+},
+{
+"text": "etancheur",
+"n": 65
+},
+{
+"text": "psychomotricien",
+"n": 64
+},
+{
+"text": "employé libre service",
+"n": 64
+},
+{
+"text": "préparateur de commande",
+"n": 64
+},
+{
+"text": "contrôleur de gestion",
+"n": 64
+},
+{
+"text": "contrôleur",
+"n": 64
+},
+{
+"text": "chargé d'affaires",
+"n": 63
+},
+{
+"text": "auxiliaire de vie sociale",
+"n": 63
+},
+{
+"text": "pizzaïolo",
+"n": 63
+},
+{
+"text": "réceptionniste",
+"n": 63
+},
+{
+"text": "employe commercial",
+"n": 63
+},
+{
+"text": "poseur",
+"n": 62
+},
+{
+"text": "chauffeur-livreur",
+"n": 62
+},
+{
+"text": "canalisateur",
+"n": 62
+},
+{
+"text": "collaborateur comptable confirmé",
+"n": 62
+},
+{
+"text": "consultant en création dentreprise",
+"n": 61
+},
+{
+"text": "chargé de clientèle",
+"n": 61
+},
+{
+"text": "educateur",
+"n": 60
+},
+{
+"text": "mécanicien pl",
+"n": 59
+},
+{
+"text": "technicien qualité",
+"n": 59
+},
+{
+"text": "technico-commercial",
+"n": 58
+},
+{
+"text": "façadier",
+"n": 58
+},
+{
+"text": "agent de quai",
+"n": 58
+},
+{
+"text": "employé polyvalent de restauration",
+"n": 58
+},
+{
+"text": "chef de cuisine",
+"n": 58
+},
+{
+"text": "equipier snacking 35h",
+"n": 57
+},
+{
+"text": "technicien cvc",
+"n": 57
+},
+{
+"text": "agent de conditionnement",
+"n": 57
+},
+{
+"text": "electrotechnicien",
+"n": 57
+},
+{
+"text": "equipier polyvalent",
+"n": 56
+},
+{
+"text": "frigoriste",
+"n": 56
+},
+{
+"text": "tuyauteur",
+"n": 55
+},
+{
+"text": "conseiller commercial",
+"n": 55
+},
+{
+"text": "conducteur spl",
+"n": 55
+},
+{
+"text": "agent de sécurité",
+"n": 55
+},
+{
+"text": "chirurgien-dentiste",
+"n": 54
+},
+{
+"text": "dessinateur",
+"n": 54
+},
+{
+"text": "tourneur",
+"n": 54
+},
+{
+"text": "manoeuvre tp",
+"n": 53
+},
+{
+"text": "aide de cuisine",
+"n": 53
+},
+{
+"text": "recruteur indépendant",
+"n": 53
+},
+{
+"text": "agent de maintenance",
+"n": 52
+},
+{
+"text": "carrossier peintre",
+"n": 52
+},
+{
+"text": "acheteur",
+"n": 51
+},
+{
+"text": "coffreur bancheur",
+"n": 51
+},
+{
+"text": "technicien de maintenance cvc",
+"n": 51
+},
+{
+"text": "chef de mission",
+"n": 51
+},
+{
+"text": "commercial sédentaire",
+"n": 51
+},
+{
+"text": "contrôleur qualité",
+"n": 51
+},
+{
+"text": "chaudronnier soudeur",
+"n": 50
+},
+{
+"text": "secrétaire",
+"n": 50
+},
+{
+"text": "consultant en recrutement freelance",
+"n": 50
+},
+{
+"text": "assistant adv",
+"n": 50
+},
+{
+"text": "ouvrier paysagiste",
+"n": 50
+},
+{
+"text": "régleur",
+"n": 50
+},
+{
+"text": "infirmier diplômé d'état",
+"n": 49
+},
+{
+"text": "métallier",
+"n": 49
+},
+{
+"text": "auxiliaire de vie à domicile",
+"n": 49
+},
+{
+"text": "secrétaire médical",
+"n": 48
+},
+{
+"text": "orthophoniste",
+"n": 48
+},
+{
+"text": "fraiseur",
+"n": 48
+},
+{
+"text": "mécanicien tp",
+"n": 47
+},
+{
+"text": "chef de chantier",
+"n": 47
+},
+{
+"text": "ambulancier",
+"n": 47
+},
+{
+"text": "maçon traditionnel",
+"n": 46
+},
+{
+"text": "technicien de laboratoire",
+"n": 45
+},
+{
+"text": "bardeur",
+"n": 45
+},
+{
+"text": "poissonnier",
+"n": 45
+},
+{
+"text": "assistant administratif et commercial",
+"n": 45
+},
+{
+"text": "mécanicien monteur",
+"n": 45
+},
+{
+"text": "automaticien",
+"n": 44
+},
+{
+"text": "secrétaire comptable",
+"n": 44
+},
+{
+"text": "technicien sav",
+"n": 44
+},
+{
+"text": "franchisé",
+"n": 44
+},
+{
+"text": "cardiologue",
+"n": 44
+},
+{
+"text": "soudeur tig",
+"n": 42
+},
+{
+"text": "technicien méthodes",
+"n": 42
+},
+{
+"text": "moniteur",
+"n": 42
+},
+{
+"text": "commercial terrain",
+"n": 42
+},
+{
+"text": "monteur câbleur",
+"n": 42
+},
+{
+"text": "agent polyvalent",
+"n": 42
+},
+{
+"text": "réceptionniste en hôtellerie",
+"n": 41
+},
+{
+"text": "surveillant",
+"n": 40
+},
+{
+"text": "expert-comptable mémorialiste",
+"n": 40
+},
+{
+"text": "vendeur en boulangerie",
+"n": 40
+},
+{
+"text": "téléconseiller",
+"n": 40
+},
+{
+"text": "ouvrier polyvalent",
+"n": 40
+},
+{
+"text": "câbleur",
+"n": 40
+},
+{
+"text": "assistant ménager",
+"n": 40
+},
+{
+"text": "maçon finisseur",
+"n": 40
+},
+{
+"text": "ouvrier viticole",
+"n": 39
+},
+{
+"text": "maçon coffreur",
+"n": 39
+},
+{
+"text": "comptable fournisseurs",
+"n": 39
+},
+{
+"text": "médecin coordonnateur",
+"n": 38
+},
+{
+"text": "equipier polyvalent de restauration rapide",
+"n": 38
+},
+{
+"text": "chauffeur livreur",
+"n": 38
+},
+{
+"text": "garde d'enfant à domicile",
+"n": 38
+},
+{
+"text": "exploitant transport",
+"n": 38
+},
+{
+"text": "agent de service",
+"n": 38
+},
+{
+"text": "assistant social",
+"n": 38
+},
+{
+"text": "agent logistique",
+"n": 37
+},
+{
+"text": "technicien bureau d'études",
+"n": 37
+},
+{
+"text": "expert comptable",
+"n": 37
+},
+{
+"text": "dermatologue",
+"n": 37
+},
+{
+"text": "garde d'enfants à domicile",
+"n": 37
+},
+{
+"text": "ouvrier agroalimentaire",
+"n": 37
+},
+{
+"text": "auxiliaire petite enfance",
+"n": 36
+},
+{
+"text": "responsable d'agence",
+"n": 36
+},
+{
+"text": "collaborateur comptable agricole",
+"n": 36
+},
+{
+"text": "responsable administratif et financier",
+"n": 36
+},
+{
+"text": "paysagiste",
+"n": 36
+},
+{
+"text": "usineur",
+"n": 36
+},
+{
+"text": "coffreur",
+"n": 36
+},
+{
+"text": "assistant de gestion",
+"n": 35
+},
+{
+"text": "mécanicien agricole",
+"n": 35
+},
+{
+"text": "assistant qualité",
+"n": 35
+},
+{
+"text": "dessinateur projeteur",
+"n": 35
+},
+{
+"text": "commercial itinérant",
+"n": 35
+},
+{
+"text": "livreur",
+"n": 35
+},
+{
+"text": "vendeur conseil",
+"n": 35
+},
+{
+"text": "magasinier vendeur",
+"n": 34
+},
+{
+"text": "couvreur zingueur",
+"n": 34
+},
+{
+"text": "chef cuisinier",
+"n": 34
+},
+{
+"text": "manoeuvre bâtiment",
+"n": 34
+},
+{
+"text": "ingénieure",
+"n": 34
+},
+{
+"text": "gynécologue",
+"n": 34
+},
+{
+"text": "infirmier coordinateur",
+"n": 34
+},
+{
+"text": "conseiller clientèle",
+"n": 34
+},
+{
+"text": "responsable de magasin",
+"n": 33
+},
+{
+"text": "responsable logistique",
+"n": 33
+},
+{
+"text": "employé de restauration",
+"n": 33
+},
+{
+"text": "chauffagiste",
+"n": 33
+},
+{
+"text": "agent administratif",
+"n": 33
+},
+{
+"text": "plieur",
+"n": 33
+},
+{
+"text": "chargé de communication",
+"n": 33
+},
+{
+"text": "conducteur pl",
+"n": 33
+},
+{
+"text": "mécanicien industriel",
+"n": 32
+},
+{
+"text": "directeur de magasin",
+"n": 32
+},
+{
+"text": "conducteur de machine",
+"n": 32
+},
+{
+"text": "tourneur fraiseur",
+"n": 32
+},
+{
+"text": "chauffeur poids lourd",
+"n": 32
+},
+{
+"text": "employé de ménage-repassage",
+"n": 32
+},
+{
+"text": "responsable comptable",
+"n": 32
+},
+{
+"text": "cuisinier de collectivité",
+"n": 32
+},
+{
+"text": "serveur/serveuse",
+"n": 32
+},
+{
+"text": "electricien batiment",
+"n": 31
+},
+{
+"text": "réceptionnaire",
+"n": 31
+},
+{
+"text": "assistant rh",
+"n": 31
+},
+{
+"text": "menuisier agenceur",
+"n": 30
+},
+{
+"text": "cariste caces 3",
+"n": 30
+},
+{
+"text": "aide ménagère",
+"n": 30
+},
+{
+"text": "responsable de secteur",
+"n": 30
+},
+{
+"text": "opérateur régleur",
+"n": 30
+},
+{
+"text": "conducteur de bus",
+"n": 30
+},
+{
+"text": "vendeur comptoir",
+"n": 30
+},
+{
+"text": "préparateur en pharmacie",
+"n": 30
+},
+{
+"text": "gestionnaire paie",
+"n": 30
+},
+{
+"text": "mécanicien poids lourd",
+"n": 29
+},
+{
+"text": "agent d'entretien des locaux",
+"n": 29
+},
+{
+"text": "technicien sav itinérant",
+"n": 29
+},
+{
+"text": "aide-soignant de nuit",
+"n": 29
+},
+{
+"text": "opérateur logistique",
+"n": 29
+},
+{
+"text": "pharmacien",
+"n": 29
+},
+{
+"text": "conducteur d'engin",
+"n": 29
+},
+{
+"text": "psychologue clinicien",
+"n": 29
+},
+{
+"text": "intervenant à domicile",
+"n": 29
+},
+{
+"text": "responsable qualité",
+"n": 29
+},
+{
+"text": "facteur",
+"n": 29
+},
+{
+"text": "infirmier de",
+"n": 28
+},
+{
+"text": "agent d'accueil",
+"n": 28
+},
+{
+"text": "réceptionniste de nuit",
+"n": 28
+},
+{
+"text": "métreur",
+"n": 28
+},
+{
+"text": "opticien",
+"n": 28
+},
+{
+"text": "maître",
+"n": 28
+},
+{
+"text": "agent technique",
+"n": 28
+},
+{
+"text": "opérateur polyvalent",
+"n": 28
+},
+{
+"text": "fleuriste",
+"n": 28
+},
+{
+"text": "aide couvreur",
+"n": 28
+},
+{
+"text": "assistant ressources humaines",
+"n": 28
+},
+{
+"text": "aide-soignant de",
+"n": 28
+},
+{
+"text": "responsable de salle",
+"n": 28
+},
+{
+"text": "grutier",
+"n": 27
+},
+{
+"text": "ajusteur monteur",
+"n": 27
+},
+{
+"text": "opérateur de fabrication",
+"n": 27
+},
+{
+"text": "technicien maintenance",
+"n": 27
+},
+{
+"text": "paris",
+"n": 27
+},
+{
+"text": "technicien frigoriste",
+"n": 27
+},
+{
+"text": "conducteur routier",
+"n": 27
+},
+{
+"text": "aide soignant de nuit",
+"n": 27
+},
+{
+"text": "agent technique polyvalent",
+"n": 27
+},
+{
+"text": "femme de chambre",
+"n": 27
+},
+{
+"text": "opérateur de conditionnement",
+"n": 26
+},
+{
+"text": "auditeur financier",
+"n": 26
+},
+{
+"text": "job d'été",
+"n": 26
+},
+{
+"text": "assistant administratif et comptable",
+"n": 26
+},
+{
+"text": "aide soignant diplômé",
+"n": 26
+},
+{
+"text": "agent de tri",
+"n": 26
+},
+{
+"text": "secrétaire médicale",
+"n": 26
+},
+{
+"text": "electricien tertiaire",
+"n": 26
+},
+{
+"text": "menuisier atelier",
+"n": 26
+},
+{
+"text": "ouvrier agricole",
+"n": 26
+},
+{
+"text": "gestionnaire administratif",
+"n": 26
+},
+{
+"text": "chef gérant",
+"n": 26
+},
+{
+"text": "menuisier aluminium",
+"n": 26
+},
+{
+"text": "responsable d'exploitation",
+"n": 26
+},
+{
+"text": "prothésiste ongulaire",
+"n": 26
+},
+{
+"text": "responsable maintenance",
+"n": 26
+},
+{
+"text": "affréteur",
+"n": 26
+},
+{
+"text": "masseur kinésithérapeute",
+"n": 25
+},
+{
+"text": "conditionneur",
+"n": 25
+},
+{
+"text": "chargé de recouvrement",
+"n": 25
+},
+{
+"text": "opérateur commande numérique",
+"n": 25
+},
+{
+"text": "technicien de maintenance itinérant",
+"n": 25
+},
+{
+"text": "chauffeur pl/spl",
+"n": 25
+},
+{
+"text": "orl",
+"n": 25
+},
+{
+"text": "assistant de service social",
+"n": 25
+},
+{
+"text": "kinésithérapeute",
+"n": 25
+},
+{
+"text": "assistant administration des ventes",
+"n": 25
+},
+{
+"text": "logisticien",
+"n": 25
+},
+{
+"text": "cariste manutentionnaire",
+"n": 24
+},
+{
+"text": "aide médico-psychologique",
+"n": 24
+},
+{
+"text": "directeur d'agence",
+"n": 24
+},
+{
+"text": "chef d'équipe logistique",
+"n": 24
+},
+{
+"text": "carrossier-peintre",
+"n": 24
+},
+{
+"text": "vendangeur",
+"n": 24
+},
+{
+"text": "coordinateur",
+"n": 24
+},
+{
+"text": "crêpier",
+"n": 24
+},
+{
+"text": "cadre de santé",
+"n": 24
+},
+{
+"text": "valet/femme de chambre",
+"n": 24
+},
+{
+"text": "femme",
+"n": 23
+},
+{
+"text": "indépendant",
+"n": 23
+},
+{
+"text": "dessinateur-projeteur",
+"n": 23
+},
+{
+"text": "aide maçon",
+"n": 23
+},
+{
+"text": "hôte d'accueil",
+"n": 23
+},
+{
+"text": "réceptionniste polyvalent",
+"n": 23
+},
+{
+"text": "assistant dentaire",
+"n": 23
+},
+{
+"text": "chef de projet",
+"n": 23
+},
+{
+"text": "aide comptable",
+"n": 23
+},
+{
+"text": "responsable de production",
+"n": 23
+},
+{
+"text": "infirmier en ehpad",
+"n": 23
+},
+{
+"text": "assistant logistique",
+"n": 23
+},
+{
+"text": "surveillant de nuit",
+"n": 23
+},
+{
+"text": "chef d'atelier",
+"n": 23
+},
+{
+"text": "gouvernant",
+"n": 23
+},
+{
+"text": "juriste",
+"n": 23
+},
+{
+"text": "infirmier en gériatrie",
+"n": 23
+},
+{
+"text": "couturier",
+"n": 23
+},
+{
+"text": "accompagnant éducatif petite enfance",
+"n": 23
+},
+{
+"text": "employé de maison",
+"n": 22
+},
+{
+"text": "technicien informatique",
+"n": 22
+},
+{
+"text": "terrassier",
+"n": 22
+},
+{
+"text": "rhumatologue",
+"n": 22
+},
+{
+"text": "chauffeur livreur pl",
+"n": 22
+},
+{
+"text": "enseignant",
+"n": 22
+},
+{
+"text": "responsable ressources humaines",
+"n": 22
+},
+{
+"text": "rectifieur",
+"n": 22
+},
+{
+"text": "serrurier",
+"n": 22
+},
+{
+"text": "tourneur-fraiseur",
+"n": 22
+},
+{
+"text": "tourneur cn",
+"n": 22
+},
+{
+"text": "chef d'équipe maçon",
+"n": 22
+},
+{
+"text": "solier",
+"n": 22
+},
+{
+"text": "charpentier bois",
+"n": 22
+},
+{
+"text": "adjoint",
+"n": 22
+},
+{
+"text": "radiologue",
+"n": 22
+},
+{
+"text": "chef de service",
+"n": 22
+},
+{
+"text": "agent de service hôtelier",
+"n": 22
+},
+{
+"text": "mécanicien vl",
+"n": 22
+},
+{
+"text": "caissier",
+"n": 22
+},
+{
+"text": "pneumologue",
+"n": 21
+},
+{
+"text": "commis de salle",
+"n": 21
+},
+{
+"text": "gestionnaire rh",
+"n": 21
+},
+{
+"text": "agent de production agroalimentaire",
+"n": 21
+},
+{
+"text": "standardiste",
+"n": 21
+},
+{
+"text": "assistant technique",
+"n": 21
+},
+{
+"text": "monteur assembleur",
+"n": 21
+},
+{
+"text": "dermatologue en centre esthétique",
+"n": 21
+},
+{
+"text": "préparateur de commandes caces 1",
+"n": 21
+},
+{
+"text": "educateur sportif",
+"n": 21
+},
+{
+"text": "manœuvre bâtiment",
+"n": 21
+},
+{
+"text": "mécanicien de maintenance",
+"n": 21
+},
+{
+"text": "conseiller de vente en alternance",
+"n": 21
+},
+{
+"text": "vendeur en charcuterie",
+"n": 20
+},
+{
+"text": "technico-commercial sédentaire",
+"n": 20
+},
+{
+"text": "fraiseur cn",
+"n": 20
+},
+{
+"text": "chef d'équipe électricien",
+"n": 20
+},
+{
+"text": "cuisinier traiteur",
+"n": 20
+},
+{
+"text": "comptable fournisseur",
+"n": 20
+},
+{
+"text": "auxiliaire de vie sociale -avs",
+"n": 20
+},
+{
+"text": "conducteur poids lourds",
+"n": 20
+},
+{
+"text": "aide viticole",
+"n": 20
+},
+{
+"text": "neuropsychologue",
+"n": 20
+},
+{
+"text": "stratifieur",
+"n": 20
+},
+{
+"text": "ajusteur",
+"n": 20
+},
+{
+"text": "employé libre-service",
+"n": 20
+},
+{
+"text": "assistant manager",
+"n": 20
+},
+{
+"text": "ouvrier agricole polyvalent",
+"n": 20
+},
+{
+"text": "attaché commercial",
+"n": 20
+},
+{
+"text": "alternance vendeur",
+"n": 20
+},
+{
+"text": "manager en restauration rapide",
+"n": 20
+},
+{
+"text": "peintre aéronautique",
+"n": 20
+},
+{
+"text": "conducteur de pelle",
+"n": 20
+},
+{
+"text": "aes",
+"n": 20
+},
+{
+"text": "médecin gériatre",
+"n": 20
+},
+{
+"text": "ferrailleur",
+"n": 20
+},
+{
+"text": "ophtalmologue libéral ou salarié",
+"n": 20
+},
+{
+"text": "agent d'entretien polyvalent",
+"n": 20
+},
+{
+"text": "employé polyvalent en restauration",
+"n": 20
+},
+{
+"text": "chargé d'accueil",
+"n": 20
+},
+{
+"text": "caviste",
+"n": 20
+},
+{
+"text": "enseignant contractuel",
+"n": 20
+},
+{
+"text": "technicien contrôle qualité",
+"n": 20
+},
+{
+"text": "manoeuvre btp",
+"n": 19
+},
+{
+"text": "chef boucher",
+"n": 19
+},
+{
+"text": "technicien logistique",
+"n": 19
+},
+{
+"text": "vendeur polyvalent",
+"n": 19
+},
+{
+"text": "pontier",
+"n": 19
+},
+{
+"text": "conseiller relation demandeur d'emploi",
+"n": 19
+},
+{
+"text": "assistant juridique",
+"n": 19
+},
+{
+"text": "responsable technique",
+"n": 19
+},
+{
+"text": "aide-soignant en ehpad",
+"n": 19
+},
+{
+"text": "mécanicien service rapide",
+"n": 19
+},
+{
+"text": "comptable unique",
+"n": 19
+},
+{
+"text": "premier vendeur 35h",
+"n": 19
+},
+{
+"text": "chauffeur pl tp",
+"n": 19
+},
+{
+"text": "expert-comptable",
+"n": 19
+},
+{
+"text": "charcutier",
+"n": 19
+},
+{
+"text": "chef de secteur",
+"n": 19
+},
+{
+"text": "négociateur",
+"n": 19
+},
+{
+"text": "employé de libre service",
+"n": 19
+},
+{
+"text": "elagueur",
+"n": 19
+},
+{
+"text": "cariste caces 5",
+"n": 19
+},
+{
+"text": "monteur électricien",
+"n": 19
+},
+{
+"text": "consultant",
+"n": 19
+},
+{
+"text": "garde d'enfants",
+"n": 19
+},
+{
+"text": "chef de mission comptable",
+"n": 18
+},
+{
+"text": "conseiller clientèle particuliers",
+"n": 18
+},
+{
+"text": "peintre bâtiment",
+"n": 18
+},
+{
+"text": "opérateur sur commande numérique",
+"n": 18
+},
+{
+"text": "gestionnaire de paie confirmé",
+"n": 18
+},
+{
+"text": "electricien du bâtiment",
+"n": 18
+},
+{
+"text": "consultant en recrutement",
+"n": 18
+},
+{
+"text": "outilleur",
+"n": 18
+},
+{
+"text": "collaborateur comptable junior",
+"n": 18
+},
+{
+"text": "conseiller financier",
+"n": 18
+},
+{
+"text": "serrurier métallier",
+"n": 18
+},
+{
+"text": "calorifugeur",
+"n": 18
+},
+{
+"text": "télévendeur",
+"n": 18
+},
+{
+"text": "echafaudeur",
+"n": 18
+},
+{
+"text": "infirmier de nuit",
+"n": 18
+},
+{
+"text": "femme/valet de chambre",
+"n": 18
+},
+{
+"text": "menuisier bois",
+"n": 18
+},
+{
+"text": "maitre de maison",
+"n": 18
+},
+{
+"text": "chef d'équipe maintenance",
+"n": 18
+},
+{
+"text": "aide-maçon",
+"n": 18
+},
+{
+"text": "pédiatre",
+"n": 18
+},
+{
+"text": "responsable de site",
+"n": 18
+},
+{
+"text": "diététicien",
+"n": 17
+},
+{
+"text": "responsable recrutement",
+"n": 17
+},
+{
+"text": "responsable commercial",
+"n": 17
+},
+{
+"text": "conducteur livreur",
+"n": 17
+},
+{
+"text": "assistant d'agence",
+"n": 17
+},
+{
+"text": "assembleur monteur",
+"n": 17
+},
+{
+"text": "maître-nageur sauveteur",
+"n": 17
+},
+{
+"text": "responsable audit",
+"n": 17
+},
+{
+"text": "réceptionniste tournant",
+"n": 17
+},
+{
+"text": "technicien chauffagiste",
+"n": 17
+},
+{
+"text": "menuisier d'atelier",
+"n": 17
+},
+{
+"text": "agent commercial",
+"n": 17
+},
+{
+"text": "veilleur",
+"n": 17
+},
+{
+"text": "directeur adjoint",
+"n": 17
+},
+{
+"text": "technico commercial",
+"n": 17
+},
+{
+"text": "veilleur de nuit",
+"n": 17
+},
+{
+"text": "conducteur d'engins de chantier",
+"n": 17
+},
+{
+"text": "ingénieur qualité",
+"n": 17
+},
+{
+"text": "collaborateur",
+"n": 17
+},
+{
+"text": "médecin urgentiste",
+"n": 17
+},
+{
+"text": "plongeur en restauration",
+"n": 17
+},
+{
+"text": "agent de nettoyage industriel",
+"n": 16
+},
+{
+"text": "métallier serrurier",
+"n": 16
+},
+{
+"text": "chauffeur pl grue auxiliaire",
+"n": 16
+},
+{
+"text": "opérateur cn",
+"n": 16
+},
+{
+"text": "opérateur de production agroalimentaire",
+"n": 16
+},
+{
+"text": "employé de restauration collective",
+"n": 16
+},
+{
+"text": "surveillant de baignade",
+"n": 16
+},
+{
+"text": "chargé d'affaires électricité",
+"n": 16
+}
+]

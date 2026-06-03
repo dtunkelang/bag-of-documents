@@ -128,3 +128,16 @@ evaluation/llm_judge_outputs/
 
 # OS
 .DS_Store
+
+# Private query-workload test (NOT for the repo) + its throwaway analysis/probe tooling
+query_frequencies.csv
+analyze_query_workload.py
+probe_gate_precision.py
+retrieval_eval_workload.py
+verify_stage4_lang.py
+run_full_rebuild_lang_stage4.sh
+judge_workload_relevance.py
+private_eval/
+
+# transient OpenAI batch ids from the 'other'-bucket backfill
+jobs_search_demo/llm_other_batch.id

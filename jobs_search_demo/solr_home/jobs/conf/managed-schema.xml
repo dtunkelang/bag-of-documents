@@ -471,6 +471,7 @@
   <field name="employment_type" type="string" multiValued="false" indexed="false" stored="true"/>
   <field name="id" type="string" multiValued="false" indexed="true" required="true" stored="true"/>
   <field name="industry" type="string" multiValued="false" indexed="true" stored="true"/>
+  <field name="lang" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_city" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_country" type="string" multiValued="false" indexed="true" stored="true"/>
   <field name="location_state" type="string" multiValued="false" indexed="true" stored="true"/>
