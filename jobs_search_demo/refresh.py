@@ -1340,6 +1340,8 @@ def stage_solr(args) -> None:
     if n < 0.99 * expected:
         sys.exit(f"[4] ABORT: indexed {n:,} < 99% of expected {expected:,}")
 
+    _regen_fr_suggestions(demo)
+
 
 def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
     """Incremental stage 4: diff the new build's stable ids against what's already
@@ -1488,6 +1490,29 @@ def _stage_solr_delta(args, out: Path, demo: Path, solr_bin: str) -> None:
     print(f"[4d] post-delta numFound={n_final:,} (expected {expected:,})", flush=True)
     if n_final != expected:
         sys.exit(f"[4d] ABORT: post-delta numFound {n_final:,} != expected {expected:,}")
+
+    _regen_fr_suggestions(demo)
+
+
+def _regen_fr_suggestions(demo: Path) -> None:
+    """Regenerate the two serve-time French suggestion bundles from the freshly
+    built live Solr corpus so they track current inventory (they are otherwise
+    frozen snapshots that drift as postings turn over):
+      * space/fr_roles.json   (mine_fr_roles.py)   — French role vocab for
+        autocomplete + resume matching.
+      * space/fr_related.json (build_fr_related.py) — the grounded ROME
+        related-search lane, whose display labels must EXIST in the live corpus.
+    Both read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
+    stage-7 deploy uploads them. Non-fatal: a failure keeps the last-good bundle
+    rather than aborting the index refresh. build_fr_related needs a one-time
+    ROME open-data download (cached at .rome_opendata.zip); mine_fr_roles writes
+    a cwd-relative path, hence cwd=demo for both."""
+    for script in ("mine_fr_roles.py", "build_fr_related.py"):
+        try:
+            run([PY, script], cwd=demo)
+            print(f"[4] regenerated French suggestions via {script}", flush=True)
+        except Exception as e:  # noqa: BLE001 — degrade to last-good, never abort refresh
+            print(f"[4] WARNING: {script} failed ({e}); keeping last-good bundle", flush=True)
 
 
 # ---------------------------------------------------------------------------
