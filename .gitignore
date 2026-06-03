@@ -144,3 +144,9 @@ jobs_search_demo/llm_other_batch.id
 
 # ROME open-data zip cached by build_fr_related.py (re-downloadable)
 jobs_search_demo/.rome_opendata.zip
+
+# ESCO occupation backbone harvested from the open API by build_esco_backbone.py
+# (re-harvestable; ~25MB JSONL + URI list + run log)
+jobs_search_demo/.esco_records.jsonl
+jobs_search_demo/.esco_occ_uris.json
+jobs_search_demo/esco_harvest.log
