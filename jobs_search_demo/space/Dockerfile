@@ -48,6 +48,8 @@ COPY role_vocab_emb.npy /opt/app/role_vocab_emb.npy
 COPY fr_roles.json /opt/app/fr_roles.json
 # Grounded French related-searches: ROME taxonomy + mobilites + corpus role labels.
 COPY fr_related.json /opt/app/fr_related.json
+# Swedish canonical roles (JobTech) for the Swedish autocomplete tier.
+COPY sv_roles.json /opt/app/sv_roles.json
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 
