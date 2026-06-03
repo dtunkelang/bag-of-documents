@@ -166,6 +166,18 @@ def load_resources() -> None:
         role_suggester = None
         print(f"  role suggester unavailable: {e}", flush=True)
 
+    # French related searches via the ROME taxonomy (build_fr_related.py) — the English
+    # e5 suggester ranks French roles by morphology, not meaning, so French gets this
+    # grounded mobilite-based lane instead (suggest_lib.FrRelatedSuggester).
+    try:
+        from suggest_lib import FrRelatedSuggester
+
+        fr_related = FrRelatedSuggester()
+        print(f"  fr related: {len(fr_related.label2rome):,} ROME query keys", flush=True)
+    except Exception as e:
+        fr_related = None
+        print(f"  fr related unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -229,6 +241,7 @@ def load_resources() -> None:
             "sorted_keys": sorted_keys,
             "tier_keys": dict(by_tag),
             "role_suggester": role_suggester,
+            "fr_related": fr_related,
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
             "fr_roles_folded": fr_roles_folded,
@@ -2416,16 +2429,25 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
     LATERAL (-> data engineer) role moves mined from the corpus. NOT synonyms or
     level-only variants (those are redundant / belong to the facet rail). Every
     suggestion is a corpus-grounded role, so it always has results."""
+    if not q.strip():
+        return JSONResponse({"suggestions": []})
+    fr = R.get("fr_related")
+    # Confidently-French queries use the grounded ROME lane directly: the e5-small-v2
+    # suggester clusters French by morphology, not meaning ("développeur" -> "educateur"),
+    # so French gets France-Travail-validated career moves instead (query -> ROME ->
+    # mobilite -> a corpus-mined French role per related ROME).
+    if query_lang_mode(q) == "fr" and fr is not None:
+        return JSONResponse({"suggestions": fr.suggest(q, k=k)})
+    # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
-    if not q.strip() or rs is None:
-        return JSONResponse({"suggestions": []})
-    # The role suggester is e5-small-v2 (English) cosine; on French it clusters by
-    # morphology, not meaning ("développeur" -> "educateur"/"conditionneur"), so a
-    # confidently-French query gets no related searches rather than noise.
-    if query_lang_mode(q) == "fr":
-        return JSONResponse({"suggestions": []})
-    qv = np.asarray(_dense_qv(q), dtype=np.float32)
-    return JSONResponse({"suggestions": rs.suggest(q, qv, k=k)})
+    en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []
+    # A bare French role ("plombier", "infirmier") isn't caught by the high-precision
+    # query-lang gate (no diacritic/function word) and the English lane returns nothing
+    # for it. Fall back to the ROME lane, which only fires if the query resolves to a
+    # real French appellation — so these get grounded suggestions instead of nothing.
+    if not en and fr is not None:
+        return JSONResponse({"suggestions": fr.suggest(q, k=k)})
+    return JSONResponse({"suggestions": en})
 
 
 def _parse_filters(request: Request) -> dict[str, str | list[str]]:

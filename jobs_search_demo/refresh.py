@@ -1520,6 +1520,7 @@ def stage_deploy(args) -> None:
         "role_vocab.json",
         "role_vocab_emb.npy",
         "fr_roles.json",
+        "fr_related.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),

@@ -141,3 +141,6 @@ private_eval/
 
 # transient OpenAI batch ids from the 'other'-bucket backfill
 jobs_search_demo/llm_other_batch.id
+
+# ROME open-data zip cached by build_fr_related.py (re-downloadable)
+jobs_search_demo/.rome_opendata.zip

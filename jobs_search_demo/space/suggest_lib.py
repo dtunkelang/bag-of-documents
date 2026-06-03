@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 
 import numpy as np
 
@@ -141,3 +142,94 @@ class RoleSuggester:
             }
             for i in chosen
         ]
+
+
+# ===== French related searches — grounded in the ROME occupation taxonomy =====
+# e5-small-v2 ranks French roles by morphology, not meaning (plombier->plongeur), so
+# the English RoleSuggester can't serve French. This lane instead walks France
+# Travail's ROME taxonomy: query --(appellation)--> ROME --(mobilite)--> related ROMEs,
+# then displays a corpus-mined French role for each (so every pick has results). The
+# bundle (fr_related.json) is built offline by build_fr_related.py.
+
+_FR_WS = re.compile(r"\s+")
+
+
+def _fr_fold(s: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", s.lower())
+    base = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
+
+
+class FrRelatedSuggester:
+    def __init__(self, bundle_path: str | None = None):
+        path = bundle_path or os.path.join(HERE, "fr_related.json")
+        with open(path) as f:
+            b = json.load(f)
+        self.label2rome: dict[str, str] = b["label2rome"]
+        self.mobilite: dict[str, list[str]] = b["mobilite"]
+        self.rome_roles: dict[str, list[dict]] = b["rome_roles"]
+        self.dom2romes: dict[str, list[str]] = b["dom2romes"]
+        self.rome_weight: dict[str, int] = b["rome_weight"]
+        # head token of each corpus role -> {rome: count}: the empirical prior for
+        # disambiguating a bare query ("chauffeur") to the ROME we actually staff.
+        self.head_rome: dict[str, dict[str, int]] = {}
+        for rome, roles in self.rome_roles.items():
+            for d in roles:
+                toks = _fr_fold(d["text"]).split()
+                if toks:
+                    self.head_rome.setdefault(toks[0], {})[rome] = (
+                        self.head_rome.get(toks[0], {}).get(rome, 0) + d["n"]
+                    )
+
+    def _match(self, fq: str) -> str | None:
+        """Resolve one folded phrase to a ROME: exact appellation, else the
+        appellation(s) it heads, ranked by how much of that ROME we actually staff."""
+        if not fq:
+            return None
+        if fq in self.label2rome:
+            return self.label2rome[fq]
+        cands: dict[str, int] = {}
+        for k, rome in self.label2rome.items():
+            if k == fq or k.startswith(fq + " "):
+                cands[rome] = cands.get(rome, 0) + self.rome_weight.get(rome, 0)
+        if not cands:
+            return None
+        corpus = self.head_rome.get(fq.split()[0], {})
+        return max(cands, key=lambda r: (corpus.get(r, 0), self.rome_weight.get(r, 0), r))
+
+    def _resolve(self, query: str) -> str | None:
+        """Map a (possibly qualified) French query to a ROME, backing off trailing
+        words: 'infirmier de nuit' -> 'infirmier de' -> 'infirmier' -> J1506."""
+        toks = _fr_fold(query).split()
+        for j in range(len(toks), 0, -1):
+            rome = self._match(" ".join(toks[:j]))
+            if rome:
+                return rome
+        return None
+
+    def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
+        """Related French role searches for `query`: France-Travail-validated career
+        moves (mobilite), filled with same-domaine peers, each shown as a corpus-mined
+        role so it always returns results. Returns [{display, count}], best first."""
+        rome = self._resolve(query)
+        if not rome:
+            return []
+        qkey = _fr_fold(query)
+        targets = list(self.mobilite.get(rome, []))
+        for r in self.dom2romes.get(rome[:3], []):  # same-domaine fill
+            if r != rome and r not in targets:
+                targets.append(r)
+        out: list[dict] = []
+        seen = {qkey}
+        for t in targets:
+            for role in self.rome_roles.get(t, []):
+                rk = _fr_fold(role["text"])
+                # skip the query's own role and any sub/superstring of it (redundant)
+                if rk in seen or qkey in rk or rk in qkey:
+                    continue
+                seen.add(rk)
+                out.append({"display": role["text"], "phrase": role["text"], "count": role["n"]})
+                break
+            if len(out) >= k:
+                break
+        return out
