@@ -1576,7 +1576,11 @@ def main() -> int:
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
     ap.add_argument(
         "--adzuna-countries",
-        default="us",
+        # English-speaking countries + France: every locale the index already
+        # handles (English e5 + the French lang-gate/ROME related-lane). Other
+        # Adzuna locales (de/es/it/nl/pl/...) are omitted on purpose — no lang
+        # handling exists for them, so they'd contaminate an EN+FR-tuned index.
+        default="us,ca,gb,au,nz,in,sg,za,fr",
         help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
     )
     ap.add_argument(
