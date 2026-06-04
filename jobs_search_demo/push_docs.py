@@ -172,6 +172,25 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             flush=True,
         )
 
+    # ESCO-derived overrides for the non-English 'other' residual (open-weight, no
+    # LLM): each non-English title is matched to an ESCO occupation in its own
+    # language and the occupation's ISCO-08 code maps to a role_family (see
+    # classify_other_esco.py / isco_role_family.py). Separate file, regenerated each
+    # refresh. emb/llm win on the rare conflict (they're English; ESCO is fr/sv/de/
+    # nl/es/it -> effectively disjoint).
+    esco_path = os.path.join(os.path.dirname(__file__), "role_family_esco_overrides.json")
+    if os.path.exists(esco_path):
+        with open(esco_path) as sf:
+            esco_override = json.load(sf)
+        before = len(role_emb_override)
+        for k, v in esco_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(esco_override):,} ESCO role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
     # Outbound "view original posting" link. Recovered WITHOUT a re-crawl: the
     # OpenApply (greenhouse/lever/ashby) raw files on disk carry the authoritative
     # apply_url; everything else with a deterministic public-posting URL is

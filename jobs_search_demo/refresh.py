@@ -1157,6 +1157,31 @@ def stage_facets(args) -> None:
     print(f"[3] {len(new_slugs):,} new unlabeled slugs -> {byproduct}", flush=True)
 
     _rescue_other_via_embeddings(out, role_fams)
+    _rescue_other_via_esco(out, role_fams)
+
+
+def _rescue_other_via_esco(out: Path, role_fams: list[str]) -> None:
+    """Open-weight multilingual role_family labels for the non-English 'other'
+    residual (no LLM): each fr/sv/de/nl/es/it title is matched to an ESCO occupation
+    in its own language and the occupation's ISCO-08 code maps to a role_family (see
+    classify_other_esco / isco_role_family). Regenerated each refresh so new docs get
+    labeled; push_docs applies it (after emb/llm) only where the heuristic == 'other'.
+    Deterministic -> reproducible on an unchanged corpus."""
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    try:
+        from classify_other_esco import rescue
+    except Exception as e:  # never abort the refresh on a rescue import failure
+        print(f"[3] ESCO rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    preds = rescue(out / "metadata.jsonl", role_fams)
+    dest = ROOT / "jobs_search_demo" / "role_family_esco_overrides.json"
+    with open(dest, "w") as f:
+        json.dump(preds, f, indent=0, sort_keys=True, ensure_ascii=False)
+    print(
+        f"[3] ESCO rescue: {len(preds):,} non-English 'other' docs labeled -> {dest.name}",
+        flush=True,
+    )
 
 
 def _rescue_other_via_embeddings(out: Path, role_fams: list[str]) -> None:
