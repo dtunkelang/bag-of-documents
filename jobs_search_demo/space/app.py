@@ -3052,7 +3052,6 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 .related .rel-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .sug { background: var(--brand-tint); color: var(--brand-ink); border: 1px solid var(--brand-tint-bd); border-radius: var(--pill); padding: 5px 13px; font-size: 0.86em; cursor: pointer; transition: background .12s, transform .12s; }
 .sug:hover { background: #e2e7fb; transform: translateY(-1px); }
-.sug .sug-n { color: var(--brand); opacity: .7; font-size: 0.82em; margin-left: 4px; }
 #personalize-row { margin: 6px 0 14px; font-size: 0.88em; color: #4a5160; }
 #personalize-row label { cursor: pointer; }
 #personalize-row .pz-name { color: var(--muted); margin-left: 6px; }
@@ -3766,12 +3765,12 @@ function pivotToCompany(slug) {
 // Shared by query-context related searches AND profile-derived suggestions — they
 // never co-exist (a profile match overwrites this slot), so one renderer serves both.
 function renderRelated(label, items) {
-  // items: [{q, n}] — q is the search to run, n the result count shown on the chip.
+  // items: [{q}] — q is the search to run. We deliberately show no result counts
+  // anywhere in the demo (counts conflict with similarity retrieval).
   const el = document.getElementById('related');
   if (!items || !items.length) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="rel-h">${esc(label)}</div><div class="rel-chips">`
-    + items.map(s => `<span class="sug" data-q="${esc(s.q)}">${esc(s.q)}`
-        + `<span class="sug-n">${(s.n || 0).toLocaleString()}</span></span>`).join('')
+    + items.map(s => `<span class="sug" data-q="${esc(s.q)}">${esc(s.q)}</span>`).join('')
     + '</div>';
   el.querySelectorAll('.sug').forEach(c => c.addEventListener('click', () => {
     input.value = c.dataset.q;
