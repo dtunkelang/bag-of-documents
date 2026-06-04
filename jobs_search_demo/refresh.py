@@ -1632,6 +1632,7 @@ def stage_deploy(args) -> None:
     # lib into the image, so push the Dockerfile too (not just app.py).
     for fname in (
         "app.py",
+        "README.md",
         "snippet_lib.py",
         "resume_match_lib.py",
         "maps_svg.py",

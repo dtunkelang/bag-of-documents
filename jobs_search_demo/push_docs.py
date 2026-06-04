@@ -18,6 +18,10 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "space"))
 from snippet_lib import pack_vecs  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from build_apply_urls import load_oa_join  # noqa: E402
+from build_apply_urls import template as apply_url_template
+
 STAGE = os.environ.get("JOBS_STAGE", "/Users/dtunkelang/bagofdocs/unified_jobs")
 FACETS = os.environ.get(
     "JOBS_FACETS", "/Users/dtunkelang/bagofdocs/jobs_search_demo/facets/facets.jsonl"
@@ -168,6 +172,15 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             flush=True,
         )
 
+    # Outbound "view original posting" link. Recovered WITHOUT a re-crawl: the
+    # OpenApply (greenhouse/lever/ashby) raw files on disk carry the authoritative
+    # apply_url; everything else with a deterministic public-posting URL is
+    # reconstructed from the id (see build_apply_urls.py). A record that already
+    # carries its own apply_url (the forward path, once the fetchers capture it)
+    # wins over both. Tokenised/aggregator redirects (adzuna/jooble/...) stay blank.
+    oa_join = load_oa_join()
+    print(f"  loaded {len(oa_join):,} OpenApply apply_url join entries", flush=True)
+
     meta_path = os.path.join(STAGE, "metadata.jsonl")
     with open(meta_path) as mf:
         for i, line in enumerate(mf):
@@ -184,6 +197,10 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             doc_industry = _resolve_industry(
                 slug, slug_ind, fac.get("role_family") or "", title_display
             )
+            rec_id = str(rec.get("id") or "")
+            apply_url = (
+                rec.get("apply_url") or oa_join.get(rec_id) or apply_url_template(rec_id) or ""
+            )
             doc = {
                 "id": str(solr_ids[i]),
                 "title": titles[i],  # full title + description for BM25
@@ -199,6 +216,7 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
                 "source_corpus": sources[i],
                 "lang": rec.get("lang") or "en",
                 "description": rec.get("description") or "",
+                "apply_url": apply_url,
                 "e5_vec": dense[i].astype(np.float32).tolist(),
             }
             rows = snip_rows.get(str(i)) if snip_vecs is not None else None

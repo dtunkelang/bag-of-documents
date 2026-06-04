@@ -60,6 +60,7 @@ curl -sS -X POST -H 'Content-Type: application/json' \
     {"name": "posted_at",         "type": "string",       "indexed": false, "stored": true,  "multiValued": false},
     {"name": "source_corpus",     "type": "string",       "indexed": true,  "stored": true,  "multiValued": false},
     {"name": "description",       "type": "string",       "indexed": false, "stored": true,  "multiValued": false},
+    {"name": "apply_url",         "type": "string",       "indexed": false, "stored": true,  "multiValued": false},
     {"name": "e5_vec",           "type": "knn_vector_384",  "indexed": true, "stored": false, "multiValued": false},
     {"name": "snippet_vecs",      "type": "binary",         "indexed": false, "stored": true,  "multiValued": false}
   ]

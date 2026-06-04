@@ -1707,6 +1707,7 @@ _UI = {
         "failed_load": "(failed to load)",
         "filters_label": "Filters:",
         "more_like": "→ More jobs like this one",
+        "view_posting": "View original posting",
         "jobs_like": "Jobs like:",
         "clear_seed": "clear seed",
         "prev": "‹ Prev",
@@ -1755,6 +1756,7 @@ _UI = {
         "failed_load": "(échec du chargement)",
         "filters_label": "Filtres :",
         "more_like": "→ Plus d'offres comme celle-ci",
+        "view_posting": "Voir l'annonce d'origine",
         "jobs_like": "Offres comme :",
         "clear_seed": "effacer",
         "prev": "‹ Préc.",
@@ -1803,6 +1805,7 @@ _UI = {
         "failed_load": "(Laden fehlgeschlagen)",
         "filters_label": "Filter:",
         "more_like": "→ Mehr Jobs wie dieser",
+        "view_posting": "Originalanzeige ansehen",
         "jobs_like": "Jobs wie:",
         "clear_seed": "entfernen",
         "prev": "‹ Zurück",
@@ -1851,6 +1854,7 @@ _UI = {
         "failed_load": "(laden mislukt)",
         "filters_label": "Filters:",
         "more_like": "→ Meer vacatures zoals deze",
+        "view_posting": "Originele vacature bekijken",
         "jobs_like": "Vacatures zoals:",
         "clear_seed": "wissen",
         "prev": "‹ Vorige",
@@ -1899,6 +1903,7 @@ _UI = {
         "failed_load": "(error al cargar)",
         "filters_label": "Filtros:",
         "more_like": "→ Más ofertas como esta",
+        "view_posting": "Ver la oferta original",
         "jobs_like": "Ofertas como:",
         "clear_seed": "quitar",
         "prev": "‹ Ant.",
@@ -1947,6 +1952,7 @@ _UI = {
         "failed_load": "(kunde inte ladda)",
         "filters_label": "Filter:",
         "more_like": "→ Fler liknande jobb",
+        "view_posting": "Visa originalannonsen",
         "jobs_like": "Jobb som:",
         "clear_seed": "rensa",
         "prev": "‹ Föreg.",
@@ -1995,6 +2001,7 @@ _UI = {
         "failed_load": "(caricamento non riuscito)",
         "filters_label": "Filtri:",
         "more_like": "→ Altre offerte come questa",
+        "view_posting": "Vedi l'annuncio originale",
         "jobs_like": "Offerte come:",
         "clear_seed": "rimuovi",
         "prev": "‹ Prec.",
@@ -2895,6 +2902,8 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 .detail.loading { color: var(--muted); font-style: italic; }
 .mlt-pivot { margin-top: 10px; display: inline-block; font-size: 0.85em; font-weight: 600; color: var(--brand); cursor: pointer; }
 .mlt-pivot:hover { text-decoration: underline; }
+.view-posting { margin-top: 10px; margin-right: 16px; display: inline-block; font-size: 0.85em; font-weight: 600; color: var(--brand); text-decoration: none; }
+.view-posting:hover { text-decoration: underline; }
 .empty { color: var(--faint); padding: 36px; text-align: center; }
 .empty .clearlink { color: var(--brand); cursor: pointer; text-decoration: underline; }
 .timing { font-size: 0.8em; color: var(--faint); padding-top: 8px; }
@@ -3222,6 +3231,16 @@ async function toggleDetail(idx, container) {
     const data = await r.json();
     div.classList.remove('loading');
     div.textContent = data.description || t('no_description');
+    if (data.apply_url) {
+      const link = document.createElement('a');
+      link.className = 'view-posting';
+      link.href = data.apply_url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer nofollow';
+      link.textContent = t('view_posting') + ' ↗';
+      link.addEventListener('click', (e) => e.stopPropagation());  // don't collapse the detail
+      div.appendChild(link);
+    }
     const mlt = document.createElement('div');
     mlt.className = 'mlt-pivot';
     mlt.textContent = t('more_like');
@@ -4170,7 +4189,7 @@ def api_detail(idx: int = Query(...)):
         f"{SOLR}/solr/{CORE}/select",
         params={
             "q": f'id:"{idx}"',
-            "fl": "id,title_display,description,posted_at,department",
+            "fl": "id,title_display,description,posted_at,department,apply_url",
             "rows": 1,
         },
         timeout=10,
@@ -4187,6 +4206,7 @@ def api_detail(idx: int = Query(...)):
             "description": _clean_text(d.get("description") or ""),
             "posted_at": d.get("posted_at") or "",
             "department": d.get("department") or "",
+            "apply_url": d.get("apply_url") or "",
         }
     )
 
