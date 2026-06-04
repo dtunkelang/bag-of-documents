@@ -61,6 +61,9 @@ COPY nl_roles.json /opt/app/nl_roles.json
 # Grounded Dutch related-searches: ESCO occupation backbone + skill-overlap relatedness.
 COPY nl_related.json /opt/app/nl_related.json
 COPY es_related.json /opt/app/es_related.json
+COPY it_roles.json /opt/app/it_roles.json
+# Grounded Italian related-searches: ESCO occupation backbone + skill-overlap relatedness.
+COPY it_related.json /opt/app/it_related.json
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 

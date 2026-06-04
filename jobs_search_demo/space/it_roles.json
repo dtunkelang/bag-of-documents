@@ -1,0 +1,518 @@
+[
+{
+"text": "addetto",
+"n": 584
+},
+{
+"text": "impiegato",
+"n": 235
+},
+{
+"text": "sales assistant",
+"n": 189
+},
+{
+"text": "operaio",
+"n": 175
+},
+{
+"text": "magazziniere",
+"n": 124
+},
+{
+"text": "addetti",
+"n": 110
+},
+{
+"text": "addetta",
+"n": 85
+},
+{
+"text": "operatore",
+"n": 83
+},
+{
+"text": "tecnico",
+"n": 72
+},
+{
+"text": "receptionist",
+"n": 66
+},
+{
+"text": "segretaria",
+"n": 60
+},
+{
+"text": "impiegata",
+"n": 56
+},
+{
+"text": "autista",
+"n": 54
+},
+{
+"text": "manutentore",
+"n": 53
+},
+{
+"text": "agente",
+"n": 50
+},
+{
+"text": "cameriere",
+"n": 49
+},
+{
+"text": "consulente",
+"n": 40
+},
+{
+"text": "medico",
+"n": 39
+},
+{
+"text": "operai",
+"n": 36
+},
+{
+"text": "cuoco",
+"n": 34
+},
+{
+"text": "aiuto",
+"n": 26
+},
+{
+"text": "commesso",
+"n": 25
+},
+{
+"text": "sales assistant part time",
+"n": 25
+},
+{
+"text": "segretario",
+"n": 25
+},
+{
+"text": "segreteria",
+"n": 24
+},
+{
+"text": "contabile",
+"n": 24
+},
+{
+"text": "store manager",
+"n": 22
+},
+{
+"text": "elettricista",
+"n": 22
+},
+{
+"text": "meccanico",
+"n": 22
+},
+{
+"text": "barista",
+"n": 21
+},
+{
+"text": "promoter",
+"n": 21
+},
+{
+"text": "agenti",
+"n": 21
+},
+{
+"text": "operatori",
+"n": 19
+},
+{
+"text": "commerciale",
+"n": 19
+},
+{
+"text": "agente di commercio",
+"n": 18
+},
+{
+"text": "infermiere",
+"n": 18
+},
+{
+"text": "chef",
+"n": 17
+},
+{
+"text": "montatore",
+"n": 17
+},
+{
+"text": "magazziniere carrellista",
+"n": 16
+},
+{
+"text": "fotografi",
+"n": 16
+},
+{
+"text": "apprendista",
+"n": 16
+},
+{
+"text": "saldatore",
+"n": 15
+},
+{
+"text": "assistant manager",
+"n": 15
+},
+{
+"text": "disegnatore",
+"n": 15
+},
+{
+"text": "magazziniere part time",
+"n": 14
+},
+{
+"text": "impiegato amministrativo",
+"n": 14
+},
+{
+"text": "manutentore meccanico",
+"n": 14
+},
+{
+"text": "educatore",
+"n": 14
+},
+{
+"text": "addetto alle vendite",
+"n": 14
+},
+{
+"text": "direttore",
+"n": 14
+},
+{
+"text": "oss",
+"n": 13
+},
+{
+"text": "carrellista",
+"n": 13
+},
+{
+"text": "ingegnere",
+"n": 13
+},
+{
+"text": "cameriere di sala",
+"n": 12
+},
+{
+"text": "agenti di commercio",
+"n": 12
+},
+{
+"text": "operaio generico",
+"n": 12
+},
+{
+"text": "manutentore elettromeccanico",
+"n": 12
+},
+{
+"text": "venditore",
+"n": 12
+},
+{
+"text": "tornitore",
+"n": 12
+},
+{
+"text": "animatori",
+"n": 12
+},
+{
+"text": "tirocinante",
+"n": 12
+},
+{
+"text": "stagista",
+"n": 12
+},
+{
+"text": "perito",
+"n": 12
+},
+{
+"text": "operatore socio sanitario",
+"n": 11
+},
+{
+"text": "grafico",
+"n": 11
+},
+{
+"text": "aiuto cuoco",
+"n": 11
+},
+{
+"text": "specialista",
+"n": 10
+},
+{
+"text": "software engineer",
+"n": 10
+},
+{
+"text": "geometra",
+"n": 10
+},
+{
+"text": "prestigiatori",
+"n": 10
+},
+{
+"text": "progettista",
+"n": 10
+},
+{
+"text": "verniciatore",
+"n": 9
+},
+{
+"text": "back office commerciale",
+"n": 9
+},
+{
+"text": "addetto alle pulizie",
+"n": 9
+},
+{
+"text": "graphic designer",
+"n": 9
+},
+{
+"text": "cuoco capo partita",
+"n": 9
+},
+{
+"text": "autonoleggi",
+"n": 9
+},
+{
+"text": "coordinatore",
+"n": 9
+},
+{
+"text": "programmatore",
+"n": 9
+},
+{
+"text": "cameriera",
+"n": 9
+},
+{
+"text": "architetto",
+"n": 9
+},
+{
+"text": "camerieri",
+"n": 9
+},
+{
+"text": "idraulico",
+"n": 9
+},
+{
+"text": "operaio di produzione",
+"n": 8
+},
+{
+"text": "chef de rang",
+"n": 8
+},
+{
+"text": "impiegata amministrativa",
+"n": 8
+},
+{
+"text": "estetista",
+"n": 8
+},
+{
+"text": "lavapiatti",
+"n": 8
+},
+{
+"text": "scaffalista",
+"n": 8
+},
+{
+"text": "agenti di vendita",
+"n": 8
+},
+{
+"text": "consulente del credito",
+"n": 8
+},
+{
+"text": "fisioterapista",
+"n": 7
+},
+{
+"text": "pizzaiolo",
+"n": 7
+},
+{
+"text": "manutentore elettrico",
+"n": 7
+},
+{
+"text": "project manager",
+"n": 7
+},
+{
+"text": "montatore meccanico",
+"n": 7
+},
+{
+"text": "posatori di pavimenti",
+"n": 7
+},
+{
+"text": "técnico di laboratorio",
+"n": 6
+},
+{
+"text": "operatore cnc",
+"n": 6
+},
+{
+"text": "commessa",
+"n": 6
+},
+{
+"text": "customer service",
+"n": 6
+},
+{
+"text": "agente di vendita",
+"n": 6
+},
+{
+"text": "social media manager",
+"n": 6
+},
+{
+"text": "progettista meccanico",
+"n": 6
+},
+{
+"text": "floor manager",
+"n": 6
+},
+{
+"text": "quality assurance engineer",
+"n": 6
+},
+{
+"text": "hr generalist",
+"n": 6
+},
+{
+"text": "chef de partie",
+"n": 6
+},
+{
+"text": "responsabile di produzione",
+"n": 6
+},
+{
+"text": "magazziniere mulettista",
+"n": 6
+},
+{
+"text": "impiegato ufficio tecnico",
+"n": 6
+},
+{
+"text": "autista patente",
+"n": 6
+},
+{
+"text": "receptionist front office",
+"n": 5
+},
+{
+"text": "addetti alle pulizie",
+"n": 5
+},
+{
+"text": "segretaria amministrativa",
+"n": 5
+},
+{
+"text": "consulente commerciale",
+"n": 5
+},
+{
+"text": "help desk",
+"n": 5
+},
+{
+"text": "elettricista industriale",
+"n": 5
+},
+{
+"text": "aspp",
+"n": 5
+},
+{
+"text": "cassiere",
+"n": 5
+},
+{
+"text": "machine learning engineer",
+"n": 5
+},
+{
+"text": "tornitore cnc",
+"n": 5
+},
+{
+"text": "muratore",
+"n": 5
+},
+{
+"text": "contabile esperto",
+"n": 5
+},
+{
+"text": "toelettatori",
+"n": 5
+},
+{
+"text": "sales assistant part-time",
+"n": 5
+},
+{
+"text": "data analyst",
+"n": 5
+},
+{
+"text": "tecnico commerciale",
+"n": 5
+},
+{
+"text": "agente immobiliare",
+"n": 5
+}
+]

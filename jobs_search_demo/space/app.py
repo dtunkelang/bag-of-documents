@@ -229,6 +229,18 @@ def load_resources() -> None:
         sv_related = None
         print(f"  sv related unavailable: {e}", flush=True)
 
+    # Italian related searches via the ESCO occupation backbone (build_it_related.py) — same
+    # rationale and mechanism as German/Dutch/Spanish (e5 ranks Italian by morphology; ESCO
+    # has no mobilite graph so relatedness is skill-overlap based; ItRelatedSuggester).
+    try:
+        from suggest_lib import ItRelatedSuggester
+
+        it_related = ItRelatedSuggester()
+        print(f"  it related: {len(it_related.label2uri):,} ESCO query keys", flush=True)
+    except Exception as e:
+        it_related = None
+        print(f"  it related unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -313,8 +325,17 @@ def load_resources() -> None:
         with open(es_path) as f:
             es_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
         by_tag["es"] = sorted(dict.fromkeys(es_roles))
+    # Italian canonical roles mined from Adzuna Italy titles (mine_it_roles.py) -> a
+    # dedicated autocomplete tier, same rationale as French/Swedish/German/Dutch/Spanish: the
+    # English corpus carries no Italian, so without this an Italian prefix only hits English.
+    it_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "it_roles.json")
+    it_roles: list[str] = []
+    if os.path.exists(it_path):
+        with open(it_path) as f:
+            it_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["it"] = sorted(dict.fromkeys(it_roles))
     # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE + NL + ES
-    # roles): folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" ->
+    # + IT roles): folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" ->
     # "lärare".
     folded_pairs = sorted(
         (_fold(k), k)
@@ -324,6 +345,7 @@ def load_resources() -> None:
         | set(de_roles)
         | set(nl_roles)
         | set(es_roles)
+        | set(it_roles)
     )
     folded_keys = [p[0] for p in folded_pairs]
     # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
@@ -350,6 +372,7 @@ def load_resources() -> None:
             "nl_related": nl_related,
             "es_related": es_related,
             "sv_related": sv_related,
+            "it_related": it_related,
             # folded German role keys: lets the related-search router recognise a bare
             # German role ("techniker", "elektriker") that carries no lang-gate signal and
             # may not resolve in ESCO, so it's served by the German lane (empty if no move)
@@ -364,6 +387,9 @@ def load_resources() -> None:
             # folded Swedish role keys: same role for the Swedish lane (bare roles like
             # "snickare"/"elektriker" that carry no lang-gate signal).
             "sv_role_keys": {_fold(r) for r in sv_roles},
+            # folded Italian role keys: same role for the Italian lane (bare cognate roles
+            # like "cameriere"/"elettricista" that carry no lang-gate signal).
+            "it_role_keys": {_fold(r) for r in it_roles},
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
             "tier_folded": tier_folded,
@@ -375,6 +401,7 @@ def load_resources() -> None:
     print(f"  german roles: {len(de_roles)}", flush=True)
     print(f"  dutch roles: {len(nl_roles)}", flush=True)
     print(f"  spanish roles: {len(es_roles)}", flush=True)
+    print(f"  italian roles: {len(it_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -435,12 +462,13 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     only ~5% French docs (low harm), but a confidently-French query should be scoped
     to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
     only an unmistakably-French (or Swedish from JobTech, German from Adzuna DE, Dutch from
-    Adzuna NL, or Spanish from Adzuna ES) query flips the gate, so a short ambiguous query
-    never strands a user. We setdefault so an explicit user `lang` facet selection wins."""
+    Adzuna NL, Spanish from Adzuna ES, or Italian from Adzuna IT) query flips the gate, so a
+    short ambiguous query never strands a user. We setdefault so an explicit user `lang`
+    facet selection wins."""
     if not (query and query.strip()):
         return
     mode = query_lang_mode(query)
-    if mode in ("fr", "sv", "de", "nl", "es"):
+    if mode in ("fr", "sv", "de", "nl", "es", "it"):
         filters.setdefault("lang", mode)
 
 
@@ -2041,7 +2069,7 @@ const FACET_LABELS = {
   lang: 'Language',
 };
 const FACET_VALUE_LABELS = {
-  lang: { en: 'English', fr: 'French', sv: 'Swedish', de: 'German', nl: 'Dutch', es: 'Spanish' },
+  lang: { en: 'English', fr: 'French', sv: 'Swedish', de: 'German', nl: 'Dutch', es: 'Spanish', it: 'Italian' },
   posted_bucket: {
     past_24h: 'Past 24 hours',
     past_7d: 'Past 7 days',
@@ -2566,7 +2594,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tier_order = ("title", "fr", "sv", "de", "nl", "es", "combo", "head", "tail", "synth")
+    tier_order = ("title", "fr", "sv", "de", "nl", "es", "it", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
     # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
@@ -2623,6 +2651,35 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
     suggestion is a corpus-grounded role, so it always has results."""
     if not q.strip():
         return JSONResponse({"suggestions": []})
+    # High-confidence language routing (checked BEFORE the cognate _resolve chain below).
+    # Two unambiguous signals win immediately: (1) the lang gate fired for a specific
+    # language; (2) the query is a corpus-grounded role in EXACTLY ONE non-English lane.
+    # Without this, an Italian (or other) loanword that also resolves in an earlier Romance
+    # taxonomy gets hijacked: "pizzaiolo" resolves in French ROME, so the French branch
+    # claimed it and returned French neighbours. The unique-grounding check keeps a query
+    # that is a mined role in only one corpus in that corpus's lane, while a true cross-
+    # lane cognate (grounded in 2+) or a known English query falls through unchanged.
+    _LANES = [
+        ("fr", R.get("fr_related"), None),
+        ("de", R.get("de_related"), "de_role_keys"),
+        ("nl", R.get("nl_related"), "nl_role_keys"),
+        ("es", R.get("es_related"), "es_role_keys"),
+        ("sv", R.get("sv_related"), "sv_role_keys"),
+        ("it", R.get("it_related"), "it_role_keys"),
+    ]
+    _mode = query_lang_mode(q)
+    for _nm, _lane, _ in _LANES:
+        if _lane is not None and _mode == _nm:
+            return JSONResponse({"suggestions": _lane.suggest(q, k=k)})
+    _qf = _fold(q.strip().lower())
+    if q.strip().lower() not in R.get("query_key_set", set()):
+        _grounded = [
+            _lane
+            for _nm, _lane, _rk in _LANES
+            if _lane is not None and _rk and _qf in R.get(_rk, set())
+        ]
+        if len(_grounded) == 1:
+            return JSONResponse({"suggestions": _grounded[0].suggest(q, k=k)})
     fr = R.get("fr_related")
     # Route to the grounded ROME lane when the query is French. The e5-small-v2 suggester
     # clusters French by morphology, not meaning ("développeur" -> "educateur"), so French
@@ -2698,6 +2755,20 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
         )
         if is_swedish:
             return JSONResponse({"suggestions": sv.suggest(q, k=k)})
+    # Italian rides the same pattern on the ESCO backbone (ItRelatedSuggester): the gate, or
+    # a bare Italian cognate role ("cameriere", "elettricista") that resolves to a real ESCO
+    # occupation but isn't a known English query. As with the other ESCO lanes, once a query
+    # is judged Italian we serve the ESCO lane EVEN IF empty rather than falling through to
+    # the English e5 lane (morphology noise on Italian).
+    it = R.get("it_related")
+    if it is not None:
+        qstrip = q.strip().lower()
+        is_italian = query_lang_mode(q) == "it" or (
+            qstrip not in R.get("query_key_set", set())
+            and (_fold(qstrip) in R.get("it_role_keys", set()) or it._resolve(q) is not None)
+        )
+        if is_italian:
+            return JSONResponse({"suggestions": it.suggest(q, k=k)})
     # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
     en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []
@@ -2972,6 +3043,46 @@ def _close_parens(s: str) -> str:
 # variants ("chargé de recrutement") are unaffected.
 _FR_RESUME_STOP = {"charge"}
 
+# Coarse profile_field() bucket -> a friendlier scope noun for student suggestions when no
+# explicit major parsed ("tech internship" reads worse than "software internship"; "cs" here
+# means customer-success, not computer-science, so spell it out).
+_FIELD_SCOPE = {
+    "tech": "software",
+    "cs": "customer service",
+    "hr": "human resources",
+    "product": "product management",
+}
+
+
+def _study_role_form(scope: str) -> str:
+    """Turn a field-of-study noun into a role noun for the 'junior/graduate X' variants:
+    'mechanical engineering' -> 'mechanical engineer'. Other fields pass through (the caller
+    BM25-validates, so a non-role form that matches nothing is dropped)."""
+    return scope[:-3] if scope.endswith("engineering") else scope  # 'engineering' -> 'engineer'
+
+
+def _student_queries(major: str, field: str | None) -> list[str]:
+    """Internship + entry-level suggested searches for a student / recent grad, scoped to
+    the parsed major when available else the coarse profile field. Over-generates in
+    most-specific-first order (Title-cased for display alongside role-title suggestions); the
+    caller dedups, BM25-validates, and truncates, so 'Mechanical Engineering Internship'
+    survives while a field that surfaces no postings silently drops."""
+    out: list[str] = []
+    scope = major or _FIELD_SCOPE.get(field or "", field or "")
+    if scope:
+        s = scope.title()
+        role = _study_role_form(scope).title()
+        out += [
+            f"{s} Internship",
+            f"{s} Intern",
+            f"Entry Level {s}",
+            f"Junior {role}",
+            f"Graduate {role}",
+            s,
+        ]
+    out += ["Internship", "Entry Level"]  # field-agnostic fallback, always grounded
+    return out
+
 
 def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
     """Deterministic query suggestions from the parsed profile, validated against the
@@ -3002,6 +3113,12 @@ def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
             if len(cands) >= limit * 2:
                 break
     else:
+        # Student / recent-grad lane: a CV with little/no work history has no concrete role
+        # title to suggest from, so lead with internship + entry-level searches scoped to the
+        # field of study (parsed major, else coarse field). These are most-specific-first, so
+        # after BM25 validation they fill the slots ahead of any role-title fallback below.
+        if L.is_student(blob, r.get("degree"), r.get("years"), r.get("seniority")):
+            cands.extend(_student_queries(L.field_of_study(blob), r.get("field")))
         for t in L.role_titles(blob)[:3]:
             t = _close_parens(_TITLE_AT.sub("", t).strip(" -|,"))
             if t:

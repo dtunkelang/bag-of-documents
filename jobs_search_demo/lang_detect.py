@@ -30,7 +30,7 @@ from functools import lru_cache
 # French, JobTech (Arbetsförmedlingen) Swedish, Adzuna Germany German, and Adzuna
 # Netherlands Dutch; restricting the classifier to this set makes long doc text
 # resolve cleanly.
-GATE_LANGS = ("en", "fr", "sv", "de", "nl", "es")
+GATE_LANGS = ("en", "fr", "sv", "de", "nl", "es", "it")
 
 # Positive French signals for the query gate.
 _FR_DIACRITIC = re.compile(r"[àâäéèêëîïôöùûüÿçœæ]", re.I)
@@ -232,6 +232,65 @@ _ES_WORDS = frozenset(
 )
 
 
+# Positive Italian signals for the query gate. Italian has NO unique diacritic — its
+# accented vowels à/è/é/ì/ò/ù all occur in French (checked FIRST and guarded by classifier
+# agreement), so — exactly like Dutch — the signal is purely structural/function/role words
+# an English (or French/Spanish) job-title query won't carry. Shared short articles/preps
+# ("di", "in", "e", "la", "le", "un", "una", "con") are deliberately omitted — they collide
+# with French/Spanish and add no Italian-specific evidence. The words below ("lavoro",
+# "azienda", "cercasi", "assunzione", "tirocinio", "della", "presso", "addetto") are
+# unambiguously Italian. A bare Italian cognate role ("infermiere", "elettricista") carries
+# no signal and falls to 'en' — the safe direction, mirroring French/Dutch; the related-
+# search router recovers it via the ESCO resolver.
+_IT_WORDS = frozenset(
+    {
+        "della",
+        "delle",
+        "degli",
+        "dello",
+        "nella",
+        "nelle",
+        "sulla",
+        "presso",
+        "anche",
+        "oppure",
+        "nostra",
+        "nostro",
+        "per",
+        "lavoro",
+        "lavori",
+        "impiego",
+        "posizione",
+        "posizioni",
+        "mansione",
+        "mansioni",
+        "azienda",
+        "assunzione",
+        "tirocinio",
+        "apprendistato",
+        "stipendio",
+        "retribuzione",
+        "offresi",
+        "cercasi",
+        "cerchiamo",
+        "ricerca",
+        "ricerchiamo",
+        "selezioniamo",
+        "selezione",
+        "esperienza",
+        "automunito",
+        "richiesto",
+        "richiesta",
+        "addetto",
+        "addetta",
+        "addetti",
+        "indeterminato",
+        "determinato",
+        "turni",
+    }
+)
+
+
 @lru_cache(maxsize=1)
 def _identifier():
     from py3langid.langid import MODEL_FILE, LanguageIdentifier
@@ -293,6 +352,13 @@ def _has_es_signal(query: str) -> bool:
     return bool({t.lower() for t in _TOKEN.findall(query)} & _ES_WORDS)
 
 
+def _has_it_signal(query: str) -> bool:
+    """True if the query carries an unambiguous Italian signal (an Italian structural/
+    function/role word as a whole token). Italian has no unique diacritic, so this is
+    word-only (mirrors Dutch)."""
+    return bool({t.lower() for t in _TOKEN.findall(query)} & _IT_WORDS)
+
+
 def query_lang_mode(
     query: str,
     fr_floor: float = 0.90,
@@ -300,15 +366,17 @@ def query_lang_mode(
     de_floor: float = 0.90,
     nl_floor: float = 0.90,
     es_floor: float = 0.90,
+    it_floor: float = 0.90,
 ) -> str:
-    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'nl' | 'es' | 'en'): a non-
-    English mode only when the query carries that language's positive signal AND the
+    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'nl' | 'es' | 'it' | 'en'): a
+    non-English mode only when the query carries that language's positive signal AND the
     classifier confidently agrees (prob >= floor); else 'en'. High-precision by design (see
     module docstring) — short ambiguous/English queries stay 'en' so we never scope a user
     to the wrong-language inventory. French is checked first (highest-volume), then German,
-    then Swedish, then Dutch, then Spanish; the diacritic signals are disjoint (fr accents /
-    ü,ß / å / none for nl / ñ,á,í,ó,ú for es) so order only matters for shared-function-word
-    edge cases, which the classifier-agreement guard resolves anyway."""
+    then Swedish, then Dutch, then Spanish, then Italian; the diacritic signals are disjoint
+    (fr accents / ü,ß / å / none for nl / ñ,á,í,ó,ú for es / none for it) so order only
+    matters for shared-function-word edge cases, which the classifier-agreement guard
+    resolves anyway."""
     if not query or not query.strip():
         return "en"
     if _has_fr_signal(query):
@@ -331,4 +399,8 @@ def query_lang_mode(
         lang, prob = detect_lang(query)
         if lang == "es" and prob >= es_floor:
             return "es"
+    if _has_it_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "it" and prob >= it_floor:
+            return "it"
     return "en"

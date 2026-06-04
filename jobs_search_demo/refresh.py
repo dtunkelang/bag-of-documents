@@ -426,6 +426,7 @@ def stage_pull(args) -> None:
             "de": (args.adzuna_de_max_pages, args.adzuna_de_max_days_old),
             "nl": (args.adzuna_nl_max_pages, args.adzuna_nl_max_days_old),
             "es": (args.adzuna_es_max_pages, args.adzuna_es_max_days_old),
+            "it": (args.adzuna_it_max_pages, args.adzuna_it_max_days_old),
         }
         for loc, (mp, md) in deep_passes.items():
             if loc not in countryset:
@@ -1549,6 +1550,9 @@ def _regen_fr_suggestions(demo: Path) -> None:
         for the Dutch autocomplete tier.
       * space/nl_related.json (build_nl_related.py) — the grounded ESCO related-search
         lane, whose display labels must EXIST in the live corpus.
+      * space/it_roles.json   (mine_it_roles.py)   — Italian (Adzuna IT) role vocab
+      * space/it_related.json (build_it_related.py) — the grounded ESCO related-search
+        lane, whose display labels must EXIST in the live corpus.
     All read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
     stage-7 deploy uploads them. Non-fatal: a failure keeps the last-good bundle
     rather than aborting the index refresh. build_fr_related needs a one-time
@@ -1566,6 +1570,8 @@ def _regen_fr_suggestions(demo: Path) -> None:
         "build_nl_related.py",
         "mine_es_roles.py",
         "build_es_related.py",
+        "mine_it_roles.py",
+        "build_it_related.py",
     ):
         try:
             run([PY, script], cwd=demo)
@@ -1646,6 +1652,8 @@ def stage_deploy(args) -> None:
         "nl_related.json",
         "es_roles.json",
         "es_related.json",
+        "it_roles.json",
+        "it_related.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),
@@ -1707,12 +1715,12 @@ def main() -> int:
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
     ap.add_argument(
         "--adzuna-countries",
-        # English-speaking countries + France + Germany + Netherlands + Spain: every locale
-        # the index handles (English e5, the French lang-gate/ROME related-lane, and the
-        # German/Dutch/Spanish lang-gate/ESCO related-lanes). The remaining Adzuna locales
-        # (it/pl/...) are omitted on purpose — no lang handling exists for them yet, so
+        # English-speaking countries + France + Germany + Netherlands + Spain + Italy: every
+        # locale the index handles (English e5, the French lang-gate/ROME related-lane, and
+        # the German/Dutch/Spanish/Italian lang-gate/ESCO related-lanes). The remaining Adzuna
+        # locales (pl/...) are omitted on purpose — no lang handling exists for them yet, so
         # they'd contaminate the index.
-        default="us,ca,gb,au,nz,in,sg,za,fr,de,nl,es",
+        default="us,ca,gb,au,nz,in,sg,za,fr,de,nl,es,it",
         help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
     )
     ap.add_argument(
@@ -1746,6 +1754,14 @@ def main() -> int:
     )
     ap.add_argument(
         "--adzuna-es-max-days-old", type=int, default=14, help="extra es-only Adzuna pass: days"
+    )
+    # Italy gets the same dedicated deeper pass for the same reason (Adzuna is the SOLE
+    # Italian source, so the shared cap leaves the Italian ESCO related lane too thin).
+    ap.add_argument(
+        "--adzuna-it-max-pages", type=int, default=120, help="extra it-only Adzuna pass: pages"
+    )
+    ap.add_argument(
+        "--adzuna-it-max-days-old", type=int, default=14, help="extra it-only Adzuna pass: days"
     )
     # Additional public sources (cred-gated). Modest defaults keep nightly --delta
     # runs cheap; raise per source for a fuller backfill.

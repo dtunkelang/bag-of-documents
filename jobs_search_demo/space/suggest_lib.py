@@ -575,3 +575,87 @@ class SvRelatedSuggester:
             if len(out) >= k:
                 break
         return out
+
+
+# ===== Italian related searches — grounded in the ESCO occupation backbone =====
+# Italian rides the same backbone as German/Dutch/Spanish/Swedish: query --(ESCO Italian
+# label)--> occupation --(shared-skill relatedness)--> related occupations, each shown as a
+# corpus-mined Italian role (so every pick has results). The bundle (it_related.json) is
+# built offline by build_it_related.py and is self-contained.
+
+# Feminine Italian occupational suffix -> masculine, on an already-FOLDED string; a
+# resolution fallback only (see build_it_related.degender_it — kept in sync). '-trice' ->
+# '-tore' (direttrice->direttore) and '-iera' -> '-iere' (cameriera->cameriere) BEFORE the
+# general '-a' -> '-o' (cuoca->cuoco); invariant '-ista' nouns (barista) are left untouched.
+_IT_FEM = [("trice", "tore"), ("iera", "iere"), ("a", "o")]
+
+
+def _it_fold(s: str) -> str:
+    """Accent/punct-insensitive Italian key, kept in sync with esco_backbone.fold: plain
+    NFKD-fold + punct strip, so 'società'/'societa' and 'così'/'cosi' share a key with the
+    it_related.json label index (à/è/é/ì/ò/ù -> a/e/e/i/o/u)."""
+    nfkd = unicodedata.normalize("NFKD", s.lower())
+    base = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
+
+
+def degender_it(folded: str) -> str:
+    """Map feminine Italian occupational tokens to their masculine form on an already
+    accent-folded string, so a feminine surface matches the occupation label index.
+    Invariant '-ista' nouns (barista, farmacista, autista) are left untouched."""
+    out = []
+    for tok in folded.split():
+        if tok.endswith("ista"):
+            out.append(tok)
+            continue
+        for suf, rep in _IT_FEM:
+            if len(tok) >= len(suf) + 4 and tok.endswith(suf):
+                tok = tok[: -len(suf)] + rep
+                break
+        out.append(tok)
+    return " ".join(out)
+
+
+class ItRelatedSuggester:
+    def __init__(self, bundle_path: str | None = None):
+        path = bundle_path or os.path.join(HERE, "it_related.json")
+        with open(path) as f:
+            b = json.load(f)
+        self.label2uri: dict[str, str] = b["label2uri"]
+        self.uri_related: dict[str, list[str]] = b["uri_related"]
+        self.uri_roles: dict[str, list[dict]] = b["uri_roles"]
+
+    def _resolve(self, query: str) -> str | None:
+        """Map a (possibly qualified) Italian query to an ESCO occupation, backing off
+        trailing words ('addetto alle vendite' -> 'addetto'); retry on the degendered form
+        for feminine surfaces ('cuoca' -> 'cuoco', 'cameriera' -> 'cameriere')."""
+        toks = _it_fold(query).split()
+        for cand in (toks, degender_it(" ".join(toks)).split()):
+            for j in range(len(cand), 0, -1):
+                uri = self.label2uri.get(" ".join(cand[:j]))
+                if uri:
+                    return uri
+        return None
+
+    def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
+        """Related Italian role searches for `query`: ESCO skill-overlap occupational
+        neighbours, each shown as a corpus-mined Italian role so it always returns results.
+        Returns [{display, phrase, count}], best first."""
+        uri = self._resolve(query)
+        if not uri:
+            return []
+        qkey = _it_fold(query)
+        out: list[dict] = []
+        seen = {qkey}
+        for t in self.uri_related.get(uri, []):
+            for role in self.uri_roles.get(t, []):
+                rk = _it_fold(role["text"])
+                # skip the query's own role and any sub/superstring of it (redundant)
+                if rk in seen or qkey in rk or rk in qkey:
+                    continue
+                seen.add(rk)
+                out.append({"display": role["text"], "phrase": role["text"], "count": role["n"]})
+                break
+            if len(out) >= k:
+                break
+        return out

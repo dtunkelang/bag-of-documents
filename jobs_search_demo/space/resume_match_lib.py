@@ -297,6 +297,94 @@ _EDU_KW = re.compile(
     re.I,
 )
 
+# --- student / recent-grad detection + field-of-study extraction (for the entry-level
+# suggested-searches lane). A student CV often has no concrete role title to suggest from,
+# so suggestions are scoped to the major instead (BM25-validated downstream). ---
+
+# Explicit "still in / just out of school" cues beyond _ENTRY_RX (which already covers
+# aspiring / recent grad / undergraduate / entry-level / seeking). Deliberately avoids a
+# bare "student" token (collides with teachers' "taught N students"); requires a current-
+# enrolment or expected-graduation phrasing.
+_GRAD_EXPECTED_RX = re.compile(
+    r"\b(expected\s+graduat|anticipated\s+graduat|graduation\s*(date)?\s*[:\-]|"
+    r"class\s+of\s+20\d\d|candidate\s+for\s+(a\s+|an\s+)?(bachelor|master|ph\.?d|b\.?s\.?|"
+    r"m\.?s\.?|degree)|pursuing\s+(a\s+|an\s+|my\s+)?(bachelor|master|ph\.?d|degree|b\.?s\.?|"
+    r"m\.?s\.?|mba)|current(ly)?\s+(a\s+)?(student|enrolled)|student\s+at\s+)\b",
+    re.I,
+)
+
+
+def is_student(text, degree=None, years=None, seniority=None):
+    """True if the profile reads as a student / recent grad — ANY strong signal:
+      * an explicit cue (aspiring / recent grad / undergraduate / entry-level / seeking, via
+        _ENTRY_RX; or expected-graduation / currently-enrolled / 'class of 20XX', via
+        _GRAD_EXPECTED_RX) — fires on its own; OR
+      * an early-career TITLE (intern/junior is the most-senior role shown) alongside a
+        degree or education signal — i.e. a new grad whose only experience is an internship.
+    seniority defaults to MID when no level word appears, so a genuine mid/senior
+    professional who merely lists a bachelor's is NOT pulled in (only an intern/junior top
+    title qualifies). `years` is intentionally NOT gated on — it parses too noisily (a clear
+    9-year CV can come back unknown), which would over-flag experienced people. Broad but
+    precise; the caller still BM25-validates every suggestion it produces."""
+    t = text or ""
+    if _ENTRY_RX.search(t) or _GRAD_EXPECTED_RX.search(t):
+        return True
+    return bool(
+        seniority is not None and seniority <= 1 and ((degree or 0) >= 1 or _EDU_KW.search(t))
+    )
+
+
+# Degree-type filler words a capture can collapse to ("Bachelor of Science" with no field
+# named) — rejected so they never become the scope of a suggestion.
+_STUDY_STOP = {"science", "arts", "philosophy", "business", "studies", "the", "a", "an", "and"}
+# Trailing boilerplate to cut off a captured major ("Computer Science from MIT" -> "Computer
+# Science"; "Biology, GPA 3.8" -> "Biology"; "Marketing (2024)" -> "Marketing").
+_STUDY_CUT = re.compile(
+    r"\s*(?:,|\.|;|\(|\d|/|\bfrom\b|\bat\b|\bexpected\b|\bgpa\b|\bminor\b|\bwith\b|"
+    r"\buniversit|\bcollege\b|\binstitute\b|\bschool\b|\bclass of\b).*$",
+    re.I,
+)
+_MAJOR_PATTERNS = [
+    # "major in X" / "majoring in X" / "major: X"
+    re.compile(r"\bmajor(?:ing)?\s*(?:in|:)\s+([A-Za-z][A-Za-z& ]{2,40})", re.I),
+    # degree + (optional "of Science/Arts/...") + "in X": "B.S. in Mechanical Engineering",
+    # "Bachelor of Science in Computer Science", "Master's in Marketing", "degree in Biology"
+    re.compile(
+        r"\b(?:bachelor(?:'?s)?|master(?:'?s)?|b\.?s\.?|b\.?a\.?|bsc|b\.?eng|b\.?tech|"
+        r"m\.?s\.?|m\.?a\.?|msc|m\.?eng|ph\.?d|doctorate|degree|diploma)\b"
+        r"(?:\s+(?:of|degree)\s+(?:science|arts|engineering|philosophy|business))?"
+        r"[\s.,]*\bin\b\s+([A-Za-z][A-Za-z& ]{2,40})",
+        re.I,
+    ),
+    # loose fallback: degree token directly followed by a field ("BS Computer Science",
+    # "Bachelor of Computer Science"). Tried LAST so the precise "in X" forms win.
+    re.compile(
+        r"\b(?:bachelor|master|b\.?s\.?|b\.?a\.?|bsc|b\.?eng|m\.?s\.?|msc)\s+"
+        r"(?:of\s+)?([A-Za-z][A-Za-z& ]{2,40})",
+        re.I,
+    ),
+]
+
+
+def field_of_study(text):
+    """Best-effort major / field-of-study string from a resume's education ('B.S. in
+    Mechanical Engineering' -> 'mechanical engineering'), lowercased, or '' if none parses.
+    Used to scope student/recent-grad suggested searches; the caller BM25-validates each
+    query, so a noisy capture that matches no jobs is silently dropped. Precise 'in X' /
+    'major in X' patterns are tried before the loose degree-adjacent fallback."""
+    t = text or ""
+    for rx in _MAJOR_PATTERNS:
+        for m in rx.finditer(t):
+            cand = _STUDY_CUT.sub("", m.group(1))
+            cand = re.sub(r"\s+", " ", cand).strip(" -&").lower()
+            cand = re.sub(r"^(?:in|of|the)\s+", "", cand)  # loose-pattern leak: 'in biology'
+            if not (3 <= len(cand) <= 40) or not re.search(r"[a-z]", cand):
+                continue
+            if all(w in _STUDY_STOP for w in cand.split()):
+                continue
+            return cand
+    return ""
+
 
 def _looks_like_name(s):
     toks = s.split()
