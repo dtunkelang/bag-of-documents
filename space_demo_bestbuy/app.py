@@ -29,6 +29,9 @@ from sentence_transformers import SentenceTransformer
 # catalog encodings + the holdout JSONLs; the Space pulls them at startup.
 DATASET_REPO = "dtunkelang/bag-of-documents-bestbuy"
 BASE_MODEL = "all-MiniLM-L6-v2"
+# The BoD fine-tune is a standalone public model repo (loaded by name below); the dataset
+# repo still holds the catalog vectors + holdout JSONLs that aren't models.
+BOD_MODEL = "dtunkelang/bag-of-documents-bestbuy-minilm"
 
 
 def download_data():
@@ -43,7 +46,6 @@ def download_data():
             "holdout_qrels.jsonl",
             "base_catalog.vecs.fp16.npy",
             "bod_catalog.vecs.fp16.npy",
-            "query_model_bestbuy_bod/*",
         ],
     )
 
@@ -72,9 +74,7 @@ def load_resources(data_dir):
     print("  catalog vectors loaded (base + BoD)", flush=True)
 
     base_model = SentenceTransformer(BASE_MODEL, device=device)
-    bod_model = SentenceTransformer(
-        os.path.join(data_dir, "query_model_bestbuy_bod"), device=device
-    )
+    bod_model = SentenceTransformer(BOD_MODEL, device=device)
     print("  models loaded", flush=True)
 
     return {

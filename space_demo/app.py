@@ -29,6 +29,12 @@ from sentence_transformers import SentenceTransformer
 
 DATASET_REPO = "dtunkelang/bag-of-documents"
 BASE_MODEL_NAME = "all-MiniLM-L6-v2"
+# The BoD fine-tuned encoders are standalone public model repos (loaded by name below);
+# the dataset repo still holds the indexes/vectors/bags that aren't models.
+RETRIEVAL_MODEL = "dtunkelang/bag-of-documents-minilm"
+RERANK_A_MODEL = "dtunkelang/bag-of-documents-minilm-6m-mnrl"
+RERANK_B_MODEL = "dtunkelang/bag-of-documents-minilm-hardneg"
+RERANK_G_MODEL = "dtunkelang/bag-of-documents-minilm-esci-supervised"
 
 
 def download_data():
@@ -48,10 +54,6 @@ def download_data():
             "combined_index/bm25s_index/*",
             "combined_index/spell_vocab.json",
             "bags.jsonl",
-            "query_model/*",
-            "query_model_6m_mnrl/*",
-            "query_model_hardneg/*",
-            "query_model_esci_supervised/*",
         ],
     )
     print(f"  Downloaded to {local_dir}")
@@ -78,18 +80,17 @@ def load_resources(data_dir):
     base_model = SentenceTransformer(BASE_MODEL_NAME)
     print(f"  Base model: {BASE_MODEL_NAME}")
 
-    retrieval_model = SentenceTransformer(os.path.join(data_dir, "query_model"))
-    print("  Retrieval model: query_model")
+    retrieval_model = SentenceTransformer(RETRIEVAL_MODEL)
+    print(f"  Retrieval model: {RETRIEVAL_MODEL}")
 
-    rerank_a = SentenceTransformer(os.path.join(data_dir, "query_model_6m_mnrl"))
-    rerank_b = SentenceTransformer(os.path.join(data_dir, "query_model_hardneg"))
+    rerank_a = SentenceTransformer(RERANK_A_MODEL)
+    rerank_b = SentenceTransformer(RERANK_B_MODEL)
     rerank_g = None
-    rerank_g_path = os.path.join(data_dir, "query_model_esci_supervised")
-    if os.path.isdir(rerank_g_path) and os.listdir(rerank_g_path):
-        rerank_g = SentenceTransformer(rerank_g_path)
+    try:
+        rerank_g = SentenceTransformer(RERANK_G_MODEL)
         print("  Rerankers: 6M MNRL + qrels-hardneg + ESCI-supervised")
-    else:
-        print("  Rerankers: 6M MNRL + qrels-hardneg (3-way mode unavailable)")
+    except Exception as e:
+        print(f"  Rerankers: 6M MNRL + qrels-hardneg (3-way mode unavailable: {e})")
 
     rerank_a_vecs = np.load(os.path.join(data_dir, "combined_index", "rerank_A.vecs.fp16.npy"))
     rerank_b_vecs = np.load(os.path.join(data_dir, "combined_index", "rerank_B.vecs.fp16.npy"))
