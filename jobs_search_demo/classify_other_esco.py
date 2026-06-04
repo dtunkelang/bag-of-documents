@@ -10,10 +10,13 @@ embeddings -- ESCO ships native labels in every EU language.
 
 Match gate (precision-first):
   1. exact: normalized title == a normalized ESCO label
-  2. contained: the longest ESCO label (>=MIN_LABEL_CHARS, whole-token) that is a
-     token-substring of the normalized title
-A label is only usable if every ISCO code it maps to agrees on the same
-role_family (ambiguous labels are dropped). Assign only when the family != other.
+  2. contained: the highest-coverage ESCO label that is a token-substring of the
+     title (must explain >= COV_MIN of the title's content tokens)
+  3. head-noun (short titles only): the title's content heads agree on one family
+     cluster -- catches bare professions ('Infirmier') that are the head of a
+     qualified ESCO label and never match by containment
+A label/head is only usable if its ISCO codes agree on a family (or a near-synonym
+cluster) past DOM_MIN; otherwise it is dropped. Assign only when the family != other.
 
 Writes role_family_esco_overrides.json {doc_id: role_family}. Designed to be
 called both as a CLI (--apply) and from the refresh stage.
@@ -41,6 +44,26 @@ LANGS = ("fr", "sv", "de", "nl", "es", "it")
 MIN_LABEL_CHARS = 5  # a 1-token label must be at least this long to substring-match
 COV_MIN = 0.5  # a contained label must cover >= this share of the title's content tokens
 DOM_MIN = 0.60  # a label mapping to >1 ISCO is kept only if one family wins this share
+MAX_HEAD_CONTENT = 3  # head-noun fallback only on short titles (a buried head in a long
+# noisy title mislabels, e.g. 'Jr Digital Advertising Specialist' -> manufacturing)
+
+# Near-synonym families: a label whose ISCO codes split *within* one of these
+# clusters shouldn't be dropped as "ambiguous" -- the members are interchangeable
+# enough for a facet that either is correct. Votes are pooled to the cluster for the
+# DOM_MIN gate, then the modal member of the winning cluster is assigned. Kept tiny
+# and conservative: only genuine synonyms (blue-collar trades; the two nursing tiers).
+# Splits across NON-synonym families (finance/ops, security/swe...) still drop.
+SYNONYM_CLUSTERS = [
+    frozenset({"manufacturing_production", "skilled_trades_construction"}),
+    frozenset({"healthcare_clinical", "healthcare_allied"}),
+]
+_CLUSTER_OF = {fam: i for i, cl in enumerate(SYNONYM_CLUSTERS) for fam in cl}
+
+
+def _canon(fam: str):
+    """Cluster key for the DOM_MIN vote (the family itself when not in a cluster)."""
+    return _CLUSTER_OF.get(fam, fam)
+
 
 # job-posting noise stripped before matching (gender tags, contract types, etc.)
 NOISE = re.compile(
@@ -199,11 +222,57 @@ def build_index(recs: list[dict]) -> dict[str, dict[str, str]]:
         m: dict[str, str] = {}
         for lab, c in raw[lg].items():
             tot = sum(c.values())
-            fam, n = c.most_common(1)[0]
-            if n / tot >= DOM_MIN:
-                m[lab] = fam
+            # pool votes to the cluster (near-synonyms count together), gate on the
+            # winning cluster's share, then assign the modal family within it.
+            cluster_votes: Counter = Counter()
+            for fam, w in c.items():
+                cluster_votes[_canon(fam)] += w
+            ck, cn = cluster_votes.most_common(1)[0]
+            if cn / tot >= DOM_MIN:
+                members = {fam: w for fam, w in c.items() if _canon(fam) == ck}
+                m[lab] = max(members, key=members.get)
         index[lg] = m
     return index
+
+
+def build_head_index(recs: list[dict]) -> dict[str, dict[str, str]]:
+    """{lang: {head_noun: role_family}} from the FIRST token of multi-token ESCO
+    labels. Catches bare-profession titles ('Infirmier') that are the head of a
+    qualified ESCO label ('infirmier responsable de soins generaux') and so never
+    match by containment. Same cluster-pooled DOM_MIN gate; STOPLABEL heads and
+    heads < MIN_LABEL_CHARS (too generic) are excluded -> ambiguous heads like
+    'directeur' resolve to nothing and drop."""
+    raw: dict[str, dict[str, Counter]] = {lg: defaultdict(Counter) for lg in LANGS}
+    for r in recs:
+        fam = role_family_for_isco(r.get("isco"))
+        if fam == "other":
+            continue
+        for lg in LANGS:
+            pl = (r.get("preferredLabel") or {}).get(lg)
+            alts = (r.get("altLabels") or {}).get(lg, []) or []
+            for lab, weight in [(pl, 2)] + [(a, 1) for a in alts]:
+                if not lab:
+                    continue
+                for v in label_variants(lab):
+                    toks = norm(v).split()
+                    if len(toks) >= 2:
+                        h = toks[0]
+                        if len(h) >= MIN_LABEL_CHARS and h not in STOPLABEL:
+                            raw[lg][h][fam] += weight
+    out: dict[str, dict[str, str]] = {}
+    for lg in LANGS:
+        m: dict[str, str] = {}
+        for h, c in raw[lg].items():
+            tot = sum(c.values())
+            cv: Counter = Counter()
+            for fam, w in c.items():
+                cv[_canon(fam)] += w
+            ck, cn = cv.most_common(1)[0]
+            if cn / tot >= DOM_MIN:
+                members = {fam: w for fam, w in c.items() if _canon(fam) == ck}
+                m[h] = max(members, key=members.get)
+        out[lg] = m
+    return out
 
 
 def build_token_index(index: dict[str, dict[str, str]]):
@@ -216,21 +285,21 @@ def build_token_index(index: dict[str, dict[str, str]]):
     return out
 
 
-def match(title_norm: str, lg: str, index, tok_index) -> str | None:
+def match(title_norm: str, lg: str, index, tok_index, head_index=None) -> str | None:
     if not title_norm:
         return None
     # 1. exact normalized match -> highest precision
     fam = index[lg].get(title_norm)
     if fam:
         return fam
-    # 2. contained label that explains >= COV_MIN of the title's content tokens.
-    # Content tokens exclude noise/wrapper words and pure numbers; coverage guards
-    # against generic words ("manager") matching inside an unrelated long title.
     content = [
         t
         for t in title_norm.split()
         if t not in NOISE_TOKENS and t not in WRAPPER_TOKENS and not t.isdigit()
     ]
+    # 2. contained label that explains >= COV_MIN of the title's content tokens.
+    # Content tokens exclude noise/wrapper words and pure numbers; coverage guards
+    # against generic words ("manager") matching inside an unrelated long title.
     n_content = len(content) or 1
     padded = f" {title_norm} "
     best_fam, best_cov = None, 0.0
@@ -246,6 +315,15 @@ def match(title_norm: str, lg: str, index, tok_index) -> str | None:
                 break  # full coverage, can't beat it
     if best_fam and best_cov >= COV_MIN:
         return best_fam
+    # 3. head-noun fallback for bare-profession titles ('Infirmier', 'Infirmier -
+    # Corse') that are the head of a qualified ESCO label and so never match above.
+    # Fires only when the title's content heads agree on a single cluster -- a
+    # conflict ('Ingenieur Commercial' -> manufacturing vs sales) drops, holding
+    # precision.
+    if head_index is not None and len(content) <= MAX_HEAD_CONTENT:
+        fams = [head_index[lg][t] for t in content if t in head_index[lg]]
+        if fams and len({_canon(f) for f in fams}) == 1:
+            return Counter(fams).most_common(1)[0][0]  # modal member of the agreed cluster
     return None
 
 
@@ -258,6 +336,7 @@ def rescue(metadata_path, heur_labels: list[str], recs: list[dict] | None = None
         recs = _load_jsonl(ESCO)
     index = build_index(recs)
     tok_index = build_token_index(index)
+    head_index = build_head_index(recs)
     out: dict[str, str] = {}
     with open(metadata_path) as f:
         for i, line in enumerate(f):
@@ -267,7 +346,7 @@ def rescue(metadata_path, heur_labels: list[str], recs: list[dict] | None = None
             lg = (r.get("lang") or "").strip()
             if lg not in LANGS:
                 continue
-            fam = match(norm(r.get("title") or ""), lg, index, tok_index)
+            fam = match(norm(r.get("title") or ""), lg, index, tok_index, head_index)
             if fam and fam != "other":
                 out[r["id"]] = fam
     return out
