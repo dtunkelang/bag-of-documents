@@ -1158,6 +1158,35 @@ def stage_facets(args) -> None:
 
     _rescue_other_via_embeddings(out, role_fams)
     _rescue_other_via_esco(out, role_fams)
+    _rescue_other_via_rome()
+
+
+def _rescue_other_via_rome() -> None:
+    """Authoritative role_family labels for France Travail jobs from their ROME
+    code (open-weight, no LLM): every FT offer carries a ROME 4.0 occupation code
+    assigned by France Travail (cached in jobs_data_francetravail/raw), mapped
+    straight to a role_family (see classify_other_rome / rome_role_family).
+    Regenerated each refresh so new FT crawls get labeled; push_docs applies it
+    BEFORE ESCO (authoritative source code beats the lexical title-match) and only
+    where the heuristic == 'other'. Deterministic -> reproducible."""
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    try:
+        from classify_other_rome import build
+    except Exception as e:  # never abort the refresh on a rescue import failure
+        print(f"[3] ROME rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    raw_dir = ROOT / "jobs_data_francetravail" / "raw"
+    dest = ROOT / "jobs_search_demo" / "role_family_rome_overrides.json"
+    try:
+        preds = build(str(raw_dir), str(dest))
+    except Exception as e:  # missing parquet / pandas -> skip, keep prior file
+        print(f"[3] ROME rescue SKIPPED ({e})", flush=True)
+        return
+    print(
+        f"[3] ROME rescue: {len(preds):,} France Travail docs labeled -> {dest.name}",
+        flush=True,
+    )
 
 
 def _rescue_other_via_esco(out: Path, role_fams: list[str]) -> None:

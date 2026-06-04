@@ -172,12 +172,31 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             flush=True,
         )
 
+    # ROME-derived overrides for France Travail jobs (open-weight, no LLM): every
+    # FT offer carries an authoritative ROME 4.0 occupation code assigned by
+    # France Travail; we map it straight to a role_family (see classify_other_rome.py
+    # / rome_role_family.py). Loaded BEFORE ESCO so the authoritative source code
+    # WINS over the lexical ESCO title-match on the (FR) overlap. emb/llm still win
+    # (they're English; ROME is FR -> effectively disjoint).
+    rome_path = os.path.join(os.path.dirname(__file__), "role_family_rome_overrides.json")
+    if os.path.exists(rome_path):
+        with open(rome_path) as rf:
+            rome_override = json.load(rf)
+        before = len(role_emb_override)
+        for k, v in rome_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(rome_override):,} ROME role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
     # ESCO-derived overrides for the non-English 'other' residual (open-weight, no
     # LLM): each non-English title is matched to an ESCO occupation in its own
     # language and the occupation's ISCO-08 code maps to a role_family (see
     # classify_other_esco.py / isco_role_family.py). Separate file, regenerated each
-    # refresh. emb/llm win on the rare conflict (they're English; ESCO is fr/sv/de/
-    # nl/es/it -> effectively disjoint).
+    # refresh. emb/llm/rome win on the rare conflict (emb/llm are English; ROME is
+    # the authoritative FT code -> ESCO is the lexical fallback).
     esco_path = os.path.join(os.path.dirname(__file__), "role_family_esco_overrides.json")
     if os.path.exists(esco_path):
         with open(esco_path) as sf:
