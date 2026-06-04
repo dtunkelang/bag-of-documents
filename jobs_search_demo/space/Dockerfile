@@ -54,6 +54,10 @@ COPY sv_roles.json /opt/app/sv_roles.json
 COPY de_roles.json /opt/app/de_roles.json
 # Grounded German related-searches: ESCO occupation backbone + skill-overlap relatedness.
 COPY de_related.json /opt/app/de_related.json
+# Dutch canonical roles (Adzuna NL) for the Dutch autocomplete tier.
+COPY nl_roles.json /opt/app/nl_roles.json
+# Grounded Dutch related-searches: ESCO occupation backbone + skill-overlap relatedness.
+COPY nl_related.json /opt/app/nl_related.json
 COPY entrypoint.sh /opt/app/entrypoint.sh
 RUN chmod +x /opt/app/entrypoint.sh
 

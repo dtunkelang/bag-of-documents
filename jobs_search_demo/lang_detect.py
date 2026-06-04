@@ -27,9 +27,10 @@ import re
 from functools import lru_cache
 
 # Languages we gate on. The index is overwhelmingly English plus France Travail
-# French, JobTech (Arbetsförmedlingen) Swedish, and Adzuna Germany German;
-# restricting the classifier to this set makes long doc text resolve cleanly.
-GATE_LANGS = ("en", "fr", "sv", "de")
+# French, JobTech (Arbetsförmedlingen) Swedish, Adzuna Germany German, and Adzuna
+# Netherlands Dutch; restricting the classifier to this set makes long doc text
+# resolve cleanly.
+GATE_LANGS = ("en", "fr", "sv", "de", "nl")
 
 # Positive French signals for the query gate.
 _FR_DIACRITIC = re.compile(r"[àâäéèêëîïôöùûüÿçœæ]", re.I)
@@ -145,6 +146,46 @@ _DE_WORDS = frozenset(
     }
 )
 
+# Positive Dutch signals for the query gate. Dutch has no diacritic of its own (ë/ï are
+# shared with French, which is checked FIRST and guarded by classifier agreement), so the
+# signal is purely structural/function/role words an English (or French/German) job-title
+# query won't carry. Shared short articles ("de", "en") are deliberately omitted — they
+# collide with French and add no Dutch-specific evidence; the words below ("vacature",
+# "gezocht", "een", "het", "medewerker") are unambiguously Dutch. A bare Dutch cognate role
+# ("verpleegkundige") carries no signal and falls to 'en' — the safe direction, mirroring
+# French ("comptable"); the related-search router recovers it via the ESCO resolver.
+_NL_WORDS = frozenset(
+    {
+        "een",
+        "het",
+        "van",
+        "voor",
+        "bij",
+        "met",
+        "naar",
+        "aan",
+        "uit",
+        "om",
+        "vacature",
+        "vacatures",
+        "baan",
+        "banen",
+        "werk",
+        "werken",
+        "gezocht",
+        "gevraagd",
+        "medewerker",
+        "medewerkster",
+        "ervaren",
+        "regio",
+        "deeltijd",
+        "voltijd",
+        "dienstverband",
+        "stage",
+        "zzp",
+    }
+)
+
 
 @lru_cache(maxsize=1)
 def _identifier():
@@ -191,16 +232,27 @@ def _has_de_signal(query: str) -> bool:
     return bool({t.lower() for t in _TOKEN.findall(query)} & _DE_WORDS)
 
 
+def _has_nl_signal(query: str) -> bool:
+    """True if the query carries an unambiguous Dutch signal (a Dutch structural/function/
+    role word as a whole token). Dutch has no unique diacritic, so this is word-only."""
+    return bool({t.lower() for t in _TOKEN.findall(query)} & _NL_WORDS)
+
+
 def query_lang_mode(
-    query: str, fr_floor: float = 0.90, sv_floor: float = 0.90, de_floor: float = 0.90
+    query: str,
+    fr_floor: float = 0.90,
+    sv_floor: float = 0.90,
+    de_floor: float = 0.90,
+    nl_floor: float = 0.90,
 ) -> str:
-    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'en'): a non-English mode
-    only when the query carries that language's positive signal AND the classifier confidently
-    agrees (prob >= floor); else 'en'. High-precision by design (see module docstring) —
-    short ambiguous/English queries stay 'en' so we never scope a user to the wrong-language
-    inventory. French is checked first (highest-volume), then German, then Swedish; the
-    diacritic signals are disjoint (fr accents / ü,ß / å) so the order only matters for the
-    shared-function-word edge cases, which the classifier-agreement guard resolves anyway."""
+    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'nl' | 'en'): a non-English
+    mode only when the query carries that language's positive signal AND the classifier
+    confidently agrees (prob >= floor); else 'en'. High-precision by design (see module
+    docstring) — short ambiguous/English queries stay 'en' so we never scope a user to the
+    wrong-language inventory. French is checked first (highest-volume), then German, then
+    Swedish, then Dutch; the diacritic signals are disjoint (fr accents / ü,ß / å / none for
+    nl) so order only matters for shared-function-word edge cases, which the classifier-
+    agreement guard resolves anyway."""
     if not query or not query.strip():
         return "en"
     if _has_fr_signal(query):
@@ -215,4 +267,8 @@ def query_lang_mode(
         lang, prob = detect_lang(query)
         if lang == "sv" and prob >= sv_floor:
             return "sv"
+    if _has_nl_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "nl" and prob >= nl_floor:
+            return "nl"
     return "en"

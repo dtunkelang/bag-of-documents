@@ -192,6 +192,18 @@ def load_resources() -> None:
         de_related = None
         print(f"  de related unavailable: {e}", flush=True)
 
+    # Dutch related searches via the ESCO occupation backbone (build_nl_related.py) — same
+    # rationale and mechanism as German (e5 ranks Dutch by morphology; ESCO has no mobilite
+    # graph so relatedness is skill-overlap based; suggest_lib.NlRelatedSuggester).
+    try:
+        from suggest_lib import NlRelatedSuggester
+
+        nl_related = NlRelatedSuggester()
+        print(f"  nl related: {len(nl_related.label2uri):,} ESCO query keys", flush=True)
+    except Exception as e:
+        nl_related = None
+        print(f"  nl related unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -258,10 +270,21 @@ def load_resources() -> None:
         with open(de_path) as f:
             de_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
         by_tag["de"] = sorted(dict.fromkeys(de_roles))
-    # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE roles):
-    # folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" -> "lärare".
+    # Dutch canonical roles mined from Adzuna Netherlands titles (mine_nl_roles.py) -> a
+    # dedicated autocomplete tier, same rationale as French/Swedish/German: the English
+    # corpus carries no Dutch, so without this a Dutch prefix only hits English keys.
+    nl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nl_roles.json")
+    nl_roles: list[str] = []
+    if os.path.exists(nl_path):
+        with open(nl_path) as f:
+            nl_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["nl"] = sorted(dict.fromkeys(nl_roles))
+    # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE + NL
+    # roles): folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" ->
+    # "lärare".
     folded_pairs = sorted(
-        (_fold(k), k) for k in set(sorted_keys) | set(fr_roles) | set(sv_roles) | set(de_roles)
+        (_fold(k), k)
+        for k in set(sorted_keys) | set(fr_roles) | set(sv_roles) | set(de_roles) | set(nl_roles)
     )
     folded_keys = [p[0] for p in folded_pairs]
     # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
@@ -285,11 +308,15 @@ def load_resources() -> None:
             "role_suggester": role_suggester,
             "fr_related": fr_related,
             "de_related": de_related,
+            "nl_related": nl_related,
             # folded German role keys: lets the related-search router recognise a bare
             # German role ("techniker", "elektriker") that carries no lang-gate signal and
             # may not resolve in ESCO, so it's served by the German lane (empty if no move)
             # rather than the English e5 lane (morphology noise).
             "de_role_keys": {_fold(r) for r in de_roles},
+            # folded Dutch role keys: same role for the Dutch lane (bare cognate roles like
+            # "monteur"/"verpleegkundige" that carry no lang-gate signal).
+            "nl_role_keys": {_fold(r) for r in nl_roles},
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
             "tier_folded": tier_folded,
@@ -299,6 +326,7 @@ def load_resources() -> None:
     print(f"  french roles: {len(fr_roles)}", flush=True)
     print(f"  swedish roles: {len(sv_roles)}", flush=True)
     print(f"  german roles: {len(de_roles)}", flush=True)
+    print(f"  dutch roles: {len(nl_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -358,13 +386,13 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     (France Travail) under an English-only encoder; English queries already pick up
     only ~5% French docs (low harm), but a confidently-French query should be scoped
     to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
-    only an unmistakably-French (or Swedish from JobTech, or German from Adzuna DE) query
-    flips the gate, so a short ambiguous query never strands a user. We setdefault so an
-    explicit user `lang` facet selection wins."""
+    only an unmistakably-French (or Swedish from JobTech, German from Adzuna DE, or Dutch
+    from Adzuna NL) query flips the gate, so a short ambiguous query never strands a user.
+    We setdefault so an explicit user `lang` facet selection wins."""
     if not (query and query.strip()):
         return
     mode = query_lang_mode(query)
-    if mode in ("fr", "sv", "de"):
+    if mode in ("fr", "sv", "de", "nl"):
         filters.setdefault("lang", mode)
 
 
@@ -2439,7 +2467,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tier_order = ("title", "fr", "sv", "de", "combo", "head", "tail", "synth")
+    tier_order = ("title", "fr", "sv", "de", "nl", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
     # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
@@ -2528,6 +2556,20 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
         )
         if is_german:
             return JSONResponse({"suggestions": de.suggest(q, k=k)})
+    # Dutch rides the same pattern on the ESCO backbone (NlRelatedSuggester): the gate, or
+    # a bare Dutch cognate role ("monteur", "verpleegkundige") that resolves to a real ESCO
+    # occupation but isn't a known English query. As with German, once a query is judged
+    # Dutch we serve the ESCO lane EVEN IF empty rather than falling through to the English
+    # e5 lane (morphology noise on Dutch).
+    nl = R.get("nl_related")
+    if nl is not None:
+        qstrip = q.strip().lower()
+        is_dutch = query_lang_mode(q) == "nl" or (
+            qstrip not in R.get("query_key_set", set())
+            and (_fold(qstrip) in R.get("nl_role_keys", set()) or nl._resolve(q) is not None)
+        )
+        if is_dutch:
+            return JSONResponse({"suggestions": nl.suggest(q, k=k)})
     # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
     en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []

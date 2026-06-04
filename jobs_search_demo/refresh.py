@@ -416,31 +416,39 @@ def stage_pull(args) -> None:
                 str(args.adzuna_max_days_old),
             ]
         )
-        # Deeper de-only pass: fetch into a temp dir, then copy its parquet(s) into the
-        # raw dir under a distinct name so the single prep below reads both passes (prep
-        # dedupes the ~1k de overlap from the multi-country fetch). Only when 'de' is in
-        # the country set. EN/FR/others keep the shared shallow cap.
-        if "de" in (c.strip().lower() for c in args.adzuna_countries.split(",")):
-            de_tmp = adz_dir / "_raw_de"
-            if de_tmp.exists():
-                shutil.rmtree(de_tmp)
+        # Deeper single-locale passes: fetch into a temp dir, then copy its parquet(s) into
+        # the raw dir under a distinct name so the single prep below reads both passes (prep
+        # dedupes the overlap from the multi-country fetch). Only for sole-source EU locales
+        # (Adzuna is the ONLY source for de/nl, so the shared shallow cap leaves their lanes
+        # too thin — ~1k docs -> a near-empty ESCO related lane). EN/FR/others keep the cap.
+        countryset = {c.strip().lower() for c in args.adzuna_countries.split(",")}
+        deep_passes = {
+            "de": (args.adzuna_de_max_pages, args.adzuna_de_max_days_old),
+            "nl": (args.adzuna_nl_max_pages, args.adzuna_nl_max_days_old),
+        }
+        for loc, (mp, md) in deep_passes.items():
+            if loc not in countryset:
+                continue
+            loc_tmp = adz_dir / f"_raw_{loc}"
+            if loc_tmp.exists():
+                shutil.rmtree(loc_tmp)
             run(
                 [
                     PY,
                     "download/fetch_adzuna.py",
                     "--out-dir",
-                    de_tmp,
+                    loc_tmp,
                     "--countries",
-                    "de",
+                    loc,
                     "--max-pages",
-                    str(args.adzuna_de_max_pages),
+                    str(mp),
                     "--max-days-old",
-                    str(args.adzuna_de_max_days_old),
+                    str(md),
                 ]
             )
-            for i, p in enumerate(sorted(de_tmp.glob("*.parquet"))):
-                shutil.copy2(p, adz_raw / f"adzuna-de-{i:04d}.parquet")
-            shutil.rmtree(de_tmp)
+            for i, p in enumerate(sorted(loc_tmp.glob("*.parquet"))):
+                shutil.copy2(p, adz_raw / f"adzuna-{loc}-{i:04d}.parquet")
+            shutil.rmtree(loc_tmp)
         run(
             [
                 PY,
@@ -1533,18 +1541,24 @@ def _regen_fr_suggestions(demo: Path) -> None:
         for the German autocomplete tier.
       * space/de_related.json (build_de_related.py) — the grounded ESCO related-search
         lane, whose display labels must EXIST in the live corpus.
+      * space/nl_roles.json   (mine_nl_roles.py)   — Dutch (Adzuna NL) role vocab
+        for the Dutch autocomplete tier.
+      * space/nl_related.json (build_nl_related.py) — the grounded ESCO related-search
+        lane, whose display labels must EXIST in the live corpus.
     All read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
     stage-7 deploy uploads them. Non-fatal: a failure keeps the last-good bundle
     rather than aborting the index refresh. build_fr_related needs a one-time
-    ROME open-data download (cached at .rome_opendata.zip); build_de_related reads the
-    harvested ESCO backbone (.esco_records.jsonl); the miners write cwd-relative paths,
-    hence cwd=demo for all."""
+    ROME open-data download (cached at .rome_opendata.zip); build_de_related/build_nl_related
+    read the harvested ESCO backbone (.esco_records.jsonl); the miners write cwd-relative
+    paths, hence cwd=demo for all."""
     for script in (
         "mine_fr_roles.py",
         "build_fr_related.py",
         "mine_sv_roles.py",
         "mine_de_roles.py",
         "build_de_related.py",
+        "mine_nl_roles.py",
+        "build_nl_related.py",
     ):
         try:
             run([PY, script], cwd=demo)
@@ -1620,6 +1634,8 @@ def stage_deploy(args) -> None:
         "sv_roles.json",
         "de_roles.json",
         "de_related.json",
+        "nl_roles.json",
+        "nl_related.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),
@@ -1681,12 +1697,12 @@ def main() -> int:
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
     ap.add_argument(
         "--adzuna-countries",
-        # English-speaking countries + France + Germany: every locale the index
-        # handles (English e5, the French lang-gate/ROME related-lane, and the German
-        # lang-gate/ESCO related-lane). The remaining Adzuna locales (es/it/nl/pl/...)
-        # are omitted on purpose — no lang handling exists for them yet, so they'd
-        # contaminate the index.
-        default="us,ca,gb,au,nz,in,sg,za,fr,de",
+        # English-speaking countries + France + Germany + Netherlands: every locale the
+        # index handles (English e5, the French lang-gate/ROME related-lane, and the
+        # German/Dutch lang-gate/ESCO related-lanes). The remaining Adzuna locales
+        # (es/it/pl/...) are omitted on purpose — no lang handling exists for them yet,
+        # so they'd contaminate the index.
+        default="us,ca,gb,au,nz,in,sg,za,fr,de,nl",
         help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
     )
     ap.add_argument(
@@ -1704,6 +1720,14 @@ def main() -> int:
     )
     ap.add_argument(
         "--adzuna-de-max-days-old", type=int, default=14, help="extra de-only Adzuna pass: days"
+    )
+    # Netherlands gets the same dedicated deeper pass for the same reason (Adzuna is the
+    # SOLE Dutch source, so the shared cap leaves the Dutch ESCO related lane too thin).
+    ap.add_argument(
+        "--adzuna-nl-max-pages", type=int, default=120, help="extra nl-only Adzuna pass: pages"
+    )
+    ap.add_argument(
+        "--adzuna-nl-max-days-old", type=int, default=14, help="extra nl-only Adzuna pass: days"
     )
     # Additional public sources (cred-gated). Modest defaults keep nightly --delta
     # runs cheap; raise per source for a fuller backfill.
