@@ -425,6 +425,7 @@ def stage_pull(args) -> None:
         deep_passes = {
             "de": (args.adzuna_de_max_pages, args.adzuna_de_max_days_old),
             "nl": (args.adzuna_nl_max_pages, args.adzuna_nl_max_days_old),
+            "es": (args.adzuna_es_max_pages, args.adzuna_es_max_days_old),
         }
         for loc, (mp, md) in deep_passes.items():
             if loc not in countryset:
@@ -1536,11 +1537,14 @@ def _regen_fr_suggestions(demo: Path) -> None:
       * space/fr_related.json (build_fr_related.py) — the grounded ROME
         related-search lane, whose display labels must EXIST in the live corpus.
       * space/sv_roles.json   (mine_sv_roles.py)   — Swedish (JobTech) role vocab
+      * space/sv_related.json (build_sv_related.py) — the grounded ESCO related-search
         for the Swedish autocomplete tier.
       * space/de_roles.json   (mine_de_roles.py)   — German (Adzuna DE) role vocab
         for the German autocomplete tier.
       * space/de_related.json (build_de_related.py) — the grounded ESCO related-search
         lane, whose display labels must EXIST in the live corpus.
+      * space/es_roles.json   (mine_es_roles.py)   — Spanish (Adzuna ES) role vocab
+      * space/es_related.json (build_es_related.py) — the grounded ESCO related-search
       * space/nl_roles.json   (mine_nl_roles.py)   — Dutch (Adzuna NL) role vocab
         for the Dutch autocomplete tier.
       * space/nl_related.json (build_nl_related.py) — the grounded ESCO related-search
@@ -1555,10 +1559,13 @@ def _regen_fr_suggestions(demo: Path) -> None:
         "mine_fr_roles.py",
         "build_fr_related.py",
         "mine_sv_roles.py",
+        "build_sv_related.py",
         "mine_de_roles.py",
         "build_de_related.py",
         "mine_nl_roles.py",
         "build_nl_related.py",
+        "mine_es_roles.py",
+        "build_es_related.py",
     ):
         try:
             run([PY, script], cwd=demo)
@@ -1632,10 +1639,13 @@ def stage_deploy(args) -> None:
         "fr_roles.json",
         "fr_related.json",
         "sv_roles.json",
+        "sv_related.json",
         "de_roles.json",
         "de_related.json",
         "nl_roles.json",
         "nl_related.json",
+        "es_roles.json",
+        "es_related.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),
@@ -1697,12 +1707,12 @@ def main() -> int:
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
     ap.add_argument(
         "--adzuna-countries",
-        # English-speaking countries + France + Germany + Netherlands: every locale the
-        # index handles (English e5, the French lang-gate/ROME related-lane, and the
-        # German/Dutch lang-gate/ESCO related-lanes). The remaining Adzuna locales
-        # (es/it/pl/...) are omitted on purpose — no lang handling exists for them yet,
-        # so they'd contaminate the index.
-        default="us,ca,gb,au,nz,in,sg,za,fr,de,nl",
+        # English-speaking countries + France + Germany + Netherlands + Spain: every locale
+        # the index handles (English e5, the French lang-gate/ROME related-lane, and the
+        # German/Dutch/Spanish lang-gate/ESCO related-lanes). The remaining Adzuna locales
+        # (it/pl/...) are omitted on purpose — no lang handling exists for them yet, so
+        # they'd contaminate the index.
+        default="us,ca,gb,au,nz,in,sg,za,fr,de,nl,es",
         help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
     )
     ap.add_argument(
@@ -1728,6 +1738,14 @@ def main() -> int:
     )
     ap.add_argument(
         "--adzuna-nl-max-days-old", type=int, default=14, help="extra nl-only Adzuna pass: days"
+    )
+    # Spain gets the same dedicated deeper pass for the same reason (Adzuna is the SOLE
+    # Spanish source, so the shared cap leaves the Spanish ESCO related lane too thin).
+    ap.add_argument(
+        "--adzuna-es-max-pages", type=int, default=120, help="extra es-only Adzuna pass: pages"
+    )
+    ap.add_argument(
+        "--adzuna-es-max-days-old", type=int, default=14, help="extra es-only Adzuna pass: days"
     )
     # Additional public sources (cred-gated). Modest defaults keep nightly --delta
     # runs cheap; raise per source for a fuller backfill.

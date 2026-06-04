@@ -431,3 +431,147 @@ class NlRelatedSuggester:
             if len(out) >= k:
                 break
         return out
+
+
+# ===== Spanish related searches — grounded in the ESCO occupation backbone =====
+# Same problem as French/German/Dutch (e5 ranks Spanish by morphology, not meaning), and
+# Spanish has no national mobilite graph. This lane walks the ESCO occupation backbone:
+# query --(ESCO Spanish label)--> occupation --(shared-skill relatedness)--> related
+# occupations, each shown as a corpus-mined Spanish role (so every pick has results). The
+# bundle (es_related.json) is built offline by build_es_related.py and is self-contained.
+
+# Feminine Spanish occupational suffix -> masculine, on an already-FOLDED string; a
+# resolution fallback only (see build_es_related.degender_es — kept in sync). '-ora' -> '-or'
+# (programadora->programador) BEFORE the general '-a' -> '-o' (cocinera->cocinero); fires
+# only when the stem stays >=4 chars so short function words aren't mangled.
+_ES_FEM = [("ora", "or"), ("a", "o")]
+
+
+def _es_fold(s: str) -> str:
+    """Accent/punct-insensitive Spanish key, kept in sync with esco_backbone.fold (the
+    build-side folder): Spanish has no ß, so this is plain NFKD-fold + punct strip, and
+    'logística'/'logistica', 'español'/'espanol' share a key with the es_related.json label
+    index (ñ folds to n)."""
+    nfkd = unicodedata.normalize("NFKD", s.lower())
+    base = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
+
+
+def degender_es(folded: str) -> str:
+    """Map feminine Spanish occupational tokens to their masculine form on an already
+    accent-folded string, so a feminine surface matches the occupation label index."""
+    out = []
+    for tok in folded.split():
+        for suf, rep in _ES_FEM:
+            if len(tok) >= len(suf) + 4 and tok.endswith(suf):
+                tok = tok[: -len(suf)] + rep
+                break
+        out.append(tok)
+    return " ".join(out)
+
+
+class EsRelatedSuggester:
+    def __init__(self, bundle_path: str | None = None):
+        path = bundle_path or os.path.join(HERE, "es_related.json")
+        with open(path) as f:
+            b = json.load(f)
+        self.label2uri: dict[str, str] = b["label2uri"]
+        self.uri_related: dict[str, list[str]] = b["uri_related"]
+        self.uri_roles: dict[str, list[dict]] = b["uri_roles"]
+
+    def _resolve(self, query: str) -> str | None:
+        """Map a (possibly qualified) Spanish query to an ESCO occupation, backing off
+        trailing words ('camarero de pisos' -> 'camarero'); retry on the degendered form
+        for feminine surfaces ('cocinera' -> 'cocinero', 'programadora' -> 'programador')."""
+        toks = _es_fold(query).split()
+        for cand in (toks, degender_es(" ".join(toks)).split()):
+            for j in range(len(cand), 0, -1):
+                uri = self.label2uri.get(" ".join(cand[:j]))
+                if uri:
+                    return uri
+        return None
+
+    def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
+        """Related Spanish role searches for `query`: ESCO skill-overlap occupational
+        neighbours, each shown as a corpus-mined Spanish role so it always returns results.
+        Returns [{display, phrase, count}], best first."""
+        uri = self._resolve(query)
+        if not uri:
+            return []
+        qkey = _es_fold(query)
+        out: list[dict] = []
+        seen = {qkey}
+        for t in self.uri_related.get(uri, []):
+            for role in self.uri_roles.get(t, []):
+                rk = _es_fold(role["text"])
+                # skip the query's own role and any sub/superstring of it (redundant)
+                if rk in seen or qkey in rk or rk in qkey:
+                    continue
+                seen.add(rk)
+                out.append({"display": role["text"], "phrase": role["text"], "count": role["n"]})
+                break
+            if len(out) >= k:
+                break
+        return out
+
+
+# ===== Swedish related searches — grounded in the ESCO occupation backbone =====
+# Swedish autocomplete shipped earlier; related searches were deferred because SSYK has no
+# mobility graph. ESCO closes that gap (100% Swedish preferred-label coverage), so Swedish
+# rides the same backbone as German/Dutch/Spanish: query --(ESCO Swedish label)-->
+# occupation --(shared-skill relatedness)--> related occupations, each shown as a corpus-
+# mined Swedish role. NO degender step — Swedish occupational nouns are gender-neutral (the
+# historical '-ska'/'-inna' feminine is the standard term, not a strippable variant). The
+# bundle (sv_related.json) is built offline by build_sv_related.py and is self-contained.
+
+
+def _sv_fold(s: str) -> str:
+    """Accent/punct-insensitive Swedish key, kept in sync with esco_backbone.fold: plain
+    NFKD-fold + punct strip, so 'sjuksköterska'/'sjukskoterska' and 'säljare'/'saljare'
+    share a key with the sv_related.json label index (å/ä->a, ö->o)."""
+    nfkd = unicodedata.normalize("NFKD", s.lower())
+    base = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
+
+
+class SvRelatedSuggester:
+    def __init__(self, bundle_path: str | None = None):
+        path = bundle_path or os.path.join(HERE, "sv_related.json")
+        with open(path) as f:
+            b = json.load(f)
+        self.label2uri: dict[str, str] = b["label2uri"]
+        self.uri_related: dict[str, list[str]] = b["uri_related"]
+        self.uri_roles: dict[str, list[dict]] = b["uri_roles"]
+
+    def _resolve(self, query: str) -> str | None:
+        """Map a (possibly qualified) Swedish query to an ESCO occupation, backing off
+        trailing words ('snickare bygg' -> 'snickare')."""
+        toks = _sv_fold(query).split()
+        for j in range(len(toks), 0, -1):
+            uri = self.label2uri.get(" ".join(toks[:j]))
+            if uri:
+                return uri
+        return None
+
+    def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
+        """Related Swedish role searches for `query`: ESCO skill-overlap occupational
+        neighbours, each shown as a corpus-mined Swedish role so it always returns results.
+        Returns [{display, phrase, count}], best first."""
+        uri = self._resolve(query)
+        if not uri:
+            return []
+        qkey = _sv_fold(query)
+        out: list[dict] = []
+        seen = {qkey}
+        for t in self.uri_related.get(uri, []):
+            for role in self.uri_roles.get(t, []):
+                rk = _sv_fold(role["text"])
+                # skip the query's own role and any sub/superstring of it (redundant)
+                if rk in seen or qkey in rk or rk in qkey:
+                    continue
+                seen.add(rk)
+                out.append({"display": role["text"], "phrase": role["text"], "count": role["n"]})
+                break
+            if len(out) >= k:
+                break
+        return out

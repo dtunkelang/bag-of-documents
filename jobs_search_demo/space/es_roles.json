@@ -1,0 +1,590 @@
+[
+{
+"text": "analista",
+"n": 318
+},
+{
+"text": "técnico",
+"n": 253
+},
+{
+"text": "agente",
+"n": 214
+},
+{
+"text": "agente stone",
+"n": 161
+},
+{
+"text": "sales assistant",
+"n": 120
+},
+{
+"text": "canguro",
+"n": 119
+},
+{
+"text": "especialista",
+"n": 113
+},
+{
+"text": "vendedor",
+"n": 110
+},
+{
+"text": "consultor",
+"n": 110
+},
+{
+"text": "albañil",
+"n": 88
+},
+{
+"text": "operario",
+"n": 84
+},
+{
+"text": "conductor",
+"n": 70
+},
+{
+"text": "auxiliar",
+"n": 70
+},
+{
+"text": "contable",
+"n": 67
+},
+{
+"text": "executivo comercial hunter",
+"n": 66
+},
+{
+"text": "ingeniero",
+"n": 66
+},
+{
+"text": "stage sales assistant",
+"n": 65
+},
+{
+"text": "profesor",
+"n": 53
+},
+{
+"text": "limpiador",
+"n": 52
+},
+{
+"text": "gerente",
+"n": 48
+},
+{
+"text": "arquitecto",
+"n": 44
+},
+{
+"text": "administrativo",
+"n": 41
+},
+{
+"text": "mozo",
+"n": 39
+},
+{
+"text": "comercial",
+"n": 38
+},
+{
+"text": "asesor",
+"n": 36
+},
+{
+"text": "veterinario",
+"n": 35
+},
+{
+"text": "fisioterapeuta",
+"n": 34
+},
+{
+"text": "supervisor",
+"n": 34
+},
+{
+"text": "cocinero",
+"n": 33
+},
+{
+"text": "ayudante",
+"n": 33
+},
+{
+"text": "coordinador",
+"n": 32
+},
+{
+"text": "desarrollador",
+"n": 30
+},
+{
+"text": "abogado",
+"n": 30
+},
+{
+"text": "banco de talentos",
+"n": 29
+},
+{
+"text": "consultor comercial externo",
+"n": 28
+},
+{
+"text": "camarero",
+"n": 27
+},
+{
+"text": "instalador",
+"n": 26
+},
+{
+"text": "médico",
+"n": 26
+},
+{
+"text": "gestor",
+"n": 25
+},
+{
+"text": "sales assistant part time",
+"n": 25
+},
+{
+"text": "ejecutivo",
+"n": 25
+},
+{
+"text": "jardinero",
+"n": 24
+},
+{
+"text": "líder",
+"n": 23
+},
+{
+"text": "dependiente",
+"n": 22
+},
+{
+"text": "director",
+"n": 20
+},
+{
+"text": "cuidador",
+"n": 20
+},
+{
+"text": "podador",
+"n": 19
+},
+{
+"text": "repartidor",
+"n": 18
+},
+{
+"text": "carretillero",
+"n": 18
+},
+{
+"text": "psicólogo",
+"n": 18
+},
+{
+"text": "enfermero",
+"n": 17
+},
+{
+"text": "auxiliar administrativo",
+"n": 17
+},
+{
+"text": "técnicos",
+"n": 17
+},
+{
+"text": "recepcionista",
+"n": 17
+},
+{
+"text": "developer",
+"n": 17
+},
+{
+"text": "operador",
+"n": 16
+},
+{
+"text": "oficial",
+"n": 16
+},
+{
+"text": "agente de viajes",
+"n": 15
+},
+{
+"text": "inspector",
+"n": 15
+},
+{
+"text": "transportista",
+"n": 15
+},
+{
+"text": "peón",
+"n": 15
+},
+{
+"text": "magazziniere part time",
+"n": 14
+},
+{
+"text": "független értékesítő",
+"n": 14
+},
+{
+"text": "senior software engineer",
+"n": 14
+},
+{
+"text": "pintor",
+"n": 14
+},
+{
+"text": "montador",
+"n": 13
+},
+{
+"text": "administrador",
+"n": 13
+},
+{
+"text": "assistant manager",
+"n": 13
+},
+{
+"text": "empresa de de piscinas",
+"n": 12
+},
+{
+"text": "practicante",
+"n": 12
+},
+{
+"text": "store manager",
+"n": 12
+},
+{
+"text": "mecánico",
+"n": 12
+},
+{
+"text": "fontanero",
+"n": 12
+},
+{
+"text": "redactor",
+"n": 11
+},
+{
+"text": "gerocultor",
+"n": 11
+},
+{
+"text": "software engineer",
+"n": 11
+},
+{
+"text": "staff software engineer",
+"n": 11
+},
+{
+"text": "carpintero",
+"n": 11
+},
+{
+"text": "entrenador",
+"n": 11
+},
+{
+"text": "candidatura spontanea",
+"n": 11
+},
+{
+"text": "representante",
+"n": 11
+},
+{
+"text": "proveedor de maquinaria de alquiler",
+"n": 10
+},
+{
+"text": "vendedor externo",
+"n": 10
+},
+{
+"text": "electricista",
+"n": 10
+},
+{
+"text": "manitas a domicilio",
+"n": 10
+},
+{
+"text": "operarios",
+"n": 10
+},
+{
+"text": "delegado",
+"n": 10
+},
+{
+"text": "diseñador",
+"n": 10
+},
+{
+"text": "docente",
+"n": 10
+},
+{
+"text": "editor",
+"n": 10
+},
+{
+"text": "executivo comercial",
+"n": 9
+},
+{
+"text": "asistente",
+"n": 9
+},
+{
+"text": "pessoa executiva de vendas",
+"n": 9
+},
+{
+"text": "account executive",
+"n": 9
+},
+{
+"text": "candidatura espontânea",
+"n": 9
+},
+{
+"text": "devops",
+"n": 9
+},
+{
+"text": "pavimentos continuos",
+"n": 9
+},
+{
+"text": "programador",
+"n": 9
+},
+{
+"text": "jefe de obra",
+"n": 8
+},
+{
+"text": "instalador de toldos y pérgolas",
+"n": 8
+},
+{
+"text": "data engineer",
+"n": 8
+},
+{
+"text": "monitor",
+"n": 8
+},
+{
+"text": "conductores",
+"n": 8
+},
+{
+"text": "educador",
+"n": 7
+},
+{
+"text": "maquillador",
+"n": 7
+},
+{
+"text": "engenheiro de segurança do trabalho",
+"n": 7
+},
+{
+"text": "ayudante de camarero",
+"n": 7
+},
+{
+"text": "project manager",
+"n": 7
+},
+{
+"text": "mid level",
+"n": 7
+},
+{
+"text": "senior data engineer",
+"n": 7
+},
+{
+"text": "key account manager",
+"n": 7
+},
+{
+"text": "encargado",
+"n": 7
+},
+{
+"text": "agenti di vendita",
+"n": 7
+},
+{
+"text": "analista de negócios sênior",
+"n": 7
+},
+{
+"text": "cajero",
+"n": 6
+},
+{
+"text": "animador",
+"n": 6
+},
+{
+"text": "sales executive",
+"n": 6
+},
+{
+"text": "ayudante de cocina",
+"n": 6
+},
+{
+"text": "técnico de mantenimiento",
+"n": 6
+},
+{
+"text": "brand representative",
+"n": 6
+},
+{
+"text": "floor manager",
+"n": 6
+},
+{
+"text": "auxiliar de enfermería",
+"n": 6
+},
+{
+"text": "mozo de almacén",
+"n": 6
+},
+{
+"text": "sales representative",
+"n": 6
+},
+{
+"text": "product designer",
+"n": 6
+},
+{
+"text": "soldador",
+"n": 6
+},
+{
+"text": "engenheiro de planejamento",
+"n": 6
+},
+{
+"text": "adiestradores",
+"n": 6
+},
+{
+"text": "aislamiento acústico",
+"n": 6
+},
+{
+"text": "personal de limpieza",
+"n": 6
+},
+{
+"text": "engenheiro de operações",
+"n": 5
+},
+{
+"text": "ejecutivo regional de ventas",
+"n": 5
+},
+{
+"text": "senior fullstack developer",
+"n": 5
+},
+{
+"text": "business analyst",
+"n": 5
+},
+{
+"text": "instaladores",
+"n": 5
+},
+{
+"text": "product manager",
+"n": 5
+},
+{
+"text": "psicólogos",
+"n": 5
+},
+{
+"text": "assessoria de investimentos",
+"n": 5
+},
+{
+"text": "operador de veículos",
+"n": 5
+},
+{
+"text": "técnico em segurança do trabalho",
+"n": 5
+},
+{
+"text": "pracownik produkcji",
+"n": 5
+},
+{
+"text": "fontaneros",
+"n": 5
+},
+{
+"text": "business development representative",
+"n": 5
+},
+{
+"text": "editor de conteúdo",
+"n": 5
+},
+{
+"text": "asesor de ventas",
+"n": 5
+},
+{
+"text": "cocineros",
+"n": 5
+},
+{
+"text": "peluquero",
+"n": 5
+}
+]

@@ -204,6 +204,31 @@ def load_resources() -> None:
         nl_related = None
         print(f"  nl related unavailable: {e}", flush=True)
 
+    # Spanish related searches via the ESCO occupation backbone (build_es_related.py) — same
+    # rationale and mechanism as German/Dutch (e5 ranks Spanish by morphology; ESCO has no
+    # mobilite graph so relatedness is skill-overlap based; suggest_lib.EsRelatedSuggester).
+    try:
+        from suggest_lib import EsRelatedSuggester
+
+        es_related = EsRelatedSuggester()
+        print(f"  es related: {len(es_related.label2uri):,} ESCO query keys", flush=True)
+    except Exception as e:
+        es_related = None
+        print(f"  es related unavailable: {e}", flush=True)
+
+    # Swedish related searches via the ESCO occupation backbone (build_sv_related.py). Swedish
+    # autocomplete shipped earlier; related was deferred (SSYK has no mobility graph). ESCO has
+    # 100% Swedish labels, so it now rides the same skill-overlap lane as de/nl/es (no degender
+    # — Swedish occupational nouns are gender-neutral). suggest_lib.SvRelatedSuggester.
+    try:
+        from suggest_lib import SvRelatedSuggester
+
+        sv_related = SvRelatedSuggester()
+        print(f"  sv related: {len(sv_related.label2uri):,} ESCO query keys", flush=True)
+    except Exception as e:
+        sv_related = None
+        print(f"  sv related unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -279,12 +304,26 @@ def load_resources() -> None:
         with open(nl_path) as f:
             nl_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
         by_tag["nl"] = sorted(dict.fromkeys(nl_roles))
-    # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE + NL
+    # Spanish canonical roles mined from Adzuna Spain titles (mine_es_roles.py) -> a
+    # dedicated autocomplete tier, same rationale as French/Swedish/German/Dutch: the English
+    # corpus carries no Spanish, so without this a Spanish prefix only hits English keys.
+    es_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "es_roles.json")
+    es_roles: list[str] = []
+    if os.path.exists(es_path):
+        with open(es_path) as f:
+            es_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["es"] = sorted(dict.fromkeys(es_roles))
+    # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE + NL + ES
     # roles): folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" ->
     # "lärare".
     folded_pairs = sorted(
         (_fold(k), k)
-        for k in set(sorted_keys) | set(fr_roles) | set(sv_roles) | set(de_roles) | set(nl_roles)
+        for k in set(sorted_keys)
+        | set(fr_roles)
+        | set(sv_roles)
+        | set(de_roles)
+        | set(nl_roles)
+        | set(es_roles)
     )
     folded_keys = [p[0] for p in folded_pairs]
     # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
@@ -309,6 +348,8 @@ def load_resources() -> None:
             "fr_related": fr_related,
             "de_related": de_related,
             "nl_related": nl_related,
+            "es_related": es_related,
+            "sv_related": sv_related,
             # folded German role keys: lets the related-search router recognise a bare
             # German role ("techniker", "elektriker") that carries no lang-gate signal and
             # may not resolve in ESCO, so it's served by the German lane (empty if no move)
@@ -317,6 +358,12 @@ def load_resources() -> None:
             # folded Dutch role keys: same role for the Dutch lane (bare cognate roles like
             # "monteur"/"verpleegkundige" that carry no lang-gate signal).
             "nl_role_keys": {_fold(r) for r in nl_roles},
+            # folded Spanish role keys: same role for the Spanish lane (bare cognate roles
+            # like "camarero"/"electricista" that carry no lang-gate signal).
+            "es_role_keys": {_fold(r) for r in es_roles},
+            # folded Swedish role keys: same role for the Swedish lane (bare roles like
+            # "snickare"/"elektriker" that carry no lang-gate signal).
+            "sv_role_keys": {_fold(r) for r in sv_roles},
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
             "tier_folded": tier_folded,
@@ -327,6 +374,7 @@ def load_resources() -> None:
     print(f"  swedish roles: {len(sv_roles)}", flush=True)
     print(f"  german roles: {len(de_roles)}", flush=True)
     print(f"  dutch roles: {len(nl_roles)}", flush=True)
+    print(f"  spanish roles: {len(es_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -386,13 +434,13 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     (France Travail) under an English-only encoder; English queries already pick up
     only ~5% French docs (low harm), but a confidently-French query should be scoped
     to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
-    only an unmistakably-French (or Swedish from JobTech, German from Adzuna DE, or Dutch
-    from Adzuna NL) query flips the gate, so a short ambiguous query never strands a user.
-    We setdefault so an explicit user `lang` facet selection wins."""
+    only an unmistakably-French (or Swedish from JobTech, German from Adzuna DE, Dutch from
+    Adzuna NL, or Spanish from Adzuna ES) query flips the gate, so a short ambiguous query
+    never strands a user. We setdefault so an explicit user `lang` facet selection wins."""
     if not (query and query.strip()):
         return
     mode = query_lang_mode(query)
-    if mode in ("fr", "sv", "de", "nl"):
+    if mode in ("fr", "sv", "de", "nl", "es"):
         filters.setdefault("lang", mode)
 
 
@@ -1940,7 +1988,7 @@ const FACET_LABELS = {
   lang: 'Language',
 };
 const FACET_VALUE_LABELS = {
-  lang: { en: 'English', fr: 'French', sv: 'Swedish' },
+  lang: { en: 'English', fr: 'French', sv: 'Swedish', de: 'German', nl: 'Dutch', es: 'Spanish' },
   posted_bucket: {
     past_24h: 'Past 24 hours',
     past_7d: 'Past 7 days',
@@ -2467,7 +2515,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tier_order = ("title", "fr", "sv", "de", "nl", "combo", "head", "tail", "synth")
+    tier_order = ("title", "fr", "sv", "de", "nl", "es", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
     # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
@@ -2570,6 +2618,35 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
         )
         if is_dutch:
             return JSONResponse({"suggestions": nl.suggest(q, k=k)})
+    # Spanish rides the same pattern on the ESCO backbone (EsRelatedSuggester): the gate, or
+    # a bare Spanish cognate role ("camarero", "electricista") that resolves to a real ESCO
+    # occupation but isn't a known English query. As with German/Dutch, once a query is
+    # judged Spanish we serve the ESCO lane EVEN IF empty rather than falling through to the
+    # English e5 lane (morphology noise on Spanish).
+    es = R.get("es_related")
+    if es is not None:
+        qstrip = q.strip().lower()
+        is_spanish = query_lang_mode(q) == "es" or (
+            qstrip not in R.get("query_key_set", set())
+            and (_fold(qstrip) in R.get("es_role_keys", set()) or es._resolve(q) is not None)
+        )
+        if is_spanish:
+            return JSONResponse({"suggestions": es.suggest(q, k=k)})
+    # Swedish rides the same ESCO backbone (SvRelatedSuggester): the gate, or a bare Swedish
+    # role ("snickare", "undersköterska") that resolves to a real ESCO occupation but isn't a
+    # known English query. As with the other ESCO lanes, once a query is judged Swedish we
+    # serve the ESCO lane EVEN IF empty rather than falling through to the English e5 lane
+    # (morphology noise on Swedish). A shared cognate ("elektriker") is claimed by the German
+    # lane above by precedence, which is fine — German serves it from the same ESCO backbone.
+    sv = R.get("sv_related")
+    if sv is not None:
+        qstrip = q.strip().lower()
+        is_swedish = query_lang_mode(q) == "sv" or (
+            qstrip not in R.get("query_key_set", set())
+            and (_fold(qstrip) in R.get("sv_role_keys", set()) or sv._resolve(q) is not None)
+        )
+        if is_swedish:
+            return JSONResponse({"suggestions": sv.suggest(q, k=k)})
     # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
     en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []
@@ -2826,6 +2903,17 @@ _TITLE_AT = re.compile(
     r"\s+(?:at|@|[-|–—,]).*$", re.I
 )  # drop "Engineer at Google" / "Engineer | ..."
 _ASPIRATIONAL = re.compile(r"\b(aspiring|seeking|looking for|recent grad)", re.I)
+_DANGLING_PAREN = re.compile(r"\s*\([^()]*$")
+
+
+def _close_parens(s: str) -> str:
+    """Drop a dangling unclosed parenthetical so a personalized suggestion never shows as
+    'Applied Researcher (MTS'. _TITLE_AT cuts a title at the first comma/dash, which can
+    land INSIDE a parenthetical ('Applied Researcher (MTS, NLP)' -> '...(MTS'); PDF
+    extraction can also drop the ')'. Either way, strip the open '(...' tail."""
+    if s.count("(") > s.count(")"):
+        s = _DANGLING_PAREN.sub("", s)
+    return s.strip(" -|,")
 
 
 # Folded single-token French "roles" that recur inside common phrases and so produce
@@ -2864,7 +2952,7 @@ def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
                 break
     else:
         for t in L.role_titles(blob)[:3]:
-            t = _TITLE_AT.sub("", t).strip(" -|,")
+            t = _close_parens(_TITLE_AT.sub("", t).strip(" -|,"))
             if t:
                 cands.append(t)
                 broad = _SENIORITY_PREFIX.sub("", t).strip()
@@ -2877,7 +2965,7 @@ def _suggest_queries(blob: str, r: dict, limit: int = 6) -> list[dict]:
             and not _ASPIRATIONAL.search(hl)
             and not L._looks_like_name(hl)
         ):
-            cands.append(_TITLE_AT.sub("", hl).strip(" -|,"))
+            cands.append(_close_parens(_TITLE_AT.sub("", hl).strip(" -|,")))
     out: list[dict] = []
     seen: set[str] = set()
     for c in cands:

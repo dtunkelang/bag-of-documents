@@ -30,7 +30,7 @@ from functools import lru_cache
 # French, JobTech (Arbetsförmedlingen) Swedish, Adzuna Germany German, and Adzuna
 # Netherlands Dutch; restricting the classifier to this set makes long doc text
 # resolve cleanly.
-GATE_LANGS = ("en", "fr", "sv", "de", "nl")
+GATE_LANGS = ("en", "fr", "sv", "de", "nl", "es")
 
 # Positive French signals for the query gate.
 _FR_DIACRITIC = re.compile(r"[àâäéèêëîïôöùûüÿçœæ]", re.I)
@@ -71,7 +71,7 @@ _FR_WORDS = frozenset(
         "adjoint",
     }
 )
-_TOKEN = re.compile(r"[a-zàâäéèêëîïôöùûüÿçœæå]+", re.I)
+_TOKEN = re.compile(r"[a-zàâäéèêëîïôöùûüÿçœæåñáíóú]+", re.I)
 
 # Positive Swedish signals for the query gate. 'å' is uniquely Scandinavian; 'ä'/'ö'
 # are shared with (rare) French, but the gate checks French FIRST and the Swedish
@@ -186,6 +186,51 @@ _NL_WORDS = frozenset(
     }
 )
 
+# Positive Spanish signals for the query gate. 'ñ' is uniquely Spanish; the acute-accent
+# vowels 'á'/'í'/'ó'/'ú' do NOT occur in French (French uses é/è/ê/à/â/î/ô/û/ç — checked
+# FIRST), so they are Spanish-distinguishing here. 'é'/'ü' ARE shared with French and so
+# are deliberately NOT Spanish diacritic signals on their own (mirrors German excluding the
+# Swedish-shared ä/ö) — a Spanish 'é'-word ("médico") instead relies on the function/role
+# words below or falls to 'en', the safe direction. Shared short articles ("un"/"de"/"la")
+# are omitted — they collide with French and add no Spanish-specific evidence.
+_ES_DIACRITIC = re.compile(r"[ñáíóú]", re.I)
+_ES_WORDS = frozenset(
+    {
+        "empleo",
+        "empleos",
+        "trabajo",
+        "trabajos",
+        "vacante",
+        "vacantes",
+        "oferta",
+        "ofertas",
+        "puesto",
+        "puestos",
+        "busca",
+        "buscamos",
+        "buscando",
+        "solicita",
+        "solicitamos",
+        "requiere",
+        "requieren",
+        "necesita",
+        "necesitamos",
+        "contrato",
+        "jornada",
+        "experiencia",
+        "salario",
+        "sueldo",
+        "para",
+        "con",
+        "del",
+        "los",
+        "las",
+        "una",
+        "empresa",
+        "sector",
+    }
+)
+
 
 @lru_cache(maxsize=1)
 def _identifier():
@@ -238,21 +283,32 @@ def _has_nl_signal(query: str) -> bool:
     return bool({t.lower() for t in _TOKEN.findall(query)} & _NL_WORDS)
 
 
+def _has_es_signal(query: str) -> bool:
+    """True if the query carries an unambiguous Spanish signal (the Spanish-distinguishing
+    letters 'ñ'/'á'/'í'/'ó'/'ú' — none of which occur in French — or a Spanish structural/
+    role word as a whole token). 'é'/'ü' are deliberately NOT Spanish signals: they are
+    shared with French, which has its own branch checked first."""
+    if _ES_DIACRITIC.search(query):
+        return True
+    return bool({t.lower() for t in _TOKEN.findall(query)} & _ES_WORDS)
+
+
 def query_lang_mode(
     query: str,
     fr_floor: float = 0.90,
     sv_floor: float = 0.90,
     de_floor: float = 0.90,
     nl_floor: float = 0.90,
+    es_floor: float = 0.90,
 ) -> str:
-    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'nl' | 'en'): a non-English
-    mode only when the query carries that language's positive signal AND the classifier
-    confidently agrees (prob >= floor); else 'en'. High-precision by design (see module
-    docstring) — short ambiguous/English queries stay 'en' so we never scope a user to the
-    wrong-language inventory. French is checked first (highest-volume), then German, then
-    Swedish, then Dutch; the diacritic signals are disjoint (fr accents / ü,ß / å / none for
-    nl) so order only matters for shared-function-word edge cases, which the classifier-
-    agreement guard resolves anyway."""
+    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'nl' | 'es' | 'en'): a non-
+    English mode only when the query carries that language's positive signal AND the
+    classifier confidently agrees (prob >= floor); else 'en'. High-precision by design (see
+    module docstring) — short ambiguous/English queries stay 'en' so we never scope a user
+    to the wrong-language inventory. French is checked first (highest-volume), then German,
+    then Swedish, then Dutch, then Spanish; the diacritic signals are disjoint (fr accents /
+    ü,ß / å / none for nl / ñ,á,í,ó,ú for es) so order only matters for shared-function-word
+    edge cases, which the classifier-agreement guard resolves anyway."""
     if not query or not query.strip():
         return "en"
     if _has_fr_signal(query):
@@ -271,4 +327,8 @@ def query_lang_mode(
         lang, prob = detect_lang(query)
         if lang == "nl" and prob >= nl_floor:
             return "nl"
+    if _has_es_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "es" and prob >= es_floor:
+            return "es"
     return "en"
