@@ -1224,7 +1224,10 @@ def _browse_bq() -> list[str]:
 
 
 def _browse_topk(
-    k: int, filters: dict[str, str | list[str]] | None = None, pool: int | None = None
+    k: int,
+    filters: dict[str, str | list[str]] | None = None,
+    pool: int | None = None,
+    promote_lang: str | None = None,
 ) -> list[tuple[int, float]]:
     params: list[tuple[str, str]] = [
         ("defType", "edismax"),
@@ -1235,6 +1238,12 @@ def _browse_topk(
     ]
     for b in _browse_bq():
         params.append(("bq", b))
+    # Site-language personalization: an ADDITIVE boost (not a filter) so a blank browse
+    # floats same-language postings up without excluding the rest. Only non-English GATE
+    # languages promote — "en" is the default and the index is English-majority anyway.
+    if promote_lang in GATE_LANGS and promote_lang != "en":
+        lang_w = float(os.environ.get("BROWSE_LANG_W", "6.0"))
+        params.append(("bq", f"lang:{promote_lang}^{lang_w:g}"))
     for clause in _filter_clauses(filters or {}):
         params.append(("fq", clause))
     r = requests.get(f"{SOLR}/solr/{CORE}/select", params=params, timeout=10)
@@ -1243,14 +1252,18 @@ def _browse_topk(
 
 
 def browse_default(
-    k: int = 10, filters: dict[str, str | list[str]] | None = None, offset: int = 0
+    k: int = 10,
+    filters: dict[str, str | list[str]] | None = None,
+    offset: int = 0,
+    promote_lang: str | None = None,
 ) -> list[dict]:
     """Default browse: recent + low-barrier jobs, with facet filters applied.
-    `offset` paginates the same way as search_default."""
+    `offset` paginates the same way as search_default. `promote_lang` lightly
+    personalizes the blank browse toward the chosen site language (see _browse_topk)."""
     cap = 0 if (filters and filters.get("employer")) else EMPLOYER_CAP
     need = offset + k
     pool_k = max(need * (cap + 2), need + 20) if cap > 0 else need
-    items = _browse_topk(max(pool_k, 200), filters)
+    items = _browse_topk(max(pool_k, 200), filters, promote_lang=promote_lang)
     hyd = _hydrate([i for i, _ in items])
     # No query intent in a blank browse, so keep employer diversity (no dominance bypass).
     items = _cap_employers(items, hyd, need, filters, dominance_bypass=False)[offset : offset + k]
@@ -1475,6 +1488,7 @@ def _facet_pool(
     filters: dict[str, str | list[str]],
     pool: int,
     qv_profile: list[float] | None = None,
+    promote_lang: str | None = None,
 ) -> tuple[list[tuple[int, float]], dict[int, dict]]:
     """The employer-capped, ranked list we facet over — the SAME list the user pages
     through, so facet ordering reconciles with the visible results rather than being
@@ -1488,7 +1502,7 @@ def _facet_pool(
     elif qv_profile is not None:
         items = _topk_knn("e5_vec", qv_profile, pool, filters)
     else:
-        items = _browse_topk(pool, filters, pool)
+        items = _browse_topk(pool, filters, pool, promote_lang=promote_lang)
     hyd = _hydrate([i for i, _ in items], with_facets=True)
     # Facet over the SAME post-processed pool the user pages through: seeds get reprint
     # collapsing (no employer cap, to read as similarity), everything else gets the same
@@ -1557,6 +1571,7 @@ def compute_facets(
     filters: dict[str, str | list[str]] | None = None,
     pool: int = 200,
     qv_profile: list[float] | None = None,
+    promote_lang: str | None = None,
 ) -> dict[str, list[tuple[str, float]]]:
     """Facet value tallies over the top-`pool` results for a QSpec (typed query or seed
     job). Returns {field: [(value, w)]}. For multi-select usability, each
@@ -1566,12 +1581,14 @@ def compute_facets(
     (personalized blank browse), the pool is the profile-KNN set, so facets reflect the
     profile-ranked results, not the generic recency browse."""
     filters = filters or {}
-    out = _aggregate_facets(*_facet_pool(spec, filters, pool, qv_profile))
+    out = _aggregate_facets(*_facet_pool(spec, filters, pool, qv_profile, promote_lang))
     for f in list(filters):
         if not filters[f]:
             continue
         alt = {k: v for k, v in filters.items() if k != f}
-        out[f] = _aggregate_facets(*_facet_pool(spec, alt, pool, qv_profile)).get(f, out.get(f, []))
+        out[f] = _aggregate_facets(*_facet_pool(spec, alt, pool, qv_profile, promote_lang)).get(
+            f, out.get(f, [])
+        )
     # posted_bucket is a navigational time ladder, not a relevance read: on a blank
     # browse the recency boost (past_24h^8) makes the top-`pool` almost entirely
     # past_24h, so a pool-derived tally would offer that single option. Pull its full
@@ -1640,6 +1657,1174 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Jobs Search Demo", lifespan=lifespan)
 
 
+# ===== Site-language localization (chrome only) =====
+# Localizes the UI chrome — labels, buttons, placeholders, facet names/values — across the
+# seven supported languages WITHOUT translating job titles/descriptions (those stay in their
+# native language). Picking a language also lightly personalizes a BLANK browse by boosting
+# same-language postings (see _browse_topk promote_lang). Keyword search keeps the confident
+# query-language gate untouched. English (en) facet field/value labels are the JS-side
+# FACET_LABELS/FACET_VALUE_LABELS, so only non-English overrides live here; UI strings carry
+# an English entry too since they're otherwise inline HTML defaults.
+SITE_LANGS = ["en", "fr", "de", "nl", "es", "sv", "it"]
+SITE_LANG_NAMES = {
+    "en": "English",
+    "fr": "Français",
+    "de": "Deutsch",
+    "nl": "Nederlands",
+    "es": "Español",
+    "sv": "Svenska",
+    "it": "Italiano",
+}
+
+# {n} in tagline is the corpus size (interpolated client-side from CORPUS_N). {name} in
+# pz_using is the uploaded profile's name. \\n in own_text_ph is a literal line break.
+_UI = {
+    "en": {
+        "tagline": "Semantic + lexical search across {n} live job postings.",
+        "meta": "14 sources · RRF(BM25 + e5-small) · browse by default, refine with facets & maps, or match your own profile for personalized results",
+        "own_summary": "Find jobs for yourself — paste your profile, or upload a .txt / LinkedIn PDF",
+        "own_text_ph": "Paste your LinkedIn 'About' + experience, or any resume text…\n(LinkedIn URLs can't be fetched server-side, so paste or upload the PDF export: Profile → Resources → Save to PDF.)",
+        "own_loc_ph": "Your location (optional, e.g. 'Boston, MA' — improves location matching)",
+        "own_go": "Match my profile",
+        "own_need_input": "Paste some text or choose a .txt/.pdf file first.",
+        "own_matching": "matching…",
+        "own_failed_prefix": "failed: ",
+        "query_ph": "e.g. registered nurse",
+        "search_btn": "Search",
+        "pz_on": "Personalize results to my profile",
+        "pz_hard": "only jobs I qualify for (3-axis filter)",
+        "pz_using": "— using {name}'s profile",
+        "pz_using_your": "— using your profile",
+        "filters_btn": "Filters",
+        "loading_recent": "loading recent jobs…",
+        "searching": "searching…",
+        "personalizing": "personalizing to your profile…",
+        "matching_profile": "matching your profile…",
+        "no_results": "no results",
+        "no_facets": "no facets",
+        "loading": "loading…",
+        "no_description": "(no description)",
+        "failed_load": "(failed to load)",
+        "filters_label": "Filters:",
+        "more_like": "→ More jobs like this one",
+        "jobs_like": "Jobs like:",
+        "clear_seed": "clear seed",
+        "prev": "‹ Prev",
+        "next": "Next ›",
+        "related_searches": "Related searches",
+        "suggested_from_profile": "Suggested searches from your profile",
+        "served_with": "Served with:",
+        "map_us_title": "Filter by US state",
+        "map_country_title": "Filter by country",
+        "map_hint": "Click regions to toggle filters (multi-select OR) · shaded regions have results in the current view.",
+        "map_done": "Done",
+        "map_none": "none selected",
+        "map_selected": "selected:",
+        "map_link": "map",
+        "posted_prefix": "Posted ",
+        "hard_no_match": "no jobs match this query that you also qualify for — untick the 3-axis filter to see near-misses",
+        "filters_no_match_pre": "No jobs match these filters. ",
+        "clear_all_filters": "Clear all filters",
+        "filters_no_match_post": " to broaden your search.",
+    },
+    "fr": {
+        "tagline": "Recherche sémantique et lexicale parmi {n} offres d'emploi en ligne.",
+        "meta": "14 sources · RRF(BM25 + e5-small) · navigation par défaut, affinez avec les facettes et les cartes, ou faites correspondre votre profil pour des résultats personnalisés",
+        "own_summary": "Trouvez des offres pour vous — collez votre profil, ou importez un .txt / PDF LinkedIn",
+        "own_text_ph": "Collez votre « À propos » LinkedIn + votre expérience, ou tout texte de CV…\n(Les URL LinkedIn ne peuvent pas être récupérées côté serveur ; collez le texte ou importez l'export PDF : Profil → Ressources → Enregistrer au format PDF.)",
+        "own_loc_ph": "Votre localisation (facultatif, ex. « Boston, MA » — améliore la correspondance géographique)",
+        "own_go": "Faire correspondre mon profil",
+        "own_need_input": "Collez du texte ou choisissez d'abord un fichier .txt/.pdf.",
+        "own_matching": "correspondance…",
+        "own_failed_prefix": "échec : ",
+        "query_ph": "ex. infirmier",
+        "search_btn": "Rechercher",
+        "pz_on": "Personnaliser les résultats selon mon profil",
+        "pz_hard": "uniquement les offres pour lesquelles je suis qualifié (filtre 3 axes)",
+        "pz_using": "— profil de {name}",
+        "pz_using_your": "— votre profil",
+        "filters_btn": "Filtres",
+        "loading_recent": "chargement des offres récentes…",
+        "searching": "recherche…",
+        "personalizing": "personnalisation selon votre profil…",
+        "matching_profile": "correspondance de votre profil…",
+        "no_results": "aucun résultat",
+        "no_facets": "aucune facette",
+        "loading": "chargement…",
+        "no_description": "(aucune description)",
+        "failed_load": "(échec du chargement)",
+        "filters_label": "Filtres :",
+        "more_like": "→ Plus d'offres comme celle-ci",
+        "jobs_like": "Offres comme :",
+        "clear_seed": "effacer",
+        "prev": "‹ Préc.",
+        "next": "Suiv. ›",
+        "related_searches": "Recherches associées",
+        "suggested_from_profile": "Recherches suggérées d'après votre profil",
+        "served_with": "Servi avec :",
+        "map_us_title": "Filtrer par État (US)",
+        "map_country_title": "Filtrer par pays",
+        "map_hint": "Cliquez sur les régions pour activer/désactiver les filtres (multi-sélection OU) · les régions ombrées ont des résultats dans la vue actuelle.",
+        "map_done": "Terminé",
+        "map_none": "aucune sélection",
+        "map_selected": "sélectionné(s) :",
+        "map_link": "carte",
+        "posted_prefix": "Publié ",
+        "hard_no_match": "aucune offre ne correspond à cette recherche et à votre profil — décochez le filtre 3 axes pour voir les offres proches",
+        "filters_no_match_pre": "Aucune offre ne correspond à ces filtres. ",
+        "clear_all_filters": "Effacer tous les filtres",
+        "filters_no_match_post": " pour élargir votre recherche.",
+    },
+    "de": {
+        "tagline": "Semantische und lexikalische Suche in {n} aktiven Stellenanzeigen.",
+        "meta": "14 Quellen · RRF(BM25 + e5-small) · standardmäßig stöbern, mit Facetten und Karten verfeinern oder das eigene Profil für personalisierte Ergebnisse abgleichen",
+        "own_summary": "Finden Sie Jobs für sich — fügen Sie Ihr Profil ein oder laden Sie eine .txt / LinkedIn-PDF hoch",
+        "own_text_ph": "Fügen Sie Ihre LinkedIn-„Info“ + Erfahrung oder einen beliebigen Lebenslauftext ein…\n(LinkedIn-URLs können serverseitig nicht abgerufen werden; fügen Sie den Text ein oder laden Sie den PDF-Export hoch: Profil → Ressourcen → Als PDF speichern.)",
+        "own_loc_ph": "Ihr Standort (optional, z. B. „Boston, MA“ — verbessert den Standortabgleich)",
+        "own_go": "Mein Profil abgleichen",
+        "own_need_input": "Fügen Sie zuerst Text ein oder wählen Sie eine .txt/.pdf-Datei.",
+        "own_matching": "Abgleich…",
+        "own_failed_prefix": "Fehlgeschlagen: ",
+        "query_ph": "z. B. Krankenpfleger",
+        "search_btn": "Suchen",
+        "pz_on": "Ergebnisse an mein Profil anpassen",
+        "pz_hard": "nur Jobs, für die ich qualifiziert bin (3-Achsen-Filter)",
+        "pz_using": "— Profil von {name}",
+        "pz_using_your": "— Ihr Profil",
+        "filters_btn": "Filter",
+        "loading_recent": "aktuelle Jobs werden geladen…",
+        "searching": "Suche…",
+        "personalizing": "Anpassung an Ihr Profil…",
+        "matching_profile": "Ihr Profil wird abgeglichen…",
+        "no_results": "keine Ergebnisse",
+        "no_facets": "keine Facetten",
+        "loading": "wird geladen…",
+        "no_description": "(keine Beschreibung)",
+        "failed_load": "(Laden fehlgeschlagen)",
+        "filters_label": "Filter:",
+        "more_like": "→ Mehr Jobs wie dieser",
+        "jobs_like": "Jobs wie:",
+        "clear_seed": "entfernen",
+        "prev": "‹ Zurück",
+        "next": "Weiter ›",
+        "related_searches": "Ähnliche Suchen",
+        "suggested_from_profile": "Vorgeschlagene Suchen aus Ihrem Profil",
+        "served_with": "Bereitgestellt mit:",
+        "map_us_title": "Nach US-Bundesstaat filtern",
+        "map_country_title": "Nach Land filtern",
+        "map_hint": "Klicken Sie auf Regionen, um Filter umzuschalten (Mehrfachauswahl ODER) · schattierte Regionen haben Ergebnisse in der aktuellen Ansicht.",
+        "map_done": "Fertig",
+        "map_none": "nichts ausgewählt",
+        "map_selected": "ausgewählt:",
+        "map_link": "Karte",
+        "posted_prefix": "Veröffentlicht ",
+        "hard_no_match": "keine Jobs entsprechen dieser Suche, für die Sie auch qualifiziert sind — deaktivieren Sie den 3-Achsen-Filter, um ähnliche Treffer zu sehen",
+        "filters_no_match_pre": "Keine Jobs entsprechen diesen Filtern. ",
+        "clear_all_filters": "Alle Filter zurücksetzen",
+        "filters_no_match_post": ", um Ihre Suche zu erweitern.",
+    },
+    "nl": {
+        "tagline": "Semantisch en lexicaal zoeken in {n} actieve vacatures.",
+        "meta": "14 bronnen · RRF(BM25 + e5-small) · standaard bladeren, verfijnen met facetten en kaarten, of match je eigen profiel voor gepersonaliseerde resultaten",
+        "own_summary": "Vind vacatures voor jezelf — plak je profiel of upload een .txt / LinkedIn-PDF",
+        "own_text_ph": "Plak je LinkedIn-'Info' + ervaring, of een willekeurige cv-tekst…\n(LinkedIn-URL's kunnen niet server-side worden opgehaald; plak de tekst of upload de PDF-export: Profiel → Bronnen → Opslaan als PDF.)",
+        "own_loc_ph": "Je locatie (optioneel, bijv. 'Boston, MA' — verbetert de locatiematching)",
+        "own_go": "Match mijn profiel",
+        "own_need_input": "Plak eerst wat tekst of kies een .txt/.pdf-bestand.",
+        "own_matching": "matchen…",
+        "own_failed_prefix": "mislukt: ",
+        "query_ph": "bijv. verpleegkundige",
+        "search_btn": "Zoeken",
+        "pz_on": "Resultaten personaliseren op mijn profiel",
+        "pz_hard": "alleen vacatures waarvoor ik in aanmerking kom (3-assige filter)",
+        "pz_using": "— profiel van {name}",
+        "pz_using_your": "— jouw profiel",
+        "filters_btn": "Filters",
+        "loading_recent": "recente vacatures laden…",
+        "searching": "zoeken…",
+        "personalizing": "personaliseren op je profiel…",
+        "matching_profile": "je profiel matchen…",
+        "no_results": "geen resultaten",
+        "no_facets": "geen facetten",
+        "loading": "laden…",
+        "no_description": "(geen beschrijving)",
+        "failed_load": "(laden mislukt)",
+        "filters_label": "Filters:",
+        "more_like": "→ Meer vacatures zoals deze",
+        "jobs_like": "Vacatures zoals:",
+        "clear_seed": "wissen",
+        "prev": "‹ Vorige",
+        "next": "Volgende ›",
+        "related_searches": "Gerelateerde zoekopdrachten",
+        "suggested_from_profile": "Voorgestelde zoekopdrachten op basis van je profiel",
+        "served_with": "Geleverd met:",
+        "map_us_title": "Filteren op staat (VS)",
+        "map_country_title": "Filteren op land",
+        "map_hint": "Klik op regio's om filters aan/uit te zetten (meervoudige selectie OF) · gearceerde regio's hebben resultaten in de huidige weergave.",
+        "map_done": "Klaar",
+        "map_none": "niets geselecteerd",
+        "map_selected": "geselecteerd:",
+        "map_link": "kaart",
+        "posted_prefix": "Geplaatst ",
+        "hard_no_match": "geen vacatures komen overeen met deze zoekopdracht waarvoor je ook in aanmerking komt — zet de 3-assige filter uit om bijna-matches te zien",
+        "filters_no_match_pre": "Geen vacatures komen overeen met deze filters. ",
+        "clear_all_filters": "Alle filters wissen",
+        "filters_no_match_post": " om je zoekopdracht te verbreden.",
+    },
+    "es": {
+        "tagline": "Búsqueda semántica y léxica entre {n} ofertas de empleo activas.",
+        "meta": "14 fuentes · RRF(BM25 + e5-small) · explora por defecto, refina con facetas y mapas, o haz coincidir tu propio perfil para resultados personalizados",
+        "own_summary": "Encuentra ofertas para ti — pega tu perfil o sube un .txt / PDF de LinkedIn",
+        "own_text_ph": "Pega tu «Acerca de» de LinkedIn + experiencia, o cualquier texto de CV…\n(Las URL de LinkedIn no se pueden obtener del lado del servidor; pega el texto o sube la exportación en PDF: Perfil → Recursos → Guardar como PDF.)",
+        "own_loc_ph": "Tu ubicación (opcional, p. ej. «Boston, MA» — mejora la coincidencia geográfica)",
+        "own_go": "Hacer coincidir mi perfil",
+        "own_need_input": "Pega algún texto o elige primero un archivo .txt/.pdf.",
+        "own_matching": "buscando coincidencias…",
+        "own_failed_prefix": "error: ",
+        "query_ph": "p. ej. enfermero",
+        "search_btn": "Buscar",
+        "pz_on": "Personalizar los resultados según mi perfil",
+        "pz_hard": "solo ofertas para las que estoy cualificado (filtro de 3 ejes)",
+        "pz_using": "— perfil de {name}",
+        "pz_using_your": "— tu perfil",
+        "filters_btn": "Filtros",
+        "loading_recent": "cargando ofertas recientes…",
+        "searching": "buscando…",
+        "personalizing": "personalizando según tu perfil…",
+        "matching_profile": "haciendo coincidir tu perfil…",
+        "no_results": "sin resultados",
+        "no_facets": "sin facetas",
+        "loading": "cargando…",
+        "no_description": "(sin descripción)",
+        "failed_load": "(error al cargar)",
+        "filters_label": "Filtros:",
+        "more_like": "→ Más ofertas como esta",
+        "jobs_like": "Ofertas como:",
+        "clear_seed": "quitar",
+        "prev": "‹ Ant.",
+        "next": "Sig. ›",
+        "related_searches": "Búsquedas relacionadas",
+        "suggested_from_profile": "Búsquedas sugeridas según tu perfil",
+        "served_with": "Servido con:",
+        "map_us_title": "Filtrar por estado (EE. UU.)",
+        "map_country_title": "Filtrar por país",
+        "map_hint": "Haz clic en las regiones para activar o desactivar filtros (selección múltiple O) · las regiones sombreadas tienen resultados en la vista actual.",
+        "map_done": "Listo",
+        "map_none": "nada seleccionado",
+        "map_selected": "seleccionado(s):",
+        "map_link": "mapa",
+        "posted_prefix": "Publicado ",
+        "hard_no_match": "ninguna oferta coincide con esta búsqueda y para la que además estés cualificado — desactiva el filtro de 3 ejes para ver coincidencias aproximadas",
+        "filters_no_match_pre": "Ninguna oferta coincide con estos filtros. ",
+        "clear_all_filters": "Borrar todos los filtros",
+        "filters_no_match_post": " para ampliar tu búsqueda.",
+    },
+    "sv": {
+        "tagline": "Semantisk och lexikal sökning bland {n} aktiva jobbannonser.",
+        "meta": "14 källor · RRF(BM25 + e5-small) · bläddra som standard, förfina med facetter och kartor, eller matcha din egen profil för personliga resultat",
+        "own_summary": "Hitta jobb för dig själv — klistra in din profil eller ladda upp en .txt / LinkedIn-PDF",
+        "own_text_ph": "Klistra in din LinkedIn-'Info' + erfarenhet, eller valfri CV-text…\n(LinkedIn-URL:er kan inte hämtas på serversidan; klistra in texten eller ladda upp PDF-exporten: Profil → Resurser → Spara som PDF.)",
+        "own_loc_ph": "Din plats (valfritt, t.ex. 'Boston, MA' — förbättrar platsmatchningen)",
+        "own_go": "Matcha min profil",
+        "own_need_input": "Klistra in lite text eller välj en .txt/.pdf-fil först.",
+        "own_matching": "matchar…",
+        "own_failed_prefix": "misslyckades: ",
+        "query_ph": "t.ex. sjuksköterska",
+        "search_btn": "Sök",
+        "pz_on": "Anpassa resultaten efter min profil",
+        "pz_hard": "endast jobb jag är kvalificerad för (3-axligt filter)",
+        "pz_using": "— {name}s profil",
+        "pz_using_your": "— din profil",
+        "filters_btn": "Filter",
+        "loading_recent": "laddar senaste jobben…",
+        "searching": "söker…",
+        "personalizing": "anpassar efter din profil…",
+        "matching_profile": "matchar din profil…",
+        "no_results": "inga resultat",
+        "no_facets": "inga facetter",
+        "loading": "laddar…",
+        "no_description": "(ingen beskrivning)",
+        "failed_load": "(kunde inte ladda)",
+        "filters_label": "Filter:",
+        "more_like": "→ Fler liknande jobb",
+        "jobs_like": "Jobb som:",
+        "clear_seed": "rensa",
+        "prev": "‹ Föreg.",
+        "next": "Nästa ›",
+        "related_searches": "Relaterade sökningar",
+        "suggested_from_profile": "Föreslagna sökningar från din profil",
+        "served_with": "Levererat med:",
+        "map_us_title": "Filtrera efter delstat (USA)",
+        "map_country_title": "Filtrera efter land",
+        "map_hint": "Klicka på regioner för att slå på/av filter (flerval ELLER) · skuggade regioner har resultat i den aktuella vyn.",
+        "map_done": "Klar",
+        "map_none": "inget valt",
+        "map_selected": "valda:",
+        "map_link": "karta",
+        "posted_prefix": "Publicerad ",
+        "hard_no_match": "inga jobb matchar denna sökning som du också är kvalificerad för — avmarkera det 3-axliga filtret för att se nästan-träffar",
+        "filters_no_match_pre": "Inga jobb matchar dessa filter. ",
+        "clear_all_filters": "Rensa alla filter",
+        "filters_no_match_post": " för att bredda din sökning.",
+    },
+    "it": {
+        "tagline": "Ricerca semantica e lessicale tra {n} annunci di lavoro attivi.",
+        "meta": "14 fonti · RRF(BM25 + e5-small) · esplora come impostazione predefinita, affina con le faccette e le mappe, oppure abbina il tuo profilo per risultati personalizzati",
+        "own_summary": "Trova offerte per te — incolla il tuo profilo o carica un .txt / PDF di LinkedIn",
+        "own_text_ph": "Incolla il tuo «Informazioni» di LinkedIn + esperienza, o qualsiasi testo di un CV…\n(Gli URL di LinkedIn non possono essere recuperati lato server; incolla il testo o carica l'esportazione PDF: Profilo → Risorse → Salva come PDF.)",
+        "own_loc_ph": "La tua località (facoltativo, es. «Boston, MA» — migliora la corrispondenza geografica)",
+        "own_go": "Abbina il mio profilo",
+        "own_need_input": "Incolla del testo o scegli prima un file .txt/.pdf.",
+        "own_matching": "abbinamento…",
+        "own_failed_prefix": "non riuscito: ",
+        "query_ph": "es. infermiere",
+        "search_btn": "Cerca",
+        "pz_on": "Personalizza i risultati in base al mio profilo",
+        "pz_hard": "solo offerte per cui sono qualificato (filtro a 3 assi)",
+        "pz_using": "— profilo di {name}",
+        "pz_using_your": "— il tuo profilo",
+        "filters_btn": "Filtri",
+        "loading_recent": "caricamento offerte recenti…",
+        "searching": "ricerca…",
+        "personalizing": "personalizzazione in base al tuo profilo…",
+        "matching_profile": "abbinamento del tuo profilo…",
+        "no_results": "nessun risultato",
+        "no_facets": "nessuna faccetta",
+        "loading": "caricamento…",
+        "no_description": "(nessuna descrizione)",
+        "failed_load": "(caricamento non riuscito)",
+        "filters_label": "Filtri:",
+        "more_like": "→ Altre offerte come questa",
+        "jobs_like": "Offerte come:",
+        "clear_seed": "rimuovi",
+        "prev": "‹ Prec.",
+        "next": "Succ. ›",
+        "related_searches": "Ricerche correlate",
+        "suggested_from_profile": "Ricerche suggerite dal tuo profilo",
+        "served_with": "Fornito con:",
+        "map_us_title": "Filtra per stato (USA)",
+        "map_country_title": "Filtra per paese",
+        "map_hint": "Fai clic sulle regioni per attivare/disattivare i filtri (selezione multipla O) · le regioni ombreggiate hanno risultati nella vista corrente.",
+        "map_done": "Fatto",
+        "map_none": "nessuna selezione",
+        "map_selected": "selezionati:",
+        "map_link": "mappa",
+        "posted_prefix": "Pubblicato ",
+        "hard_no_match": "nessuna offerta corrisponde a questa ricerca e per cui sei anche qualificato — deseleziona il filtro a 3 assi per vedere le offerte simili",
+        "filters_no_match_pre": "Nessuna offerta corrisponde a questi filtri. ",
+        "clear_all_filters": "Cancella tutti i filtri",
+        "filters_no_match_post": " per ampliare la ricerca.",
+    },
+}
+
+# Facet field labels per language (English lives JS-side as FACET_LABELS — the fallback).
+_FACET_FIELDS_I18N = {
+    "fr": {
+        "role_family": "Famille de métier",
+        "seniority": "Niveau d'expérience",
+        "industry": "Secteur",
+        "remote_mode": "Télétravail",
+        "location_country": "Pays",
+        "location_state": "État (US)",
+        "posted_bucket": "Publié",
+        "salary_band_usd_annual": "Salaire (USD/an)",
+        "tech_stack": "Technologies",
+        "lang": "Langue",
+    },
+    "de": {
+        "role_family": "Berufsfeld",
+        "seniority": "Erfahrungsstufe",
+        "industry": "Branche",
+        "remote_mode": "Arbeitsmodell",
+        "location_country": "Land",
+        "location_state": "US-Bundesstaat",
+        "posted_bucket": "Veröffentlicht",
+        "salary_band_usd_annual": "Gehalt (USD/Jahr)",
+        "tech_stack": "Technologien",
+        "lang": "Sprache",
+    },
+    "nl": {
+        "role_family": "Functiegebied",
+        "seniority": "Ervaringsniveau",
+        "industry": "Sector",
+        "remote_mode": "Werkvorm",
+        "location_country": "Land",
+        "location_state": "Staat (VS)",
+        "posted_bucket": "Geplaatst",
+        "salary_band_usd_annual": "Salaris (USD/jaar)",
+        "tech_stack": "Technologie",
+        "lang": "Taal",
+    },
+    "es": {
+        "role_family": "Familia profesional",
+        "seniority": "Nivel de experiencia",
+        "industry": "Sector",
+        "remote_mode": "Modalidad",
+        "location_country": "País",
+        "location_state": "Estado (EE. UU.)",
+        "posted_bucket": "Publicado",
+        "salary_band_usd_annual": "Salario (USD/año)",
+        "tech_stack": "Tecnologías",
+        "lang": "Idioma",
+    },
+    "sv": {
+        "role_family": "Yrkesområde",
+        "seniority": "Erfarenhetsnivå",
+        "industry": "Bransch",
+        "remote_mode": "Arbetsform",
+        "location_country": "Land",
+        "location_state": "Delstat (USA)",
+        "posted_bucket": "Publicerad",
+        "salary_band_usd_annual": "Lön (USD/år)",
+        "tech_stack": "Teknik",
+        "lang": "Språk",
+    },
+    "it": {
+        "role_family": "Famiglia professionale",
+        "seniority": "Livello di esperienza",
+        "industry": "Settore",
+        "remote_mode": "Modalità di lavoro",
+        "location_country": "Paese",
+        "location_state": "Stato (USA)",
+        "posted_bucket": "Pubblicato",
+        "salary_band_usd_annual": "Stipendio (USD/anno)",
+        "tech_stack": "Tecnologie",
+        "lang": "Lingua",
+    },
+}
+
+# Facet VALUE labels per language. English lives JS-side as FACET_VALUE_LABELS (fallback), so
+# a value omitted here falls back to English — used for tech_stack (proper nouns, untranslated)
+# and the salary mid-bands (numeric, identical across languages).
+_LANG_VALS = {
+    "fr": {
+        "en": "Anglais",
+        "fr": "Français",
+        "sv": "Suédois",
+        "de": "Allemand",
+        "nl": "Néerlandais",
+        "es": "Espagnol",
+        "it": "Italien",
+    },
+    "de": {
+        "en": "Englisch",
+        "fr": "Französisch",
+        "sv": "Schwedisch",
+        "de": "Deutsch",
+        "nl": "Niederländisch",
+        "es": "Spanisch",
+        "it": "Italienisch",
+    },
+    "nl": {
+        "en": "Engels",
+        "fr": "Frans",
+        "sv": "Zweeds",
+        "de": "Duits",
+        "nl": "Nederlands",
+        "es": "Spaans",
+        "it": "Italiaans",
+    },
+    "es": {
+        "en": "Inglés",
+        "fr": "Francés",
+        "sv": "Sueco",
+        "de": "Alemán",
+        "nl": "Neerlandés",
+        "es": "Español",
+        "it": "Italiano",
+    },
+    "sv": {
+        "en": "Engelska",
+        "fr": "Franska",
+        "sv": "Svenska",
+        "de": "Tyska",
+        "nl": "Nederländska",
+        "es": "Spanska",
+        "it": "Italienska",
+    },
+    "it": {
+        "en": "Inglese",
+        "fr": "Francese",
+        "sv": "Svedese",
+        "de": "Tedesco",
+        "nl": "Olandese",
+        "es": "Spagnolo",
+        "it": "Italiano",
+    },
+}
+_POSTED_VALS = {
+    "fr": {
+        "past_24h": "Dernières 24 heures",
+        "past_7d": "7 derniers jours",
+        "past_30d": "30 derniers jours",
+        "past_90d": "90 derniers jours",
+        "older": "Plus de 90 jours",
+    },
+    "de": {
+        "past_24h": "Letzte 24 Stunden",
+        "past_7d": "Letzte 7 Tage",
+        "past_30d": "Letzte 30 Tage",
+        "past_90d": "Letzte 90 Tage",
+        "older": "Älter als 90 Tage",
+    },
+    "nl": {
+        "past_24h": "Afgelopen 24 uur",
+        "past_7d": "Afgelopen 7 dagen",
+        "past_30d": "Afgelopen 30 dagen",
+        "past_90d": "Afgelopen 90 dagen",
+        "older": "Ouder dan 90 dagen",
+    },
+    "es": {
+        "past_24h": "Últimas 24 horas",
+        "past_7d": "Últimos 7 días",
+        "past_30d": "Últimos 30 días",
+        "past_90d": "Últimos 90 días",
+        "older": "Más de 90 días",
+    },
+    "sv": {
+        "past_24h": "Senaste 24 timmarna",
+        "past_7d": "Senaste 7 dagarna",
+        "past_30d": "Senaste 30 dagarna",
+        "past_90d": "Senaste 90 dagarna",
+        "older": "Äldre än 90 dagar",
+    },
+    "it": {
+        "past_24h": "Ultime 24 ore",
+        "past_7d": "Ultimi 7 giorni",
+        "past_30d": "Ultimi 30 giorni",
+        "past_90d": "Ultimi 90 giorni",
+        "older": "Più di 90 giorni",
+    },
+}
+_SENIORITY_VALS = {
+    "fr": {
+        "intern": "Stagiaire",
+        "entry": "Débutant",
+        "junior": "Junior",
+        "mid": "Confirmé",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Manager",
+        "senior_manager": "Manager senior",
+        "director": "Directeur",
+        "vp": "VP",
+        "c_level": "Direction (C-level)",
+        "not_specified": "Non précisé",
+    },
+    "de": {
+        "intern": "Praktikant",
+        "entry": "Einstiegslevel",
+        "junior": "Junior",
+        "mid": "Mittleres Level",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Manager",
+        "senior_manager": "Senior Manager",
+        "director": "Direktor",
+        "vp": "VP",
+        "c_level": "C-Level",
+        "not_specified": "Nicht angegeben",
+    },
+    "nl": {
+        "intern": "Stagiair",
+        "entry": "Instapniveau",
+        "junior": "Junior",
+        "mid": "Medior",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Manager",
+        "senior_manager": "Senior manager",
+        "director": "Directeur",
+        "vp": "VP",
+        "c_level": "C-level",
+        "not_specified": "Niet opgegeven",
+    },
+    "es": {
+        "intern": "Becario",
+        "entry": "Nivel inicial",
+        "junior": "Junior",
+        "mid": "Nivel intermedio",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Mánager",
+        "senior_manager": "Mánager sénior",
+        "director": "Director",
+        "vp": "VP",
+        "c_level": "Alta dirección (C-level)",
+        "not_specified": "Sin especificar",
+    },
+    "sv": {
+        "intern": "Praktikant",
+        "entry": "Ingångsnivå",
+        "junior": "Junior",
+        "mid": "Mellannivå",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Chef",
+        "senior_manager": "Senior chef",
+        "director": "Direktör",
+        "vp": "VP",
+        "c_level": "Ledningsnivå (C-level)",
+        "not_specified": "Ej angivet",
+    },
+    "it": {
+        "intern": "Stagista",
+        "entry": "Livello base",
+        "junior": "Junior",
+        "mid": "Livello intermedio",
+        "senior": "Senior",
+        "lead": "Lead",
+        "staff": "Staff",
+        "manager": "Manager",
+        "senior_manager": "Senior manager",
+        "director": "Direttore",
+        "vp": "VP",
+        "c_level": "Dirigenza (C-level)",
+        "not_specified": "Non specificato",
+    },
+}
+_SALARY_VALS = {  # only the worded bands; numeric mid-bands fall back to English
+    "fr": {"under_50k": "Moins de 50 k$", "not_specified": "Non précisé"},
+    "de": {"under_50k": "Unter 50.000 $", "not_specified": "Nicht angegeben"},
+    "nl": {"under_50k": "Onder $50k", "not_specified": "Niet opgegeven"},
+    "es": {"under_50k": "Menos de 50 000 $", "not_specified": "Sin especificar"},
+    "sv": {"under_50k": "Under 50 000 $", "not_specified": "Ej angivet"},
+    "it": {"under_50k": "Meno di 50.000 $", "not_specified": "Non specificato"},
+}
+_REMOTE_VALS = {
+    "fr": {
+        "on_site": "Sur site",
+        "remote": "À distance",
+        "hybrid": "Hybride",
+        "not_specified": "Non précisé",
+    },
+    "de": {
+        "on_site": "Vor Ort",
+        "remote": "Remote",
+        "hybrid": "Hybrid",
+        "not_specified": "Nicht angegeben",
+    },
+    "nl": {
+        "on_site": "Op locatie",
+        "remote": "Op afstand",
+        "hybrid": "Hybride",
+        "not_specified": "Niet opgegeven",
+    },
+    "es": {
+        "on_site": "Presencial",
+        "remote": "Remoto",
+        "hybrid": "Híbrido",
+        "not_specified": "Sin especificar",
+    },
+    "sv": {
+        "on_site": "På plats",
+        "remote": "Distans",
+        "hybrid": "Hybrid",
+        "not_specified": "Ej angivet",
+    },
+    "it": {
+        "on_site": "In sede",
+        "remote": "Da remoto",
+        "hybrid": "Ibrido",
+        "not_specified": "Non specificato",
+    },
+}
+# industry + role_family keys, in fixed order, paired with per-language label lists.
+_INDUSTRY_KEYS = [
+    "tech_software_internet",
+    "tech_hardware_semiconductors",
+    "finance_banking",
+    "finance_fintech",
+    "finance_insurance",
+    "healthcare_provider",
+    "healthcare_pharma_biotech",
+    "healthcare_devices",
+    "retail_ecommerce",
+    "consumer_brands",
+    "media_entertainment",
+    "gaming",
+    "automotive",
+    "energy_utilities",
+    "public_sector_government",
+    "defense_aerospace",
+    "nonprofit",
+    "education_higher",
+    "education_k12",
+    "consulting_professional_services",
+    "legal_services",
+    "real_estate_construction",
+    "agriculture_food_production",
+    "manufacturing",
+    "telecommunications",
+    "transportation_logistics",
+    "hospitality_food_service",
+    "unclassified",
+]
+_INDUSTRY_LABELS = {
+    "fr": [
+        "Logiciel / Internet",
+        "Matériel / Semi-conducteurs",
+        "Banque",
+        "Fintech",
+        "Assurance",
+        "Établissement de santé",
+        "Pharma / Biotech",
+        "Dispositifs médicaux",
+        "Commerce / E-commerce",
+        "Produits de grande consommation",
+        "Médias / Divertissement",
+        "Jeux vidéo",
+        "Automobile",
+        "Énergie / Services publics",
+        "Secteur public / Gouvernement",
+        "Défense / Aérospatiale",
+        "Associatif",
+        "Enseignement supérieur",
+        "Enseignement primaire et secondaire",
+        "Conseil / Services professionnels",
+        "Juridique",
+        "Immobilier / Construction",
+        "Agriculture / Production alimentaire",
+        "Industrie manufacturière",
+        "Télécommunications",
+        "Transport / Logistique",
+        "Hôtellerie / Restauration",
+        "Non classé",
+    ],
+    "de": [
+        "Software / Internet",
+        "Hardware / Halbleiter",
+        "Bankwesen",
+        "Fintech",
+        "Versicherung",
+        "Gesundheitsdienstleister",
+        "Pharma / Biotech",
+        "Medizintechnik",
+        "Einzelhandel / E-Commerce",
+        "Konsumgütermarken",
+        "Medien / Unterhaltung",
+        "Gaming",
+        "Automobil",
+        "Energie / Versorgung",
+        "Öffentlicher Sektor / Verwaltung",
+        "Verteidigung / Luft- und Raumfahrt",
+        "Gemeinnützig",
+        "Hochschulbildung",
+        "Schulbildung (K-12)",
+        "Beratung / Professional Services",
+        "Recht",
+        "Immobilien / Bau",
+        "Landwirtschaft / Lebensmittelproduktion",
+        "Fertigung",
+        "Telekommunikation",
+        "Transport / Logistik",
+        "Gastgewerbe / Gastronomie",
+        "Nicht klassifiziert",
+    ],
+    "nl": [
+        "Software / Internet",
+        "Hardware / Halfgeleiders",
+        "Bankwezen",
+        "Fintech",
+        "Verzekeringen",
+        "Zorgaanbieder",
+        "Farma / Biotech",
+        "Medische apparatuur",
+        "Retail / E-commerce",
+        "Consumentenmerken",
+        "Media / Entertainment",
+        "Gaming",
+        "Automotive",
+        "Energie / Nutsbedrijven",
+        "Publieke sector / Overheid",
+        "Defensie / Lucht- en ruimtevaart",
+        "Non-profit",
+        "Hoger onderwijs",
+        "Basis- en voortgezet onderwijs",
+        "Consultancy / Zakelijke dienstverlening",
+        "Juridisch",
+        "Vastgoed / Bouw",
+        "Landbouw / Voedselproductie",
+        "Productie",
+        "Telecommunicatie",
+        "Transport / Logistiek",
+        "Horeca",
+        "Niet geclassificeerd",
+    ],
+    "es": [
+        "Software / Internet",
+        "Hardware / Semiconductores",
+        "Banca",
+        "Fintech",
+        "Seguros",
+        "Proveedor sanitario",
+        "Farma / Biotecnología",
+        "Dispositivos médicos",
+        "Comercio / Comercio electrónico",
+        "Marcas de consumo",
+        "Medios / Entretenimiento",
+        "Videojuegos",
+        "Automoción",
+        "Energía / Servicios públicos",
+        "Sector público / Gobierno",
+        "Defensa / Aeroespacial",
+        "Sin ánimo de lucro",
+        "Educación superior",
+        "Educación primaria y secundaria",
+        "Consultoría / Servicios profesionales",
+        "Jurídico",
+        "Inmobiliario / Construcción",
+        "Agricultura / Producción alimentaria",
+        "Fabricación",
+        "Telecomunicaciones",
+        "Transporte / Logística",
+        "Hostelería / Restauración",
+        "Sin clasificar",
+    ],
+    "sv": [
+        "Mjukvara / Internet",
+        "Hårdvara / Halvledare",
+        "Bank",
+        "Fintech",
+        "Försäkring",
+        "Vårdgivare",
+        "Läkemedel / Bioteknik",
+        "Medicinteknik",
+        "Handel / E-handel",
+        "Konsumentvarumärken",
+        "Media / Underhållning",
+        "Spel",
+        "Fordon",
+        "Energi / Allmännytta",
+        "Offentlig sektor / Myndighet",
+        "Försvar / Flyg och rymd",
+        "Ideell sektor",
+        "Högre utbildning",
+        "Grund- och gymnasieskola",
+        "Konsulttjänster / Professionella tjänster",
+        "Juridik",
+        "Fastigheter / Bygg",
+        "Jordbruk / Livsmedelsproduktion",
+        "Tillverkning",
+        "Telekommunikation",
+        "Transport / Logistik",
+        "Hotell och restaurang",
+        "Oklassificerad",
+    ],
+    "it": [
+        "Software / Internet",
+        "Hardware / Semiconduttori",
+        "Banca",
+        "Fintech",
+        "Assicurazioni",
+        "Struttura sanitaria",
+        "Farmaceutico / Biotech",
+        "Dispositivi medici",
+        "Commercio / E-commerce",
+        "Beni di consumo",
+        "Media / Intrattenimento",
+        "Videogiochi",
+        "Automotive",
+        "Energia / Servizi pubblici",
+        "Settore pubblico / Governo",
+        "Difesa / Aerospazio",
+        "No profit",
+        "Istruzione universitaria",
+        "Istruzione primaria e secondaria",
+        "Consulenza / Servizi professionali",
+        "Legale",
+        "Immobiliare / Edilizia",
+        "Agricoltura / Produzione alimentare",
+        "Produzione industriale",
+        "Telecomunicazioni",
+        "Trasporti / Logistica",
+        "Ospitalità / Ristorazione",
+        "Non classificato",
+    ],
+}
+_ROLE_KEYS = [
+    "software_engineering",
+    "data_engineering",
+    "data_science_ml",
+    "data_analytics",
+    "ai_ml",
+    "ai_data_annotation",
+    "devops_sre_infra",
+    "security",
+    "design_ux",
+    "product_management",
+    "project_program_management",
+    "marketing",
+    "sales",
+    "customer_success_support",
+    "operations_admin",
+    "finance_accounting",
+    "legal",
+    "hr_people_ops",
+    "healthcare_clinical",
+    "healthcare_allied",
+    "healthcare_admin",
+    "education_teaching",
+    "skilled_trades_construction",
+    "transportation_logistics",
+    "food_service_hospitality",
+    "retail",
+    "creative_content",
+    "research_academic",
+    "manufacturing_production",
+    "public_safety",
+    "nonprofit_social_services",
+    "consulting_strategy",
+    "other",
+]
+_ROLE_LABELS = {
+    "fr": [
+        "Ingénierie logicielle",
+        "Data engineering",
+        "Data science",
+        "Analytics / BI",
+        "IA / ML",
+        "Annotation de données IA",
+        "DevOps / SRE / Infra",
+        "Sécurité",
+        "Design / UX",
+        "Gestion de produit",
+        "Gestion de projet / programme",
+        "Marketing",
+        "Vente",
+        "Service client / Support",
+        "Opérations / Administration",
+        "Finance / Comptabilité",
+        "Juridique",
+        "RH / People ops",
+        "Santé — clinique",
+        "Santé — paramédical",
+        "Santé — administratif",
+        "Éducation / Enseignement",
+        "Métiers techniques / Construction",
+        "Transport / Logistique",
+        "Restauration / Hôtellerie",
+        "Commerce de détail",
+        "Création / Contenu",
+        "Recherche / Universitaire",
+        "Industrie / Production",
+        "Sécurité publique",
+        "Associatif / Action sociale",
+        "Conseil / Stratégie",
+        "Autre",
+    ],
+    "de": [
+        "Softwareentwicklung",
+        "Data Engineering",
+        "Data Science",
+        "Analytics / BI",
+        "KI / ML",
+        "KI-Datenannotation",
+        "DevOps / SRE / Infra",
+        "Sicherheit",
+        "Design / UX",
+        "Produktmanagement",
+        "Projekt- / Programmmanagement",
+        "Marketing",
+        "Vertrieb",
+        "Kundenerfolg / Support",
+        "Betrieb / Verwaltung",
+        "Finanzen / Buchhaltung",
+        "Recht",
+        "HR / People Ops",
+        "Gesundheit — klinisch",
+        "Gesundheit — medizinnah",
+        "Gesundheit — Verwaltung",
+        "Bildung / Lehre",
+        "Handwerk / Bau",
+        "Transport / Logistik",
+        "Gastronomie / Hotellerie",
+        "Einzelhandel",
+        "Kreativ / Content",
+        "Forschung / Wissenschaft",
+        "Fertigung / Produktion",
+        "Öffentliche Sicherheit",
+        "Gemeinnützig / Soziale Dienste",
+        "Beratung / Strategie",
+        "Sonstiges",
+    ],
+    "nl": [
+        "Software engineering",
+        "Data engineering",
+        "Data science",
+        "Analytics / BI",
+        "AI / ML",
+        "AI-data-annotatie",
+        "DevOps / SRE / Infra",
+        "Security",
+        "Design / UX",
+        "Productmanagement",
+        "Project- / programmamanagement",
+        "Marketing",
+        "Sales",
+        "Customer success / Support",
+        "Operations / Administratie",
+        "Finance / Boekhouding",
+        "Juridisch",
+        "HR / People ops",
+        "Zorg — klinisch",
+        "Zorg — paramedisch",
+        "Zorg — administratief",
+        "Onderwijs / Lesgeven",
+        "Technische beroepen / Bouw",
+        "Transport / Logistiek",
+        "Horeca",
+        "Retail",
+        "Creatief / Content",
+        "Onderzoek / Academisch",
+        "Productie",
+        "Openbare veiligheid",
+        "Non-profit / Maatschappelijke dienstverlening",
+        "Consultancy / Strategie",
+        "Overig",
+    ],
+    "es": [
+        "Ingeniería de software",
+        "Ingeniería de datos",
+        "Ciencia de datos",
+        "Analítica / BI",
+        "IA / ML",
+        "Anotación de datos para IA",
+        "DevOps / SRE / Infraestructura",
+        "Seguridad",
+        "Diseño / UX",
+        "Gestión de producto",
+        "Gestión de proyectos / programas",
+        "Marketing",
+        "Ventas",
+        "Éxito del cliente / Soporte",
+        "Operaciones / Administración",
+        "Finanzas / Contabilidad",
+        "Jurídico",
+        "RR. HH. / People ops",
+        "Sanidad — clínica",
+        "Sanidad — auxiliar",
+        "Sanidad — administrativa",
+        "Educación / Docencia",
+        "Oficios cualificados / Construcción",
+        "Transporte / Logística",
+        "Restauración / Hostelería",
+        "Comercio minorista",
+        "Creatividad / Contenido",
+        "Investigación / Académico",
+        "Fabricación / Producción",
+        "Seguridad pública",
+        "Sin ánimo de lucro / Servicios sociales",
+        "Consultoría / Estrategia",
+        "Otro",
+    ],
+    "sv": [
+        "Mjukvaruutveckling",
+        "Data engineering",
+        "Data science",
+        "Analys / BI",
+        "AI / ML",
+        "AI-dataannotering",
+        "DevOps / SRE / Infra",
+        "Säkerhet",
+        "Design / UX",
+        "Produktledning",
+        "Projekt- / programledning",
+        "Marknadsföring",
+        "Försäljning",
+        "Kundframgång / Support",
+        "Drift / Administration",
+        "Ekonomi / Redovisning",
+        "Juridik",
+        "HR / People ops",
+        "Vård — klinisk",
+        "Vård — paramedicinsk",
+        "Vård — administrativ",
+        "Utbildning / Undervisning",
+        "Hantverk / Bygg",
+        "Transport / Logistik",
+        "Restaurang / Hotell",
+        "Detaljhandel",
+        "Kreativt / Innehåll",
+        "Forskning / Akademi",
+        "Tillverkning / Produktion",
+        "Allmän säkerhet",
+        "Ideell sektor / Socialt arbete",
+        "Konsult / Strategi",
+        "Övrigt",
+    ],
+    "it": [
+        "Ingegneria del software",
+        "Data engineering",
+        "Data science",
+        "Analytics / BI",
+        "IA / ML",
+        "Annotazione dati per IA",
+        "DevOps / SRE / Infra",
+        "Sicurezza",
+        "Design / UX",
+        "Product management",
+        "Gestione progetti / programmi",
+        "Marketing",
+        "Vendite",
+        "Customer success / Supporto",
+        "Operations / Amministrazione",
+        "Finanza / Contabilità",
+        "Legale",
+        "HR / People ops",
+        "Sanità — clinica",
+        "Sanità — paramedica",
+        "Sanità — amministrativa",
+        "Istruzione / Insegnamento",
+        "Mestieri specializzati / Edilizia",
+        "Trasporti / Logistica",
+        "Ristorazione / Ospitalità",
+        "Vendita al dettaglio",
+        "Creatività / Contenuti",
+        "Ricerca / Accademico",
+        "Produzione / Manifattura",
+        "Sicurezza pubblica",
+        "No profit / Servizi sociali",
+        "Consulenza / Strategia",
+        "Altro",
+    ],
+}
+
+
+def _build_locale_data() -> dict:
+    """Assemble the per-language localization payload injected into the page as JSON.
+    English UI strings are included (they overwrite the inline HTML defaults harmlessly);
+    English facet labels are NOT — those stay JS-side as the fallback."""
+    out: dict[str, dict] = {}
+    for lng in SITE_LANGS:
+        entry: dict[str, dict] = {"ui": _UI.get(lng, {})}
+        if lng == "en":
+            out[lng] = entry
+            continue
+        entry["fields"] = _FACET_FIELDS_I18N.get(lng, {})
+        entry["values"] = {
+            "lang": _LANG_VALS.get(lng, {}),
+            "posted_bucket": _POSTED_VALS.get(lng, {}),
+            "seniority": _SENIORITY_VALS.get(lng, {}),
+            "salary_band_usd_annual": _SALARY_VALS.get(lng, {}),
+            "remote_mode": _REMOTE_VALS.get(lng, {}),
+            "industry": dict(zip(_INDUSTRY_KEYS, _INDUSTRY_LABELS.get(lng, []))),
+            "role_family": dict(zip(_ROLE_KEYS, _ROLE_LABELS.get(lng, []))),
+        }
+        out[lng] = entry
+    return out
+
+
+LOCALE_DATA = _build_locale_data()
+LOCALE_JSON = json.dumps(LOCALE_DATA)
+SITE_LANG_NAMES_JSON = json.dumps(SITE_LANG_NAMES)
+
+
 HTML_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>__PAGE_TITLE__</title>
 <style>
@@ -1663,7 +2848,9 @@ body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", syst
 a { color: var(--brand); }
 
 /* ===== masthead ===== */
-.masthead { margin-bottom: 22px; }
+.masthead { margin-bottom: 22px; position: relative; }
+.site-lang { position: absolute; top: 0; right: 0; padding: 6px 10px; font-size: 0.85em; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); cursor: pointer; }
+.site-lang:hover { border-color: #d3d7e2; }
 h1 { font-size: 1.9em; line-height: 1.1; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
 h1 .acc { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .tagline { font-size: 1.02em; color: #3b4150; margin-bottom: 4px; }
@@ -1848,12 +3035,13 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 </style></head>
 <body>
 <header class="masthead">
+<select id="site-lang" class="site-lang" title="Site language"></select>
 <h1>Jobs Search <span class="acc">Demo</span></h1>
-<div class="tagline">__PAGE_SUBTITLE__</div>
-<div class="meta">__PAGE_META__</div>
+<div class="tagline" id="tagline">__PAGE_SUBTITLE__</div>
+<div class="meta" id="meta">__PAGE_META__</div>
 </header>
 <details class="ownbox">
-  <summary>Find jobs for yourself &mdash; paste your profile, or upload a .txt / LinkedIn PDF</summary>
+  <summary id="own-summary">Find jobs for yourself &mdash; paste your profile, or upload a .txt / LinkedIn PDF</summary>
   <div class="ownbody">
     <textarea id="own-text" placeholder="Paste your LinkedIn &lsquo;About&rsquo; + experience, or any resume text&hellip;&#10;(LinkedIn URLs can't be fetched server-side, so paste or upload the PDF export: Profile &rarr; Resources &rarr; Save to PDF.)"></textarea>
     <div class="ownrow">
@@ -1869,11 +3057,11 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
     <input id="query" placeholder="e.g. registered nurse" autocomplete="off" />
     <div id="suggest"></div>
   </div>
-  <button onclick="runSearch()">Search</button>
+  <button id="search-btn" onclick="runSearch()">Search</button>
 </div>
 <div id="personalize-row" style="display:none">
-  <label><input type="checkbox" id="pz-on"> &#10024; Personalize results to my profile</label>
-  <label id="pz-hard-wrap" style="display:none; margin-left:16px"><input type="checkbox" id="pz-hard"> only jobs I qualify for (3-axis filter)</label>
+  <label><input type="checkbox" id="pz-on"> &#10024; <span id="pz-on-text">Personalize results to my profile</span></label>
+  <label id="pz-hard-wrap" style="display:none; margin-left:16px"><input type="checkbox" id="pz-hard"> <span id="pz-hard-text">only jobs I qualify for (3-axis filter)</span></label>
   <span class="pz-name" id="pz-name"></span>
 </div>
 <div id="badge-row"></div>
@@ -1898,6 +3086,29 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
   </div>
 </div>
 <script>
+// ===== site-language localization (chrome only; job titles/descriptions stay native) =====
+// LOCALE is injected server-side: {lang: {ui:{...}, fields:{...}, values:{...}}}. English
+// facet field/value labels live in the JS FACET_LABELS/FACET_VALUE_LABELS below (the
+// fallback), so LOCALE only carries non-English facet overrides; UI strings carry English
+// too. The chosen language is persisted (localStorage + ?lang= URL) and also lightly
+// personalizes a blank browse (the &site_lang= param boosts same-language postings).
+const LOCALE = __LOCALE_JSON__;
+const SITE_LANG_NAMES = __SITE_LANG_NAMES__;
+const CORPUS_N = __CORPUS_N__;
+const SITE_LANGS = Object.keys(SITE_LANG_NAMES);
+function _initSiteLang() {
+  const u = new URLSearchParams(location.search).get('lang');
+  if (u && SITE_LANGS.includes(u)) return u;
+  try { const s = localStorage.getItem('siteLang'); if (s && SITE_LANGS.includes(s)) return s; } catch (e) {}
+  return 'en';
+}
+let siteLang = _initSiteLang();
+function t(key) {
+  const L = LOCALE[siteLang] && LOCALE[siteLang].ui;
+  if (L && L[key] != null) return L[key];
+  return (LOCALE.en.ui[key] != null) ? LOCALE.en.ui[key] : key;
+}
+
 const input = document.getElementById('query');
 const suggestBox = document.getElementById('suggest');
 let suggestItems = [];
@@ -1907,6 +3118,7 @@ let profile = null;   // parsed profile {r, qv} from /api/match_profile; client-
 let profileSuggestions = [];   // [{q, n}] profile-derived searches; shown in the related slot on a blank personalized browse
 let seedJob = null;   // {idx, title} when searching by a "more jobs like this" seed instead of typed keywords
 let lastSeedQs = '';  // '&seed=<idx>' appended to /api/search & /api/facets while a seed is active
+let lastProfileName;  // name shown in the pz-name caption; kept so applyI18n can re-localize it
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toggleFacets() { document.querySelector('.layout').classList.toggle('show-facets'); }
@@ -1994,7 +3206,7 @@ function metaLine(r) {
 function metaLine2(r) {
   const parts = [];
   if (r.department) parts.push(esc(r.department));
-  if (r.posted) parts.push('Posted ' + esc(r.posted));
+  if (r.posted) parts.push(esc(t('posted_prefix')) + esc(r.posted));
   if (!parts.length) return '';
   return `<div class="m2">${parts.join('<span class="sep">·</span>')}</div>`;
 }
@@ -2003,16 +3215,16 @@ async function toggleDetail(idx, container) {
   if (existing) { existing.remove(); return; }
   const div = document.createElement('div');
   div.className = 'detail loading';
-  div.textContent = 'loading...';
+  div.textContent = t('loading');
   container.appendChild(div);
   try {
     const r = await fetch('/api/detail?idx=' + idx);
     const data = await r.json();
     div.classList.remove('loading');
-    div.textContent = data.description || '(no description)';
+    div.textContent = data.description || t('no_description');
     const mlt = document.createElement('div');
     mlt.className = 'mlt-pivot';
-    mlt.textContent = '→ More jobs like this one';
+    mlt.textContent = t('more_like');
     mlt.addEventListener('click', (e) => {
       e.stopPropagation();
       pivotMoreLikeThis(idx, data.title || '');
@@ -2020,7 +3232,7 @@ async function toggleDetail(idx, container) {
     div.appendChild(mlt);
   } catch (e) {
     div.classList.remove('loading');
-    div.textContent = '(failed to load)';
+    div.textContent = t('failed_load');
   }
 }
 
@@ -2039,14 +3251,14 @@ function pivotMoreLikeThis(idx, title) {
 function renderSeedBanner() {
   const el = document.getElementById('seed-banner');
   if (!seedJob || input.value.trim()) { el.innerHTML = ''; return; }
-  el.innerHTML = `<span class="seed-chip">&rarr; Jobs like: <b>${esc(seedJob.title)}</b>`
-    + `<span class="seed-x" title="clear seed">&times;</span></span>`;
+  el.innerHTML = `<span class="seed-chip">&rarr; ${esc(t('jobs_like'))} <b>${esc(seedJob.title)}</b>`
+    + `<span class="seed-x" title="${esc(t('clear_seed'))}">&times;</span></span>`;
   el.querySelector('.seed-x').addEventListener('click', () => {
     seedJob = null; input.value = ''; runSearch();
   });
 }
 function renderResults(div, items, ms) {
-  if (!items || !items.length) { div.innerHTML = '<div class="empty">no results</div>'; return; }
+  if (!items || !items.length) { div.innerHTML = `<div class="empty">${esc(t('no_results'))}</div>`; return; }
   div.innerHTML = '';
   items.forEach(r => {
     const row = document.createElement('div');
@@ -2176,7 +3388,13 @@ const FACET_VALUE_LABELS = {
     other: 'Other',
   },
 };
+function facetLabel(f) {
+  const L = LOCALE[siteLang] && LOCALE[siteLang].fields;
+  return (L && L[f]) || FACET_LABELS[f] || f;
+}
 function facetValueLabel(f, v) {
+  const L = LOCALE[siteLang] && LOCALE[siteLang].values;
+  if (L && L[f] && L[f][v] != null) return L[f][v];
   return (FACET_VALUE_LABELS[f] && FACET_VALUE_LABELS[f][v]) || v;
 }
 // Static presentation order for ordinal facets (low->high) + remote_mode.
@@ -2219,11 +3437,11 @@ function renderActiveFilters() {
   const chips = [];
   for (const f of Object.keys(activeFilters)) {
     for (const v of selectedList(f)) {
-      chips.push(`<span class="chip" data-k="${f}" data-v="${esc(v)}">${esc(FACET_LABELS[f] || f)}: ${esc(facetValueLabel(f, v))}</span>`);
+      chips.push(`<span class="chip" data-k="${f}" data-v="${esc(v)}">${esc(facetLabel(f))}: ${esc(facetValueLabel(f, v))}</span>`);
     }
   }
   if (!chips.length) { row.innerHTML = ''; return; }
-  row.innerHTML = 'Filters: ' + chips.join('');
+  row.innerHTML = esc(t('filters_label')) + ' ' + chips.join('');
   row.querySelectorAll('.chip').forEach(el => el.addEventListener('click', () => {
     toggleFilter(el.dataset.k, el.dataset.v);
     runSearch();
@@ -2259,8 +3477,8 @@ function renderFacets(facets) {
       for (const o of opts.slice(FACET_TOP_N)) if (isSelected(f, o[0])) shown.push(o);
     }
     const single = SINGLE_SELECT.has(f);
-    let inner = `<h3>${esc(FACET_LABELS[f] || f)}`;
-    if (MAP_FACETS[f]) inner += `<span class="map-link" data-mapf="${f}">map</span>`;
+    let inner = `<h3>${esc(facetLabel(f))}`;
+    if (MAP_FACETS[f]) inner += `<span class="map-link" data-mapf="${f}">${esc(t('map_link'))}</span>`;
     inner += `</h3>`;
     inner += shown.map(([v]) => {
       const on = isSelected(f, v);
@@ -2274,7 +3492,7 @@ function renderFacets(facets) {
     }
     parts.push(`<div class="facet">${inner}</div>`);
   }
-  root.innerHTML = parts.join('') || '<div class="facet-empty">no facets</div>';
+  root.innerHTML = parts.join('') || `<div class="facet-empty">${esc(t('no_facets'))}</div>`;
   root.querySelectorAll('.opt').forEach(el => el.addEventListener('click', () => {
     toggleFilter(el.dataset.f, el.dataset.v);
     runSearch();
@@ -2317,14 +3535,14 @@ function repaintMaps() {
   paintMap(document.querySelector('#map-world .geomap'), 'location_country', lastFacets.location_country);
   if (mapField) {
     const sel = selectedList(mapField);
-    document.getElementById('map-sel').textContent = sel.length ? (sel.length + ' selected: ' + sel.join(', ')) : 'none selected';
+    document.getElementById('map-sel').textContent = sel.length ? (sel.length + ' ' + t('map_selected') + ' ' + sel.join(', ')) : t('map_none');
   }
 }
 function openMap(field) {
   mapField = field;
   document.getElementById('map-us').style.display = field === 'location_state' ? 'block' : 'none';
   document.getElementById('map-world').style.display = field === 'location_country' ? 'block' : 'none';
-  document.getElementById('map-title').textContent = field === 'location_state' ? 'Filter by US state' : 'Filter by country';
+  document.getElementById('map-title').textContent = field === 'location_state' ? t('map_us_title') : t('map_country_title');
   repaintMaps();
   document.getElementById('map-modal').style.display = 'flex';
 }
@@ -2358,9 +3576,9 @@ function renderPager(div, count) {
   const bar = document.createElement('div');
   bar.className = 'pager';
   bar.innerHTML =
-    `<button class="pg-prev"${hasPrev ? '' : ' disabled'}>&lsaquo; Prev</button>`
+    `<button class="pg-prev"${hasPrev ? '' : ' disabled'}>${esc(t('prev'))}</button>`
     + `<span class="pg-info">${from}&ndash;${resultsOffset + count}</span>`
-    + `<button class="pg-next"${hasNext ? '' : ' disabled'}>Next &rsaquo;</button>`;
+    + `<button class="pg-next"${hasNext ? '' : ' disabled'}>${esc(t('next'))}</button>`;
   div.appendChild(bar);
   if (hasPrev) bar.querySelector('.pg-prev').addEventListener('click', () => changePage(-1));
   if (hasNext) bar.querySelector('.pg-next').addEventListener('click', () => changePage(1));
@@ -2368,13 +3586,13 @@ function renderPager(div, count) {
 
 async function fetchResultsPage(q) {
   const div = document.getElementById('results');
-  div.innerHTML = q ? '<div class="empty">searching...</div>' : '<div class="empty">loading recent jobs…</div>';
+  div.innerHTML = `<div class="empty">${esc(q ? t('searching') : t('loading_recent'))}</div>`;
   const searchRes = await fetch(
-    `/api/search?q=${encodeURIComponent(q)}&start=${resultsOffset}${lastSeedQs}${lastSearchQs}`
+    `/api/search?q=${encodeURIComponent(q)}&start=${resultsOffset}${lastSeedQs}${lastSearchQs}&site_lang=${siteLang}`
   ).then(r => r.json());
   if (searchRes.served_with) {
     document.getElementById('badge-row').innerHTML =
-      `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
+      `<span class="badge cached">${esc(t('served_with'))} ${esc(searchRes.served_with)}</span>`;
   }
   renderResults(div, searchRes.results, searchRes.ms);
   renderPager(div, (searchRes.results || []).length);
@@ -2399,7 +3617,7 @@ async function runSearch() {
   renderActiveFilters();
   lastSearchQs = buildFilterQS();
   // Facets are page-independent, so fetch them once alongside the first page.
-  const facetP = fetch(`/api/facets?q=${encodeURIComponent(q)}${lastSeedQs}${lastSearchQs}`).then(r => r.json());
+  const facetP = fetch(`/api/facets?q=${encodeURIComponent(q)}${lastSeedQs}${lastSearchQs}&site_lang=${siteLang}`).then(r => r.json());
   await fetchResultsPage(q);
   renderFacets((await facetP).facets);
   // Related searches need a text anchor — use the typed query, or the seed's title.
@@ -2430,7 +3648,7 @@ async function loadRelated(q) {
   try { d = await fetch(`/api/related_searches?q=${encodeURIComponent(q)}`).then(r => r.json()); }
   catch (e) { return; }
   const sugs = (d && d.suggestions) || [];
-  renderRelated('Related searches', sugs.map(s => ({ q: s.display, n: s.count })));
+  renderRelated(t('related_searches'), sugs.map(s => ({ q: s.display, n: s.count })));
 }
 
 // ===== personalized keyword search (re-rank the query by the held profile) =====
@@ -2438,7 +3656,7 @@ async function runPersonalized(q) {
   const div = document.getElementById('results');
   const badgeRow = document.getElementById('badge-row');
   badgeRow.innerHTML = '';
-  div.innerHTML = '<div class="empty">personalizing to your profile…</div>';
+  div.innerHTML = `<div class="empty">${esc(t('personalizing'))}</div>`;
   renderActiveFilters();
   const hard = document.getElementById('pz-hard').checked;
   const seedIdx = (seedJob && !q) ? seedJob.idx : null;
@@ -2449,16 +3667,16 @@ async function runPersonalized(q) {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(r => r.json());
   if (searchRes.error) { div.innerHTML = '<div class="empty">' + esc(searchRes.error) + '</div>'; return; }
-  badgeRow.innerHTML = `<span class="badge cached">Served with: ${esc(searchRes.served_with)}</span>`;
+  badgeRow.innerHTML = `<span class="badge cached">${esc(t('served_with'))} ${esc(searchRes.served_with)}</span>`;
   if (!searchRes.results || !searchRes.results.length) {
     const hasFilters = Object.keys(activeFilters).length > 0;
     let msg;
     if (hard) {
-      msg = 'no jobs match this query that you also qualify for — untick the 3-axis filter to see near-misses';
+      msg = esc(t('hard_no_match'));
     } else if (hasFilters) {
-      msg = 'No jobs match these filters. <span id="clear-filters-link" class="clearlink">Clear all filters</span> to broaden your search.';
+      msg = esc(t('filters_no_match_pre')) + '<span id="clear-filters-link" class="clearlink">' + esc(t('clear_all_filters')) + '</span>' + esc(t('filters_no_match_post'));
     } else {
-      msg = 'no results';
+      msg = esc(t('no_results'));
     }
     div.innerHTML = '<div class="empty">' + msg + '</div>';
     const cl = document.getElementById('clear-filters-link');
@@ -2474,12 +3692,13 @@ async function runPersonalized(q) {
   // blank profile-driven browse -> the profile's suggested searches.
   if (q) loadRelated(q);
   else if (seedJob) loadRelated(seedJob.title);
-  else renderRelated('Suggested searches from your profile', profileSuggestions);
+  else renderRelated(t('suggested_from_profile'), profileSuggestions);
 }
 function showPersonalize(name) {
   document.getElementById('personalize-row').style.display = 'block';
   document.getElementById('pz-name').textContent =
-    (name && name !== '(your profile)') ? '— using ' + name + "'s profile" : '— using your profile';
+    (name && name !== '(your profile)') ? t('pz_using').replace('{name}', name) : t('pz_using_your');
+  lastProfileName = name || null;
 }
 function togglePzHard() {
   const on = document.getElementById('pz-on').checked;
@@ -2508,12 +3727,12 @@ async function matchOwn() {
   const loc = document.getElementById('own-loc').value.trim();
   const file = document.getElementById('own-file').files[0];
   const status = document.getElementById('own-status');
-  if (!text && !file) { status.textContent = 'Paste some text or choose a .txt/.pdf file first.'; return; }
+  if (!text && !file) { status.textContent = t('own_need_input'); return; }
   const fd = new FormData();
   fd.append('text', text); fd.append('loc', loc);
   if (file) fd.append('file', file);
-  status.textContent = 'matching…';
-  document.getElementById('results').innerHTML = '<div class="empty">matching your profile…</div>';
+  status.textContent = t('own_matching');
+  document.getElementById('results').innerHTML = `<div class="empty">${esc(t('matching_profile'))}</div>`;
   try {
     const r = await fetch('/api/match_profile', { method: 'POST', body: fd });
     const d = await r.json();
@@ -2539,9 +3758,53 @@ async function matchOwn() {
       input.value = '';
       runSearch();   // -> runPersonalized('') -> browse_personalized + facets
     }
-  } catch (e) { status.textContent = 'failed: ' + e; }
+  } catch (e) { status.textContent = t('own_failed_prefix') + e; }
 }
 document.getElementById('own-go').addEventListener('click', matchOwn);
+
+// ===== apply the active site language to all static chrome =====
+// Dynamic surfaces (results, facets, related, badges) re-localize on the next runSearch();
+// applyI18n() covers the fixed elements that aren't otherwise re-rendered.
+function applyI18n() {
+  document.documentElement.lang = siteLang;
+  const n = CORPUS_N ? CORPUS_N.toLocaleString() : '~300,000';
+  document.getElementById('tagline').textContent = t('tagline').replace('{n}', n);
+  document.getElementById('meta').textContent = t('meta');
+  document.getElementById('own-summary').textContent = t('own_summary');
+  document.getElementById('own-text').placeholder = t('own_text_ph');
+  document.getElementById('own-loc').placeholder = t('own_loc_ph');
+  document.getElementById('own-go').textContent = t('own_go');
+  document.getElementById('query').placeholder = t('query_ph');
+  document.getElementById('search-btn').textContent = t('search_btn');
+  document.getElementById('pz-on-text').textContent = t('pz_on');
+  document.getElementById('pz-hard-text').textContent = t('pz_hard');
+  document.getElementById('facet-toggle').textContent = '☰ ' + t('filters_btn');
+  const mh = document.querySelector('.map-hint'); if (mh) mh.textContent = t('map_hint');
+  const md = document.querySelector('.map-done'); if (md) md.textContent = t('map_done');
+  // re-localize the profile-name caption if a profile is loaded
+  if (lastProfileName !== undefined && document.getElementById('personalize-row').style.display !== 'none') {
+    document.getElementById('pz-name').textContent =
+      (lastProfileName && lastProfileName !== '(your profile)')
+        ? t('pz_using').replace('{name}', lastProfileName) : t('pz_using_your');
+  }
+}
+
+// language picker: persist (localStorage + ?lang=) and re-run so the browse boost + all
+// dynamic surfaces pick up the new language.
+(function initLangSelector() {
+  const sel = document.getElementById('site-lang');
+  sel.innerHTML = SITE_LANGS.map(l => `<option value="${l}">${esc(SITE_LANG_NAMES[l])}</option>`).join('');
+  sel.value = siteLang;
+  sel.addEventListener('change', () => {
+    siteLang = sel.value;
+    try { localStorage.setItem('siteLang', siteLang); } catch (e) {}
+    const u = new URL(location.href); u.searchParams.set('lang', siteLang); history.replaceState(null, '', u);
+    applyI18n();
+    runSearch();
+  });
+})();
+
+applyI18n();
 // Blank search runs by default on page load: recent + low-barrier jobs.
 runSearch();
 </script>
@@ -2551,6 +3814,7 @@ runSearch();
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    n = 0
     try:
         n = requests.get(
             f"{SOLR}/solr/{CORE}/select", params={"q": "*:*", "rows": "0"}, timeout=5
@@ -2568,6 +3832,9 @@ def index():
         HTML_PAGE.replace("__PAGE_TITLE__", title)
         .replace("__PAGE_SUBTITLE__", subtitle)
         .replace("__PAGE_META__", meta)
+        .replace("__CORPUS_N__", str(n))
+        .replace("__LOCALE_JSON__", LOCALE_JSON)
+        .replace("__SITE_LANG_NAMES__", SITE_LANG_NAMES_JSON)
         .replace("__US_MAP_SVG__", US_STATES_SVG)
         .replace("__WORLD_MAP_SVG__", WORLD_SVG)
     )
@@ -2819,11 +4086,13 @@ def api_search(
     seed: int | None = Query(None),
     k: int = Query(10),
     start: int = Query(0),
+    site_lang: str = Query(""),
 ):
     """Keyword search, "more jobs like this" when `seed` (a job idx) is given, or — when
     both are blank — the recent/low-barrier browse default. A typed query takes
     precedence over a seed (the two are mutually exclusive in the UI). `start` is the
-    pagination offset (0-based) into the employer-capped ranked list."""
+    pagination offset (0-based) into the employer-capped ranked list. `site_lang` is the
+    UI language; on a blank browse it lightly promotes same-language postings."""
     filters = _parse_filters(request)
     _apply_lang_gate(q, filters)
     start = max(0, start)
@@ -2834,7 +4103,7 @@ def api_search(
         retriever = "rrf_bm25_e5_seed" if spec.is_seed else "rrf_bm25_e5"
         served = SERVING_MODE + (" — seeded by a job" if spec.is_seed else "")
     else:
-        res = browse_default(k, filters, start)
+        res = browse_default(k, filters, start, promote_lang=site_lang or None)
         retriever = "browse_recent"
         served = "Browse: recent + low-barrier [via Solr]"
     # Highlight the typed query in each result's passage; seed/browse get a plain lead.
@@ -2856,7 +4125,11 @@ def api_search(
 
 @app.get("/api/facets")
 def api_facets(
-    request: Request, q: str = Query(""), seed: int | None = Query(None), pool: int = Query(200)
+    request: Request,
+    q: str = Query(""),
+    seed: int | None = Query(None),
+    pool: int = Query(200),
+    site_lang: str = Query(""),
 ):
     """Facet counts over the top-`pool` results (fused query/seed results, or the
     blank-browse pool when both are empty) with the same filters the search uses, so
@@ -2864,8 +4137,14 @@ def api_facets(
     filters = _parse_filters(request)
     _apply_lang_gate(q, filters)
     spec = qspec_text(q) if q.strip() else (qspec_seed(seed) if seed is not None else None)
+    blank = not (spec is not None and spec.active)
     t0 = time.time()
-    facets = compute_facets(spec or qspec_text(""), filters, pool=pool)
+    facets = compute_facets(
+        spec or qspec_text(""),
+        filters,
+        pool=pool,
+        promote_lang=(site_lang or None) if blank else None,
+    )
     ms = int((time.time() - t0) * 1000)
     return JSONResponse(
         {
