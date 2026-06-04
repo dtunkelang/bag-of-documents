@@ -625,7 +625,7 @@ def _hydrate(ids: list[int], with_facets: bool = False) -> dict[int, dict]:
     id_clause = " OR ".join(f'id:"{i}"' for i in ids)
     fl = (
         "id,title_display,employer,locations,employment_type,"
-        "salary_min,salary_max,salary_currency,department,posted_at,source_corpus,industry"
+        "salary_min,salary_max,salary_currency,department,posted_at,source_corpus,industry,apply_url"
     )
     if with_facets:
         fl += "," + ",".join(FACET_FIELDS)
@@ -667,6 +667,7 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
         "salary": _fmt_salary(hyd),
         "department": hyd.get("department") or "",
         "posted": (hyd.get("posted_at") or "")[:10],
+        "apply_url": hyd.get("apply_url") or "",
         "snippet": "",  # filled in by _attach_snippets at the endpoint layer
     }
 
@@ -2902,8 +2903,8 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 .detail.loading { color: var(--muted); font-style: italic; }
 .mlt-pivot { margin-top: 10px; display: inline-block; font-size: 0.85em; font-weight: 600; color: var(--brand); cursor: pointer; }
 .mlt-pivot:hover { text-decoration: underline; }
-.view-posting { margin-top: 10px; margin-right: 16px; display: inline-block; font-size: 0.85em; font-weight: 600; color: var(--brand); text-decoration: none; }
-.view-posting:hover { text-decoration: underline; }
+.apply-btn { display: inline-block; margin-top: 10px; margin-right: 14px; padding: 5px 12px; font-size: 0.82em; font-weight: 600; color: #fff; background: var(--brand); border-radius: var(--r-sm); text-decoration: none; transition: opacity .12s; }
+.apply-btn:hover { opacity: 0.88; text-decoration: none; color: #fff; }
 .empty { color: var(--faint); padding: 36px; text-align: center; }
 .empty .clearlink { color: var(--brand); cursor: pointer; text-decoration: underline; }
 .timing { font-size: 0.8em; color: var(--faint); padding-top: 8px; }
@@ -3202,6 +3203,12 @@ const SRC_FULL = {
 };
 function shortSrc(s) { return s == null ? '' : (SRC_SHORT[s] || s); }
 function srcFull(s) { return s == null ? '' : (SRC_FULL[s] || s); }
+// Shared "View original posting" button — identical on the card and in the detail
+// panel. Returns '' when no apply_url (adzuna/jooble/... or a fresh delta posting).
+function applyBtnHtml(url) {
+  if (!url) return '';
+  return `<a class="apply-btn" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(t('view_posting'))} ↗</a>`;
+}
 function metaLine(r) {
   const parts = [];
   if (r.employer) parts.push(esc(r.employer));
@@ -3233,7 +3240,7 @@ async function toggleDetail(idx, container) {
     div.textContent = data.description || t('no_description');
     if (data.apply_url) {
       const link = document.createElement('a');
-      link.className = 'view-posting';
+      link.className = 'apply-btn';
       link.href = data.apply_url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer nofollow';
@@ -3287,11 +3294,13 @@ function renderResults(div, items, ms) {
       const cos = (r.cosine != null) ? `<span class="fit" title="profile-to-job embedding similarity">fit ${r.cosine.toFixed(3)}</span>` : '';
       fit = `<div class="badges" style="margin-top:5px">${cos}${badge('sen', r.axes.sen)}${badge('loc', r.axes.loc)}${badge('gate', r.axes.gate)}${r.axes.field ? badge('field', r.axes.field) : ''}</div>`;
     }
-    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}</span>`;
+    row.innerHTML = `<span class="r-rank">${r.rank}</span><span class="r-source" title="${esc(srcFull(r.source))}">${esc(shortSrc(r.source))}</span><span class="r-title"><div class="t">${esc(r.title)}</div>${metaLine(r)}${metaLine2(r)}${r.snippet ? `<div class="r-snip">${r.snippet}</div>` : ''}${fit}${applyBtnHtml(r.apply_url)}</span>`;
     if (r.idx != null && r.idx >= 0) {
       const titleCell = row.querySelector('.r-title');
       row.addEventListener('click', () => toggleDetail(r.idx, titleCell));
     }
+    // the apply button is an outbound link; clicking it must not toggle the detail panel
+    row.querySelectorAll('.apply-btn').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
     div.appendChild(row);
   });
   if (ms != null) {
@@ -4225,7 +4234,7 @@ PROFILE_TOP_N = 10
 _PROFILE_FL = (
     "id,title_display,description,locations,remote_mode,employer,"
     "posted_at,source_corpus,industry,employment_type,department,role_family,"
-    "salary_min,salary_max,salary_currency"
+    "salary_min,salary_max,salary_currency,apply_url"
 )
 
 
@@ -4287,6 +4296,7 @@ def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dic
         "workauth": bool(jf["workauth"]),
         "posted": (d.get("posted_at") or "")[:7],
         "source": d.get("source_corpus") or "",  # raw; the client maps it to a short code + tooltip
+        "apply_url": d.get("apply_url") or "",
         "cosine": round(float(cos), 4),
         "axes": st,
     }
