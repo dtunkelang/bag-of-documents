@@ -26,7 +26,7 @@ import requests
 import resume_match_lib as L
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
-from lang_detect import detect_lang, query_lang_mode
+from lang_detect import GATE_LANGS, detect_lang, query_lang_mode
 from maps_svg import US_STATES_SVG, WORLD_SVG
 from snippet_lib import (
     SNIPPET_LEN,
@@ -470,6 +470,25 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     mode = query_lang_mode(query)
     if mode in ("fr", "sv", "de", "nl", "es", "it"):
         filters.setdefault("lang", mode)
+
+
+# Profile-language floor: detect_lang is reliable on long text (a whole resume), so unlike
+# the short-query gate we trust the classifier alone (no positive-signal check). 0.90 mirrors
+# the query gate's confidence bar; below it we leave the match ungated rather than risk
+# scoping an ambiguous CV to the wrong-language inventory.
+_PROFILE_LANG_FLOOR = 0.90
+
+
+def _profile_lang(blob: str) -> str | None:
+    """The index language to scope a profile match to, from the resume text — or None when
+    the CV is ambiguous. Unlike a keyword query (where English is left ungated because BM25/
+    RRF pull only ~5% French), the profile lane is a pure e5 KNN over a ~33%-French index
+    under an English-only encoder, so an English CV's dense neighbours are MAJORITY French.
+    Gating the match to the CV's own language is therefore warranted for English too."""
+    lang, prob = detect_lang(blob)
+    if lang in GATE_LANGS and prob >= _PROFILE_LANG_FLOOR:
+        return lang
+    return None
 
 
 def _filter_clauses(filters: dict[str, str | list[str]]) -> list[str]:
@@ -2974,10 +2993,15 @@ def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dic
     }
 
 
-def _run_profile_match(r: dict, qv: list[float], qvs: list[list[float]] | None = None) -> dict:
+def _run_profile_match(
+    r: dict, qv: list[float], qvs: list[list[float]] | None = None, lang: str | None = None
+) -> dict:
     """e5-small KNN top-`PROFILE_POOL` (max-sim over the profile vectors), then the
-    3-axis filter with job_features computed live from the hydrated Solr docs."""
-    hits = _topk_knn_multi(_prof_vecs(qv, qvs), PROFILE_POOL)  # [(idx, cosine), ...] best
+    3-axis filter with job_features computed live from the hydrated Solr docs. `lang`
+    (the detected resume language) scopes the KNN preFilter to that inventory, so an
+    English CV isn't drowned out by France Travail's French postings (see _profile_lang)."""
+    filters = {"lang": lang} if lang else None
+    hits = _topk_knn_multi(_prof_vecs(qv, qvs), PROFILE_POOL, filters)  # [(idx, cosine), ...] best
     hyd = _hydrate_for_match([i for i, _ in hits])
     self_emps = _self_employers(r)
     cosine_list: list[dict] = []
@@ -3185,11 +3209,14 @@ async def api_match_profile(
     # max-sim over both, so a specialist isn't washed out by a long generic centroid.
     spec_txt = L.specialization_text(blob)
     qvs = [qv] + ([_dense_qv(spec_txt)] if spec_txt.strip() else [])
-    out = _run_profile_match(r, qv, qvs)
+    # Scope the match to the resume's own language: the profile lane is a pure e5 KNN over a
+    # ~33%-French index, so an English CV's dense neighbours skew majority-French without this.
+    lang = _profile_lang(blob)
+    out = _run_profile_match(r, qv, qvs, lang)
     # suggested searches (#1) + the parsed profile the client holds and re-sends to
     # personalize subsequent keyword searches (#2). Nothing is persisted server-side.
     out["suggestions"] = _suggest_queries(blob, r)
-    out["profile"] = {"r": r, "qv": qv, "qvs": qvs}
+    out["profile"] = {"r": r, "qv": qv, "qvs": qvs, "lang": lang}
     return JSONResponse(out)
 
 
@@ -3216,6 +3243,12 @@ async def api_search_personalized(request: Request):
         elif v and str(v).strip():
             filters[f] = str(v).strip()
     _apply_lang_gate(q, filters)
+    # Fall back to the resume's language when the query itself doesn't pick one (notably a
+    # blank personalized browse, where the profile IS the intent). setdefault so an explicit
+    # user lang facet and a confidently-non-English query both still win.
+    prof_lang = prof.get("lang")
+    if prof_lang in GATE_LANGS:
+        filters.setdefault("lang", prof_lang)
     k = int(body.get("k") or 10)
     hard = bool(body.get("hard_filter"))
     spec = qspec_text(q) if q else (qspec_seed(int(seed)) if seed is not None else None)
