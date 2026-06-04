@@ -270,3 +270,84 @@ class FrRelatedSuggester:
             if len(out) >= k:
                 break
         return out
+
+
+# ===== German related searches — grounded in the ESCO occupation backbone =====
+# Same problem as French (e5 ranks German by morphology, not meaning), but German has no
+# national mobilite graph. This lane walks the ESCO occupation backbone instead: query
+# --(ESCO German label)--> occupation --(shared-skill relatedness)--> related occupations,
+# each shown as a corpus-mined German role (so every pick has results). The bundle
+# (de_related.json) is built offline by build_de_related.py and is self-contained.
+
+# Feminine German occupational suffix -> masculine, on an already-FOLDED string; a
+# resolution fallback only (see build_de_related.degender_de — kept in sync). '-innen'
+# (plural) before '-in'; fires only when the stem stays >=4 chars.
+_DE_FEM = [("innen", ""), ("in", "")]
+
+
+def _de_fold(s: str) -> str:
+    """Accent/punct-insensitive German key, kept in sync with esco_backbone.fold (the
+    build-side folder): ß -> 'ss' BEFORE the punct strip (NFKD leaves ß intact, and the
+    [^a-z0-9] strip would otherwise drop it), so 'straße'/'strasse' share a key with the
+    de_related.json label index."""
+    nfkd = unicodedata.normalize("NFKD", s.lower().replace("ß", "ss"))
+    base = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return _FR_WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
+
+
+def degender_de(folded: str) -> str:
+    """Map feminine German occupational tokens to their masculine form on an already
+    accent-folded string, so a feminine surface matches the occupation label index."""
+    out = []
+    for tok in folded.split():
+        for suf, rep in _DE_FEM:
+            if len(tok) >= len(suf) + 4 and tok.endswith(suf):
+                tok = tok[: -len(suf)] + rep
+                break
+        out.append(tok)
+    return " ".join(out)
+
+
+class DeRelatedSuggester:
+    def __init__(self, bundle_path: str | None = None):
+        path = bundle_path or os.path.join(HERE, "de_related.json")
+        with open(path) as f:
+            b = json.load(f)
+        self.label2uri: dict[str, str] = b["label2uri"]
+        self.uri_related: dict[str, list[str]] = b["uri_related"]
+        self.uri_roles: dict[str, list[dict]] = b["uri_roles"]
+
+    def _resolve(self, query: str) -> str | None:
+        """Map a (possibly qualified) German query to an ESCO occupation, backing off
+        trailing words ('softwareentwickler java' -> 'softwareentwickler'); retry on the
+        degendered form for feminine surfaces ('erzieherin' -> 'erzieher')."""
+        toks = _de_fold(query).split()
+        for cand in (toks, degender_de(" ".join(toks)).split()):
+            for j in range(len(cand), 0, -1):
+                uri = self.label2uri.get(" ".join(cand[:j]))
+                if uri:
+                    return uri
+        return None
+
+    def suggest(self, query: str, k: int = DEFAULT_K) -> list[dict]:
+        """Related German role searches for `query`: ESCO skill-overlap occupational
+        neighbours, each shown as a corpus-mined German role so it always returns results.
+        Returns [{display, phrase, count}], best first."""
+        uri = self._resolve(query)
+        if not uri:
+            return []
+        qkey = _de_fold(query)
+        out: list[dict] = []
+        seen = {qkey}
+        for t in self.uri_related.get(uri, []):
+            for role in self.uri_roles.get(t, []):
+                rk = _de_fold(role["text"])
+                # skip the query's own role and any sub/superstring of it (redundant)
+                if rk in seen or qkey in rk or rk in qkey:
+                    continue
+                seen.add(rk)
+                out.append({"display": role["text"], "phrase": role["text"], "count": role["n"]})
+                break
+            if len(out) >= k:
+                break
+        return out

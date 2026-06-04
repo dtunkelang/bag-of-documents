@@ -27,8 +27,9 @@ import re
 from functools import lru_cache
 
 # Languages we gate on. The index is overwhelmingly English plus France Travail
-# French; restricting the classifier to this set makes long doc text resolve cleanly.
-GATE_LANGS = ("en", "fr")
+# French, JobTech (Arbetsförmedlingen) Swedish, and Adzuna Germany German;
+# restricting the classifier to this set makes long doc text resolve cleanly.
+GATE_LANGS = ("en", "fr", "sv", "de")
 
 # Positive French signals for the query gate.
 _FR_DIACRITIC = re.compile(r"[àâäéèêëîïôöùûüÿçœæ]", re.I)
@@ -69,7 +70,80 @@ _FR_WORDS = frozenset(
         "adjoint",
     }
 )
-_TOKEN = re.compile(r"[a-zàâäéèêëîïôöùûüÿçœæ]+", re.I)
+_TOKEN = re.compile(r"[a-zàâäéèêëîïôöùûüÿçœæå]+", re.I)
+
+# Positive Swedish signals for the query gate. 'å' is uniquely Scandinavian; 'ä'/'ö'
+# are shared with (rare) French, but the gate checks French FIRST and the Swedish
+# branch still requires the classifier to confidently return 'sv' (measured 1.0 on
+# single-word role queries like "sjuksköterska"/"ingenjör"), so a French ä/ö word
+# resolves to 'fr' before it can reach here. The function/role words below additionally
+# catch accent-free Swedish traffic.
+_SV_DIACRITIC = re.compile(r"[åäö]", re.I)
+_SV_WORDS = frozenset(
+    {
+        "jobb",
+        "jobben",
+        "lediga",
+        "ledig",
+        "sökes",
+        "söker",
+        "tjänst",
+        "tjänster",
+        "anställning",
+        "arbete",
+        "och",
+        "för",
+        "inom",
+        "samt",
+        "heltid",
+        "deltid",
+        "vikariat",
+    }
+)
+
+# Positive German signals for the query gate. 'ß' is uniquely German; 'ü' is German
+# (shared only with rare French, which is checked FIRST). 'ä'/'ö' are shared with
+# Swedish so they are NOT German diacritic signals on their own — German must instead
+# carry 'ü'/'ß' OR a German function/role word (and the classifier must still confidently
+# return 'de'). German is checked BEFORE Swedish, but a Swedish ä/ö word never carries a
+# German signal, so it falls through to the Swedish branch.
+_DE_DIACRITIC = re.compile(r"[üß]", re.I)
+_DE_WORDS = frozenset(
+    {
+        "der",
+        "die",
+        "das",
+        "den",
+        "dem",
+        "ein",
+        "eine",
+        "einen",
+        "und",
+        "oder",
+        "für",
+        "fur",
+        "mit",
+        "im",
+        "bei",
+        "als",
+        "von",
+        "zur",
+        "zum",
+        "stelle",
+        "stellen",
+        "stellenangebot",
+        "stellenangebote",
+        "stellenanzeige",
+        "arbeit",
+        "beruf",
+        "ausbildung",
+        "gesucht",
+        "vollzeit",
+        "teilzeit",
+        "mitarbeiter",
+        "fachkraft",
+    }
+)
 
 
 @lru_cache(maxsize=1)
@@ -100,14 +174,45 @@ def _has_fr_signal(query: str) -> bool:
     return bool({t.lower() for t in _TOKEN.findall(query)} & _FR_WORDS)
 
 
-def query_lang_mode(query: str, fr_floor: float = 0.90) -> str:
-    """Map a search query to a gate mode: 'fr' only when the query carries a positive
-    French signal AND the classifier confidently agrees (prob >= fr_floor); else 'en'.
-    High-precision by design (see module docstring) — short ambiguous/English queries
-    stay 'en' so we never scope a user to the wrong-language inventory."""
+def _has_sv_signal(query: str) -> bool:
+    """True if the query carries an unambiguous Swedish signal (the Scandinavian-only
+    letter 'å' or a Swedish structural/role word as a whole token)."""
+    if _SV_DIACRITIC.search(query):
+        return True
+    return bool({t.lower() for t in _TOKEN.findall(query)} & _SV_WORDS)
+
+
+def _has_de_signal(query: str) -> bool:
+    """True if the query carries an unambiguous German signal (the German-only letters
+    'ü'/'ß' or a German structural/role word as a whole token). 'ä'/'ö' are deliberately
+    NOT German signals — they are shared with Swedish, which has its own branch."""
+    if _DE_DIACRITIC.search(query):
+        return True
+    return bool({t.lower() for t in _TOKEN.findall(query)} & _DE_WORDS)
+
+
+def query_lang_mode(
+    query: str, fr_floor: float = 0.90, sv_floor: float = 0.90, de_floor: float = 0.90
+) -> str:
+    """Map a search query to a gate mode ('fr' | 'de' | 'sv' | 'en'): a non-English mode
+    only when the query carries that language's positive signal AND the classifier confidently
+    agrees (prob >= floor); else 'en'. High-precision by design (see module docstring) —
+    short ambiguous/English queries stay 'en' so we never scope a user to the wrong-language
+    inventory. French is checked first (highest-volume), then German, then Swedish; the
+    diacritic signals are disjoint (fr accents / ü,ß / å) so the order only matters for the
+    shared-function-word edge cases, which the classifier-agreement guard resolves anyway."""
     if not query or not query.strip():
         return "en"
-    if not _has_fr_signal(query):
-        return "en"
-    lang, prob = detect_lang(query)
-    return "fr" if (lang == "fr" and prob >= fr_floor) else "en"
+    if _has_fr_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "fr" and prob >= fr_floor:
+            return "fr"
+    if _has_de_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "de" and prob >= de_floor:
+            return "de"
+    if _has_sv_signal(query):
+        lang, prob = detect_lang(query)
+        if lang == "sv" and prob >= sv_floor:
+            return "sv"
+    return "en"

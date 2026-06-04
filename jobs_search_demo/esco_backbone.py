@@ -36,8 +36,11 @@ _WS = re.compile(r"\s+")
 
 
 def fold(s: str) -> str:
-    """Accent/punct-insensitive label key (matches build_fr_related._csv_fold)."""
-    nfkd = unicodedata.normalize("NFKD", (s or "").lower())
+    """Accent/punct-insensitive label key (matches build_fr_related._csv_fold). German ß
+    is mapped to 'ss' BEFORE the punct strip (NFKD leaves ß intact, and [^a-z0-9] would
+    otherwise turn it into a space), so 'Schweißer'/'schweisser' share a key with the
+    corpus and the app-side fold."""
+    nfkd = unicodedata.normalize("NFKD", (s or "").lower().replace("ß", "ss"))
     base = "".join(c for c in nfkd if not unicodedata.combining(c))
     return _WS.sub(" ", re.sub(r"[^a-z0-9]+", " ", base)).strip()
 

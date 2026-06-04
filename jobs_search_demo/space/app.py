@@ -117,8 +117,9 @@ def _is_clean(q: str) -> bool:
 def _fold(s: str) -> str:
     """Lowercase + strip diacritics and apostrophes, so an accent-free query
     ('ingenieur') matches an accented suggestion ('ingénieur') — French speakers
-    routinely type without accents, and the title suggester is accent-sensitive."""
-    nfkd = unicodedata.normalize("NFKD", s)
+    routinely type without accents, and the title suggester is accent-sensitive. German
+    ß is mapped to 'ss' (NFKD leaves it intact) so 'strasse' matches 'straße'."""
+    nfkd = unicodedata.normalize("NFKD", s.replace("ß", "ss"))
     base = "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
     return base.replace("'", "").replace("’", "")
 
@@ -179,6 +180,18 @@ def load_resources() -> None:
         fr_related = None
         print(f"  fr related unavailable: {e}", flush=True)
 
+    # German related searches via the ESCO occupation backbone (build_de_related.py) — same
+    # rationale as French (e5 ranks German by morphology), but ESCO has no mobilite graph so
+    # relatedness is skill-overlap based (suggest_lib.DeRelatedSuggester).
+    try:
+        from suggest_lib import DeRelatedSuggester
+
+        de_related = DeRelatedSuggester()
+        print(f"  de related: {len(de_related.label2uri):,} ESCO query keys", flush=True)
+    except Exception as e:
+        de_related = None
+        print(f"  de related unavailable: {e}", flush=True)
+
     t0 = time.time()
     print("downloading suggestion corpus from HF dataset...", flush=True)
     cache_dir = _download_suggest_cache()
@@ -236,9 +249,20 @@ def load_resources() -> None:
         with open(sv_path) as f:
             sv_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
         by_tag["sv"] = sorted(dict.fromkeys(sv_roles))
-    # Accent-folded index over every suggestion key (curated corpus + FR + SV roles):
+    # German canonical roles mined from Adzuna Germany titles (mine_de_roles.py) -> a
+    # dedicated autocomplete tier, same rationale as French/Swedish: the English corpus
+    # carries no German, so without this a German prefix only hits English keys.
+    de_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "de_roles.json")
+    de_roles: list[str] = []
+    if os.path.exists(de_path):
+        with open(de_path) as f:
+            de_roles = [x["text"] for x in json.load(f) if _is_clean(x["text"])]
+        by_tag["de"] = sorted(dict.fromkeys(de_roles))
+    # Accent-folded index over every suggestion key (curated corpus + FR + SV + DE roles):
     # folded prefix -> originals, so "ingenieur" matches "ingénieur", "lara" -> "lärare".
-    folded_pairs = sorted((_fold(k), k) for k in set(sorted_keys) | set(fr_roles) | set(sv_roles))
+    folded_pairs = sorted(
+        (_fold(k), k) for k in set(sorted_keys) | set(fr_roles) | set(sv_roles) | set(de_roles)
+    )
     folded_keys = [p[0] for p in folded_pairs]
     # Per-tier accent-folded index (folded_key, original), sorted by folded key. Lets
     # autocomplete match an accent-free prefix WITHIN the quality tiers ("electr" ->
@@ -260,6 +284,12 @@ def load_resources() -> None:
             "tier_keys": dict(by_tag),
             "role_suggester": role_suggester,
             "fr_related": fr_related,
+            "de_related": de_related,
+            # folded German role keys: lets the related-search router recognise a bare
+            # German role ("techniker", "elektriker") that carries no lang-gate signal and
+            # may not resolve in ESCO, so it's served by the German lane (empty if no move)
+            # rather than the English e5 lane (morphology noise).
+            "de_role_keys": {_fold(r) for r in de_roles},
             "folded_pairs": folded_pairs,
             "folded_keys": folded_keys,
             "tier_folded": tier_folded,
@@ -268,6 +298,7 @@ def load_resources() -> None:
     )
     print(f"  french roles: {len(fr_roles)}", flush=True)
     print(f"  swedish roles: {len(sv_roles)}", flush=True)
+    print(f"  german roles: {len(de_roles)}", flush=True)
     print("ready.", flush=True)
 
 
@@ -327,13 +358,13 @@ def _apply_lang_gate(query: str, filters: dict[str, str | list[str]]) -> None:
     (France Travail) under an English-only encoder; English queries already pick up
     only ~5% French docs (low harm), but a confidently-French query should be scoped
     to French inventory. Detection is asymmetric (see lang_detect.query_lang_mode):
-    only an unmistakably-French (or Swedish, from JobTech) query flips the gate, so a
-    short ambiguous query never strands a user. We setdefault so an explicit user `lang`
-    facet selection wins."""
+    only an unmistakably-French (or Swedish from JobTech, or German from Adzuna DE) query
+    flips the gate, so a short ambiguous query never strands a user. We setdefault so an
+    explicit user `lang` facet selection wins."""
     if not (query and query.strip()):
         return
     mode = query_lang_mode(query)
-    if mode in ("fr", "sv"):
+    if mode in ("fr", "sv", "de"):
         filters.setdefault("lang", mode)
 
 
@@ -2408,7 +2439,7 @@ def api_suggest(q: str = Query(""), limit: int = Query(10)):
     # Tagged tiers (title > combo > head > tail > synth) rank by source quality; sorted_keys
     # is the catch-all fallback (it also carries strings the tagged tiers deliberately
     # excluded), so it's consulted only to fill out the list.
-    tier_order = ("title", "fr", "sv", "combo", "head", "tail", "synth")
+    tier_order = ("title", "fr", "sv", "de", "combo", "head", "tail", "synth")
     # Gather the whole candidate pool first (best/lowest tier index per unique string),
     # THEN rank — so a bare stem in a low tier ("product manager" is tagged synth) isn't
     # truncated before it can rank. Matching is accent-insensitive WITHIN each tier (the
@@ -2481,6 +2512,22 @@ def api_related_searches(q: str = Query(""), k: int = Query(4)):
         or (q.strip().lower() not in R.get("query_key_set", set()) and fr._resolve(q) is not None)
     ):
         return JSONResponse({"suggestions": fr.suggest(q, k=k)})
+    # German rides the same pattern on the ESCO backbone (DeRelatedSuggester): the gate, or
+    # a bare German cognate role ("elektriker", "krankenpfleger") that resolves to a real
+    # ESCO occupation but isn't a known English query (the corpus-membership guard keeps
+    # franglais English in the English lane). Crucially, once we've decided a query is
+    # German we serve the ESCO lane EVEN IF it yields nothing (return empty) rather than
+    # falling through to the English e5 lane — that lane only produces morphology noise on
+    # German, and ESCO's German vocabulary is thinner than ROME's so empty is common.
+    de = R.get("de_related")
+    if de is not None:
+        qstrip = q.strip().lower()
+        is_german = query_lang_mode(q) == "de" or (
+            qstrip not in R.get("query_key_set", set())
+            and (_fold(qstrip) in R.get("de_role_keys", set()) or de._resolve(q) is not None)
+        )
+        if is_german:
+            return JSONResponse({"suggestions": de.suggest(q, k=k)})
     # English / ambiguous: the English e5 lane first.
     rs = R.get("role_suggester")
     en = rs.suggest(q, np.asarray(_dense_qv(q), dtype=np.float32), k=k) if rs is not None else []

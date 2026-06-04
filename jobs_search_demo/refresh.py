@@ -416,6 +416,31 @@ def stage_pull(args) -> None:
                 str(args.adzuna_max_days_old),
             ]
         )
+        # Deeper de-only pass: fetch into a temp dir, then copy its parquet(s) into the
+        # raw dir under a distinct name so the single prep below reads both passes (prep
+        # dedupes the ~1k de overlap from the multi-country fetch). Only when 'de' is in
+        # the country set. EN/FR/others keep the shared shallow cap.
+        if "de" in (c.strip().lower() for c in args.adzuna_countries.split(",")):
+            de_tmp = adz_dir / "_raw_de"
+            if de_tmp.exists():
+                shutil.rmtree(de_tmp)
+            run(
+                [
+                    PY,
+                    "download/fetch_adzuna.py",
+                    "--out-dir",
+                    de_tmp,
+                    "--countries",
+                    "de",
+                    "--max-pages",
+                    str(args.adzuna_de_max_pages),
+                    "--max-days-old",
+                    str(args.adzuna_de_max_days_old),
+                ]
+            )
+            for i, p in enumerate(sorted(de_tmp.glob("*.parquet"))):
+                shutil.copy2(p, adz_raw / f"adzuna-de-{i:04d}.parquet")
+            shutil.rmtree(de_tmp)
         run(
             [
                 PY,
@@ -1504,15 +1529,26 @@ def _regen_fr_suggestions(demo: Path) -> None:
         related-search lane, whose display labels must EXIST in the live corpus.
       * space/sv_roles.json   (mine_sv_roles.py)   — Swedish (JobTech) role vocab
         for the Swedish autocomplete tier.
+      * space/de_roles.json   (mine_de_roles.py)   — German (Adzuna DE) role vocab
+        for the German autocomplete tier.
+      * space/de_related.json (build_de_related.py) — the grounded ESCO related-search
+        lane, whose display labels must EXIST in the live corpus.
     All read Solr :8983, so this runs AFTER the stage-4 commit and BEFORE the
     stage-7 deploy uploads them. Non-fatal: a failure keeps the last-good bundle
     rather than aborting the index refresh. build_fr_related needs a one-time
-    ROME open-data download (cached at .rome_opendata.zip); the miners write
-    cwd-relative paths, hence cwd=demo for all."""
-    for script in ("mine_fr_roles.py", "build_fr_related.py", "mine_sv_roles.py"):
+    ROME open-data download (cached at .rome_opendata.zip); build_de_related reads the
+    harvested ESCO backbone (.esco_records.jsonl); the miners write cwd-relative paths,
+    hence cwd=demo for all."""
+    for script in (
+        "mine_fr_roles.py",
+        "build_fr_related.py",
+        "mine_sv_roles.py",
+        "mine_de_roles.py",
+        "build_de_related.py",
+    ):
         try:
             run([PY, script], cwd=demo)
-            print(f"[4] regenerated French suggestions via {script}", flush=True)
+            print(f"[4] regenerated suggestion bundle via {script}", flush=True)
         except Exception as e:  # noqa: BLE001 — degrade to last-good, never abort refresh
             print(f"[4] WARNING: {script} failed ({e}); keeping last-good bundle", flush=True)
 
@@ -1558,6 +1594,12 @@ def stage_deploy(args) -> None:
     api = HfApi()
     space_id = "dtunkelang/jobs-search"
     space_dir = ROOT / "jobs_search_demo" / "space"
+    # lang_detect.py is canonical at the demo root (imported here by stage_unify for
+    # index-time lang tagging AND by the miners); the Space serves its OWN copy under
+    # space/. Sync it before upload so the served query-gate can't silently drift behind
+    # the index tagging (this exact drift once shipped an en+fr-only gate while the index
+    # already carried sv/de docs).
+    shutil.copy2(ROOT / "jobs_search_demo" / "lang_detect.py", space_dir / "lang_detect.py")
     # The merged profile-match lane needs resume_match_lib.py (imported by app.py)
     # and pypdf (requirements.txt) on the Space — and the Dockerfile must COPY the
     # lib into the image, so push the Dockerfile too (not just app.py).
@@ -1576,6 +1618,8 @@ def stage_deploy(args) -> None:
         "fr_roles.json",
         "fr_related.json",
         "sv_roles.json",
+        "de_roles.json",
+        "de_related.json",
     ):
         api.upload_file(
             path_or_fileobj=str(space_dir / fname),
@@ -1611,7 +1655,13 @@ def main() -> int:
         "--to-stage", type=int, default=3, help="inclusive; default 3 (dry-run data pipeline)"
     )
     ap.add_argument(
-        "--out-dir", default=str(ROOT / "unified_jobs"), help="unified catalog output dir"
+        # Default to the SAME dir the nightly (daily_jobs_refresh.sh) uses, so a manual
+        # refresh reuses its warm content-addressed encode cache (a cold dir re-encodes
+        # all ~330k titles on MPS for nothing) AND stays catalog-consistent with the live
+        # core the nightly maintains. Use an explicit --out-dir only for isolated experiments.
+        "--out-dir",
+        default=str(ROOT / "unified_jobs_daily"),
+        help="unified catalog output dir (default matches the nightly's warm-cache dir)",
     )
     ap.add_argument(
         "--openapply-source",
@@ -1631,11 +1681,12 @@ def main() -> int:
     ap.add_argument("--openapply-sample-n", type=int, default=0, help="0 = keep all (post-dedup)")
     ap.add_argument(
         "--adzuna-countries",
-        # English-speaking countries + France: every locale the index already
-        # handles (English e5 + the French lang-gate/ROME related-lane). Other
-        # Adzuna locales (de/es/it/nl/pl/...) are omitted on purpose — no lang
-        # handling exists for them, so they'd contaminate an EN+FR-tuned index.
-        default="us,ca,gb,au,nz,in,sg,za,fr",
+        # English-speaking countries + France + Germany: every locale the index
+        # handles (English e5, the French lang-gate/ROME related-lane, and the German
+        # lang-gate/ESCO related-lane). The remaining Adzuna locales (es/it/nl/pl/...)
+        # are omitted on purpose — no lang handling exists for them yet, so they'd
+        # contaminate the index.
+        default="us,ca,gb,au,nz,in,sg,za,fr,de",
         help="comma-separated Adzuna country codes (us,gb,ca,...); needs ADZUNA_APP_ID/KEY",
     )
     ap.add_argument(
@@ -1643,6 +1694,16 @@ def main() -> int:
     )
     ap.add_argument(
         "--adzuna-max-days-old", type=int, default=7, help="Adzuna: only postings newer than N days"
+    )
+    # Germany gets a dedicated deeper pass: Adzuna is the SOLE German source (unlike
+    # English, which has many), so the shared per-country cap (--adzuna-max-pages) leaves
+    # the German lane too thin (~1k docs -> a near-empty ESCO related lane). A second
+    # de-only fetch with a larger page/day budget brings it to ~5k. EN/FR are unaffected.
+    ap.add_argument(
+        "--adzuna-de-max-pages", type=int, default=120, help="extra de-only Adzuna pass: pages"
+    )
+    ap.add_argument(
+        "--adzuna-de-max-days-old", type=int, default=14, help="extra de-only Adzuna pass: days"
     )
     # Additional public sources (cred-gated). Modest defaults keep nightly --delta
     # runs cheap; raise per source for a fuller backfill.
