@@ -498,6 +498,13 @@ def _filter_clauses(filters: dict[str, str | list[str]]) -> list[str]:
     single-select with cumulative nesting. Quotes values to handle spaces/specials."""
     out = []
     for k, v in filters.items():
+        # employer is not a UI facet but IS a real filter (the company-pivot link). It's
+        # docValues=true (indexed=false), which Solr can still fq on, so no reindex needed.
+        if k == "employer":
+            vals = [x for x in ([v] if isinstance(v, str) else list(v)) if x]
+            if vals:
+                out.append("employer:(" + " OR ".join(f'"{x}"' for x in vals) + ")")
+            continue
         if k not in FACET_FIELDS:
             continue
         values = [v] if isinstance(v, str) else list(v)
@@ -649,6 +656,62 @@ def _fmt_salary(d: dict) -> str:
     return f"{cur} from {int(lo):,}".strip()
 
 
+# ===== employer display names =====
+# The `employer` Solr field stores only a slug (e.g. "andurilindustries",
+# "jane-gorse-recruitment-limited") — the original company name was discarded at fetch
+# time and isn't recoverable without re-crawling each source. We render a human name at
+# serve time: a curated slug->name override file (employer_names.json) handles the cases a
+# generic prettifier gets wrong (concatenated/mixed-case brands like SpaceX, eFinancialCareers
+# and acronyms like SGS/USAA); everything else falls back to de-hyphenate + titlecase, which
+# already reads well for the (majority) hyphenated slugs. The raw slug is kept as the filter
+# key so the company-pivot link still works.
+_EMP_OVERRIDES: dict[str, str] = {}
+try:
+    with open(os.path.join(os.path.dirname(__file__), "employer_names.json")) as _ef:
+        _EMP_OVERRIDES = {k: v for k, v in json.load(_ef).items() if not k.startswith("_")}
+except FileNotFoundError:
+    pass
+
+# Tokens to render upper-case when they appear as a standalone word in a slug.
+_EMP_ACRONYMS = {
+    "sgs",
+    "usaa",
+    "ntt",
+    "ibm",
+    "kpmg",
+    "pwc",
+    "ey",
+    "bbc",
+    "nhs",
+    "llc",
+    "llp",
+    "plc",
+    "srl",
+    "gmbh",
+    "jd",
+    "ast",
+    "cfo",
+    "hr",
+    "us",
+    "uk",
+}
+_EMP_TLD = re.compile(r"[-.]com$")
+_EMP_ESTAB_ID = re.compile(r"-\d+$")  # France Travail establishment ids (proman-145)
+
+
+@functools.lru_cache(maxsize=16384)
+def _pretty_employer(slug: str) -> str:
+    """Human-readable company name for an employer slug (override map, else prettify)."""
+    if not slug:
+        return ""
+    if slug in _EMP_OVERRIDES:
+        return _EMP_OVERRIDES[slug]
+    s = _EMP_ESTAB_ID.sub("", _EMP_TLD.sub("", slug.strip()))
+    words = [w for w in re.split(r"[-_.\s]+", s) if w]
+    out = [w.upper() if w in _EMP_ACRONYMS else (w[:1].upper() + w[1:]) for w in words]
+    return " ".join(out) or slug
+
+
 def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
     locs = hyd.get("locations") or []
     title = (hyd.get("title_display") or "").strip()
@@ -661,6 +724,7 @@ def _make_result(rank: int, score: float, idx: int, hyd: dict) -> dict:
         "idx": idx,
         "source": hyd.get("source_corpus") or "",
         "employer": hyd.get("employer") or "",
+        "employer_display": _pretty_employer(hyd.get("employer") or ""),
         "industry": hyd.get("industry") or "",
         "location": ", ".join(locs[:2]) if locs else "",
         "employment_type": hyd.get("employment_type") or "",
@@ -1709,6 +1773,7 @@ _UI = {
         "filters_label": "Filters:",
         "more_like": "→ More jobs like this one",
         "view_posting": "View original posting",
+        "see_all_jobs_at": "See all jobs at",
         "jobs_like": "Jobs like:",
         "clear_seed": "clear seed",
         "prev": "‹ Prev",
@@ -1758,6 +1823,7 @@ _UI = {
         "filters_label": "Filtres :",
         "more_like": "→ Plus d'offres comme celle-ci",
         "view_posting": "Voir l'annonce d'origine",
+        "see_all_jobs_at": "Voir toutes les offres chez",
         "jobs_like": "Offres comme :",
         "clear_seed": "effacer",
         "prev": "‹ Préc.",
@@ -1807,6 +1873,7 @@ _UI = {
         "filters_label": "Filter:",
         "more_like": "→ Mehr Jobs wie dieser",
         "view_posting": "Originalanzeige ansehen",
+        "see_all_jobs_at": "Alle Jobs bei",
         "jobs_like": "Jobs wie:",
         "clear_seed": "entfernen",
         "prev": "‹ Zurück",
@@ -1856,6 +1923,7 @@ _UI = {
         "filters_label": "Filters:",
         "more_like": "→ Meer vacatures zoals deze",
         "view_posting": "Originele vacature bekijken",
+        "see_all_jobs_at": "Alle vacatures bij",
         "jobs_like": "Vacatures zoals:",
         "clear_seed": "wissen",
         "prev": "‹ Vorige",
@@ -1905,6 +1973,7 @@ _UI = {
         "filters_label": "Filtros:",
         "more_like": "→ Más ofertas como esta",
         "view_posting": "Ver la oferta original",
+        "see_all_jobs_at": "Ver todos los empleos en",
         "jobs_like": "Ofertas como:",
         "clear_seed": "quitar",
         "prev": "‹ Ant.",
@@ -1954,6 +2023,7 @@ _UI = {
         "filters_label": "Filter:",
         "more_like": "→ Fler liknande jobb",
         "view_posting": "Visa originalannonsen",
+        "see_all_jobs_at": "Visa alla jobb på",
         "jobs_like": "Jobb som:",
         "clear_seed": "rensa",
         "prev": "‹ Föreg.",
@@ -2003,6 +2073,7 @@ _UI = {
         "filters_label": "Filtri:",
         "more_like": "→ Altre offerte come questa",
         "view_posting": "Vedi l'annuncio originale",
+        "see_all_jobs_at": "Vedi tutti i lavori presso",
         "jobs_like": "Offerte come:",
         "clear_seed": "rimuovi",
         "prev": "‹ Prec.",
@@ -2038,6 +2109,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Salaire (USD/an)",
         "tech_stack": "Technologies",
         "lang": "Langue",
+        "employer": "Entreprise",
     },
     "de": {
         "role_family": "Berufsfeld",
@@ -2050,6 +2122,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Gehalt (USD/Jahr)",
         "tech_stack": "Technologien",
         "lang": "Sprache",
+        "employer": "Unternehmen",
     },
     "nl": {
         "role_family": "Functiegebied",
@@ -2062,6 +2135,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Salaris (USD/jaar)",
         "tech_stack": "Technologie",
         "lang": "Taal",
+        "employer": "Bedrijf",
     },
     "es": {
         "role_family": "Familia profesional",
@@ -2074,6 +2148,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Salario (USD/año)",
         "tech_stack": "Tecnologías",
         "lang": "Idioma",
+        "employer": "Empresa",
     },
     "sv": {
         "role_family": "Yrkesområde",
@@ -2086,6 +2161,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Lön (USD/år)",
         "tech_stack": "Teknik",
         "lang": "Språk",
+        "employer": "Företag",
     },
     "it": {
         "role_family": "Famiglia professionale",
@@ -2098,6 +2174,7 @@ _FACET_FIELDS_I18N = {
         "salary_band_usd_annual": "Stipendio (USD/anno)",
         "tech_stack": "Tecnologie",
         "lang": "Lingua",
+        "employer": "Azienda",
     },
 }
 
@@ -2895,6 +2972,8 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 .r-title { color: var(--ink); word-break: break-word; }
 .r-title .t { font-weight: 600; }
 .r-title .m { color: var(--muted); font-size: 0.85em; margin-top: 3px; }
+.r-title .m .emp-link { color: var(--brand); cursor: pointer; text-decoration: none; }
+.r-title .m .emp-link:hover { text-decoration: underline; }
 .r-title .m2 { color: var(--faint); font-size: 0.8em; margin-top: 2px; font-style: italic; }
 .r-title .r-snip { color: #4a5160; font-size: 0.85em; line-height: 1.45; margin-top: 4px; }
 .r-title .r-snip em { font-style: normal; font-weight: 600; background: #fff1c2; padding: 0 2px; border-radius: 3px; }
@@ -3211,7 +3290,12 @@ function applyBtnHtml(url) {
 }
 function metaLine(r) {
   const parts = [];
-  if (r.employer) parts.push(esc(r.employer));
+  if (r.employer) {
+    const disp = r.employer_display || r.employer;
+    employerDisplayMap[r.employer] = disp;
+    // Clicking pivots to a blank browse filtered to this company (preserving personalization).
+    parts.push(`<a class="emp-link" data-employer="${esc(r.employer)}" title="${esc(t('see_all_jobs_at'))} ${esc(disp)}">${esc(disp)}</a>`);
+  }
   if (r.industry && r.industry !== 'unclassified') parts.push(esc(facetValueLabel('industry', r.industry)));
   if (r.location) parts.push(esc(r.location));
   if (r.employment_type) parts.push(esc(r.employment_type));
@@ -3301,6 +3385,11 @@ function renderResults(div, items, ms) {
     }
     // the apply button is an outbound link; clicking it must not toggle the detail panel
     row.querySelectorAll('.apply-btn').forEach(b => b.addEventListener('click', e => e.stopPropagation()));
+    // the company name pivots to that employer's jobs (and must not toggle the detail panel)
+    row.querySelectorAll('.emp-link').forEach(a => a.addEventListener('click', e => {
+      e.stopPropagation();
+      pivotToCompany(a.dataset.employer);
+    }));
     div.appendChild(row);
   });
   if (ms != null) {
@@ -3326,6 +3415,7 @@ const FACET_LABELS = {
   salary_band_usd_annual: 'Salary (USD/yr)',
   tech_stack: 'Tech stack',
   lang: 'Language',
+  employer: 'Company',
 };
 const FACET_VALUE_LABELS = {
   lang: { en: 'English', fr: 'French', sv: 'Swedish', de: 'German', nl: 'Dutch', es: 'Spanish', it: 'Italian' },
@@ -3420,7 +3510,11 @@ function facetLabel(f) {
   const L = LOCALE[siteLang] && LOCALE[siteLang].fields;
   return (L && L[f]) || FACET_LABELS[f] || f;
 }
+// slug -> human company name, learned from rendered results (the backend computes the
+// display name per result); lets the active-filter chip show "Company: SpaceX" not the slug.
+const employerDisplayMap = {};
 function facetValueLabel(f, v) {
+  if (f === 'employer') return employerDisplayMap[v] || v;
   const L = LOCALE[siteLang] && LOCALE[siteLang].values;
   if (L && L[f] && L[f][v] != null) return L[f][v];
   return (FACET_VALUE_LABELS[f] && FACET_VALUE_LABELS[f][v]) || v;
@@ -3650,6 +3744,21 @@ async function runSearch() {
   renderFacets((await facetP).facets);
   // Related searches need a text anchor — use the typed query, or the seed's title.
   loadRelated(q || (seedJob ? seedJob.title : ''));
+}
+
+// Pivot to a single company: a blank browse filtered to just that employer, with every
+// other filter cleared. Personalization is preserved implicitly — runSearch() routes to
+// the personalized lane when the profile toggle is on, so the company's jobs come back
+// profile-ranked; otherwise it's a plain recency browse of that employer.
+function pivotToCompany(slug) {
+  if (!slug) return;
+  input.value = '';
+  seedJob = null;
+  for (const k of Object.keys(activeFilters)) delete activeFilters[k];
+  activeFilters.employer = slug;
+  resultsOffset = 0;
+  runSearch();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ===== suggested-searches slot at the top of the results panel =====
@@ -4104,6 +4213,10 @@ def _parse_filters(request: Request) -> dict[str, str | list[str]]:
         if not vals:
             continue
         out[f] = vals[0] if f == "posted_bucket" else vals
+    # employer: the company-pivot filter (not a UI facet, so read separately).
+    emp = [v.strip() for v in qp.getlist("employer") if v.strip()]
+    if emp:
+        out["employer"] = emp[0]
     return out
 
 
@@ -4286,6 +4399,7 @@ def _profile_job_brief(idx: int, cos: float, st: dict, d: dict, jf: dict) -> dic
         "idx": idx,
         "title": title[:140],
         "employer": d.get("employer") or "",
+        "employer_display": _pretty_employer(d.get("employer") or ""),
         "location": ", ".join(locs[:2]) if locs else "",
         "remote": bool(jf["remote"]),
         "seniority": L.SENIORITY_LABELS[jf["sen"]],
@@ -4551,6 +4665,11 @@ async def api_search_personalized(request: Request):
                 filters[f] = vv[0] if f == "posted_bucket" else vv
         elif v and str(v).strip():
             filters[f] = str(v).strip()
+    emp = raw_filters.get("employer")  # company-pivot filter (not a UI facet)
+    if isinstance(emp, list):
+        emp = emp[0] if emp else None
+    if emp and str(emp).strip():
+        filters["employer"] = str(emp).strip()
     _apply_lang_gate(q, filters)
     # Fall back to the resume's language when the query itself doesn't pick one (notably a
     # blank personalized browse, where the profile IS the intent). setdefault so an explicit

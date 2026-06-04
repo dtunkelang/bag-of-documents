@@ -1641,6 +1641,7 @@ def stage_deploy(args) -> None:
         "Dockerfile",
         "entrypoint.sh",
         "suggest_lib.py",
+        "employer_names.json",
         "role_vocab.json",
         "role_vocab_emb.npy",
         "fr_roles.json",
