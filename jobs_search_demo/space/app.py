@@ -1304,9 +1304,10 @@ def _browse_topk(
     for b in _browse_bq():
         params.append(("bq", b))
     # Site-language personalization: an ADDITIVE boost (not a filter) so a blank browse
-    # floats same-language postings up without excluding the rest. Only non-English GATE
-    # languages promote — "en" is the default and the index is English-majority anyway.
-    if promote_lang in GATE_LANGS and promote_lang != "en":
+    # floats same-language postings up without excluding the rest. Every GATE language
+    # promotes — including "en": English is only a plurality (~33% of the index is FR,
+    # plus de/nl/es/it/sv), so recency-ranked browse otherwise surfaces foreign postings.
+    if promote_lang in GATE_LANGS:
         lang_w = float(os.environ.get("BROWSE_LANG_W", "6.0"))
         params.append(("bq", f"lang:{promote_lang}^{lang_w:g}"))
     for clause in _filter_clauses(filters or {}):
