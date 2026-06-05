@@ -191,6 +191,43 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             flush=True,
         )
 
+    # JobTech-derived overrides for Swedish jobs (open-weight, no LLM): every
+    # Arbetsförmedlingen ad carries the Swedish occupation taxonomy; its broad
+    # occupation_field bucket (stored as `department`) is authoritative, so we map
+    # it straight to a role_family (see classify_other_jobtech.py /
+    # jobtech_role_family.py). Loaded BEFORE ESCO so the source-assigned field
+    # WINS over the lexical Swedish ESCO title-match. emb/llm/rome still win first.
+    jobtech_path = os.path.join(os.path.dirname(__file__), "role_family_jobtech_overrides.json")
+    if os.path.exists(jobtech_path):
+        with open(jobtech_path) as jf:
+            jobtech_override = json.load(jf)
+        before = len(role_emb_override)
+        for k, v in jobtech_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(jobtech_override):,} JobTech role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
+    # Adzuna-derived overrides (open-weight, no LLM): every Adzuna posting carries
+    # a category from Adzuna's own taxonomy, stored as `department`; we map the
+    # (localized) label straight to a role_family (see classify_other_adzuna.py /
+    # adzuna_role_family.py). Loaded BEFORE ESCO so the source category beats the
+    # lexical title-match. emb/llm/rome/jobtech still win first.
+    adzuna_path = os.path.join(os.path.dirname(__file__), "role_family_adzuna_overrides.json")
+    if os.path.exists(adzuna_path):
+        with open(adzuna_path) as af:
+            adzuna_override = json.load(af)
+        before = len(role_emb_override)
+        for k, v in adzuna_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(adzuna_override):,} Adzuna role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
     # ESCO-derived overrides for the non-English 'other' residual (open-weight, no
     # LLM): each non-English title is matched to an ESCO occupation in its own
     # language and the occupation's ISCO-08 code maps to a role_family (see

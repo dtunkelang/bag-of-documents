@@ -1159,6 +1159,63 @@ def stage_facets(args) -> None:
     _rescue_other_via_embeddings(out, role_fams)
     _rescue_other_via_esco(out, role_fams)
     _rescue_other_via_rome()
+    _rescue_other_via_jobtech()
+    _rescue_other_via_adzuna(out)
+
+
+def _rescue_other_via_adzuna(out: Path) -> None:
+    """Source-category role_family labels for NON-ENGLISH Adzuna jobs (open-weight,
+    no LLM): every Adzuna posting carries a category, whose localized label we cache
+    as `department`, mapped straight to a role_family (see classify_other_adzuna /
+    adzuna_role_family). English is excluded on purpose -- Adzuna's auto-category is
+    noisier than the native English pipeline that already classified those docs.
+    Regenerated each refresh; push_docs applies it BEFORE ESCO and only where the
+    heuristic == 'other'. Deterministic."""
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    try:
+        from classify_other_adzuna import build
+    except Exception as e:  # never abort the refresh on a rescue import failure
+        print(f"[3] Adzuna rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    dest = ROOT / "jobs_search_demo" / "role_family_adzuna_overrides.json"
+    try:
+        preds = build(str(out / "metadata.jsonl"), str(dest))
+    except Exception as e:  # missing metadata -> skip, keep prior file
+        print(f"[3] Adzuna rescue SKIPPED ({e})", flush=True)
+        return
+    print(
+        f"[3] Adzuna rescue: {len(preds):,} non-English Adzuna docs labeled -> {dest.name}",
+        flush=True,
+    )
+
+
+def _rescue_other_via_jobtech() -> None:
+    """Authoritative role_family labels for Swedish JobTech jobs from their
+    occupation_field bucket (open-weight, no LLM): every Arbetsförmedlingen ad
+    ships with the Swedish occupation taxonomy, whose broad bucket we cache as
+    `department` (jobs_data_jobtech/raw), mapped straight to a role_family (see
+    classify_other_jobtech / jobtech_role_family). Regenerated each refresh so new
+    crawls get labeled; push_docs applies it BEFORE ESCO (source field beats the
+    lexical title-match) and only where the heuristic == 'other'. Deterministic."""
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    try:
+        from classify_other_jobtech import build
+    except Exception as e:  # never abort the refresh on a rescue import failure
+        print(f"[3] JobTech rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    raw_dir = ROOT / "jobs_data_jobtech" / "raw"
+    dest = ROOT / "jobs_search_demo" / "role_family_jobtech_overrides.json"
+    try:
+        preds = build(str(raw_dir), str(dest))
+    except Exception as e:  # missing parquet / pandas -> skip, keep prior file
+        print(f"[3] JobTech rescue SKIPPED ({e})", flush=True)
+        return
+    print(
+        f"[3] JobTech rescue: {len(preds):,} Swedish docs labeled -> {dest.name}",
+        flush=True,
+    )
 
 
 def _rescue_other_via_rome() -> None:
