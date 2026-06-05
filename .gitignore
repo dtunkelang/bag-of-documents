@@ -150,3 +150,8 @@ jobs_search_demo/.rome_opendata.zip
 jobs_search_demo/.esco_records.jsonl
 jobs_search_demo/.esco_occ_uris.json
 jobs_search_demo/esco_harvest.log
+# ESCO label embedding cache for the multilingual emb-ESCO rescue (re-derivable
+# from .esco_records.jsonl + the e5 model; per-language .npz of label vectors)
+jobs_search_demo/.esco_emb_label_cache/
+# Per-deploy targeted re-push position lists (scratch; regenerable)
+jobs_search_demo/*_repush_positions.json

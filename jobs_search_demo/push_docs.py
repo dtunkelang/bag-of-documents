@@ -247,6 +247,26 @@ def stream_docs(facets: dict[int, dict]) -> Iterator[dict]:
             flush=True,
         )
 
+    # Multilingual-embedding ESCO overrides for the non-English 'other' residual
+    # (open-weight, no LLM): each non-English title is matched to its nearest ESCO
+    # occupation label by multilingual-e5 cosine and the occupation's ISCO-08 code
+    # maps to a role_family (see classify_other_esco_emb.py / isco_role_family.py).
+    # LOWEST precedence -- loaded last so every authoritative source (ROME/JobTech/
+    # Adzuna) and the higher-precision lexical ESCO match win first; the semantic
+    # match only fills docs no stronger signal reached. Regenerated each refresh.
+    esco_emb_path = os.path.join(os.path.dirname(__file__), "role_family_esco_emb_overrides.json")
+    if os.path.exists(esco_emb_path):
+        with open(esco_emb_path) as sf:
+            esco_emb_override = json.load(sf)
+        before = len(role_emb_override)
+        for k, v in esco_emb_override.items():
+            role_emb_override.setdefault(k, v)
+        print(
+            f"  loaded {len(esco_emb_override):,} emb-ESCO role_family overrides "
+            f"(+{len(role_emb_override) - before:,} new)",
+            flush=True,
+        )
+
     # Outbound "view original posting" link. Recovered WITHOUT a re-crawl: the
     # OpenApply (greenhouse/lever/ashby) raw files on disk carry the authoritative
     # apply_url; everything else with a deterministic public-posting URL is

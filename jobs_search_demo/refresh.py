@@ -1158,6 +1158,7 @@ def stage_facets(args) -> None:
 
     _rescue_other_via_embeddings(out, role_fams)
     _rescue_other_via_esco(out, role_fams)
+    _rescue_other_via_esco_emb(out, role_fams)
     _rescue_other_via_rome()
     _rescue_other_via_jobtech()
     _rescue_other_via_adzuna(out)
@@ -1266,6 +1267,32 @@ def _rescue_other_via_esco(out: Path, role_fams: list[str]) -> None:
         json.dump(preds, f, indent=0, sort_keys=True, ensure_ascii=False)
     print(
         f"[3] ESCO rescue: {len(preds):,} non-English 'other' docs labeled -> {dest.name}",
+        flush=True,
+    )
+
+
+def _rescue_other_via_esco_emb(out: Path, role_fams: list[str]) -> None:
+    """Multilingual-embedding ESCO role_family labels for the es/it 'other' residual
+    (open-weight, no LLM): each title is matched to its nearest ESCO occupation label
+    by multilingual-e5 cosine, gated on cosine + vote-share, and the occupation's
+    ISCO-08 code maps to a role_family (see classify_other_esco_emb / isco_role_family).
+    The encode is OFFLINE (match step only) -- the served retrieval model is unchanged.
+    Scoped to es/it (the audited, highest-residual locales); push_docs applies it with
+    the LOWEST precedence (after every authoritative source + lexical ESCO) only where
+    the heuristic == 'other'. Deterministic on a fixed corpus + model -> reproducible."""
+    sys.path.insert(0, str(ROOT / "jobs_search_demo"))
+    try:
+        from classify_other_esco_emb import rescue as esco_emb_rescue
+    except Exception as e:  # sentence-transformers absent -> skip, don't abort refresh
+        print(f"[3] emb-ESCO rescue SKIPPED (import failed: {e})", flush=True)
+        return
+
+    preds = esco_emb_rescue(out / "metadata.jsonl", role_fams, langs=("es", "it"))
+    dest = ROOT / "jobs_search_demo" / "role_family_esco_emb_overrides.json"
+    with open(dest, "w") as f:
+        json.dump(preds, f, indent=0, sort_keys=True, ensure_ascii=False)
+    print(
+        f"[3] emb-ESCO rescue: {len(preds):,} es/it 'other' docs labeled -> {dest.name}",
         flush=True,
     )
 
