@@ -163,12 +163,18 @@ def build(meta_path=META, curated_path=CURATED, min_votes=MIN_VOTES, audit=0):
         if n < min_votes:
             continue
         name = _normalize_case(name)
-        # keep only when the recovered name actually differs from what the prettifier
-        # would already show (otherwise it adds nothing). This catches multi-word
-        # splits the prettifier can't make ('Toyota Connected'), mixed-case brands
-        # ('15Five', 'TrueCare'), and real acronyms ('YNAB').
-        if name and name != _prettify(slug):
-            out[slug] = name
+        if not name or name == _prettify(slug):
+            continue  # adds nothing over the prettifier
+        # A SINGLE-token extraction is only trustworthy when it carries an internal
+        # capital -- a mixed-case brand ('iHerb', '15Five', 'TrueCare') or an acronym
+        # ('YNAB', 'VTEX'). A plain-lowercase / plain-titlecase single token is either
+        # the prettifier's job anyway or a common-word FALSE POSITIVE (a slug that
+        # happens to be an English word -- 'acquisition', 'futures' -- matching that
+        # word in the prose); drop it and let the prettifier titlecase the slug.
+        # Multi-word splits are kept regardless (the prettifier can't make them).
+        if " " not in name and not any(c.isupper() for c in name[1:]):
+            continue
+        out[slug] = name
 
     if audit:
         import random
