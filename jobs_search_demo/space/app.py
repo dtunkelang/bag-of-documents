@@ -3020,6 +3020,7 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 .active-filters .chip::after { content: ' ×'; color: var(--muted); }
 .seed-banner { margin-bottom: 8px; }
 .seed-chip { display: inline-flex; align-items: center; gap: 8px; background: var(--ok-tint); color: var(--ok); border: 1px solid var(--ok-bd); border-radius: var(--pill); padding: 5px 13px; font-size: 0.88em; }
+.seed-chip .seed-emp { color: var(--ok); font-weight: 600; }
 .seed-chip .seed-x { cursor: pointer; color: #4a9c6a; font-weight: 700; }
 .seed-chip .seed-x:hover { color: var(--ok); }
 
@@ -3351,7 +3352,7 @@ async function toggleDetail(idx, container) {
     mlt.textContent = t('more_like');
     mlt.addEventListener('click', (e) => {
       e.stopPropagation();
-      pivotMoreLikeThis(idx, data.title || '');
+      pivotMoreLikeThis(idx, data.title || '', data.employer_display || '');
     });
     div.appendChild(mlt);
   } catch (e) {
@@ -3365,9 +3366,15 @@ async function toggleDetail(idx, container) {
 // pagination, and profile re-rank. The seed and the keyword box are mutually exclusive —
 // seeding clears the query box, and typing a query clears the seed (see runSearch).
 let lastQuery = '';   // last typed query (used by clearMatch to return to it)
-function pivotMoreLikeThis(idx, title) {
-  seedJob = { idx, title };
+function pivotMoreLikeThis(idx, title, employer) {
+  seedJob = { idx, title, employer };
   input.value = '';     // mutual exclusion: a seed replaces the keyword query
+  // A similarity pivot drops the inherited facet + company filters: carried over, a
+  // narrow filter (e.g. a different role_family or employer) can make the seed return
+  // zero results. They stay re-addable from the facet rail. Personalization (held
+  // profile + toggle) lives outside activeFilters, so it is preserved.
+  for (const k of Object.keys(activeFilters)) delete activeFilters[k];
+  resultsOffset = 0;
   closeSuggest();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   runSearch();
@@ -3375,7 +3382,10 @@ function pivotMoreLikeThis(idx, title) {
 function renderSeedBanner() {
   const el = document.getElementById('seed-banner');
   if (!seedJob || input.value.trim()) { el.innerHTML = ''; return; }
-  el.innerHTML = `<span class="seed-chip">&rarr; ${esc(t('jobs_like'))} <b>${esc(seedJob.title)}</b>`
+  // Identify which job seeded the search: titles repeat across postings, so show the
+  // employer after the title to disambiguate (the internal Solr id is meaningless to a user).
+  const emp = seedJob.employer ? ` <span class="seed-emp">@ ${esc(seedJob.employer)}</span>` : '';
+  el.innerHTML = `<span class="seed-chip">&rarr; ${esc(t('jobs_like'))} <b>${esc(seedJob.title)}</b>${emp}`
     + `<span class="seed-x" title="${esc(t('clear_seed'))}">&times;</span></span>`;
   el.querySelector('.seed-x').addEventListener('click', () => {
     seedJob = null; input.value = ''; runSearch();
@@ -4325,7 +4335,7 @@ def api_detail(idx: int = Query(...)):
         f"{SOLR}/solr/{CORE}/select",
         params={
             "q": f'id:"{idx}"',
-            "fl": "id,title_display,description,posted_at,department,apply_url",
+            "fl": "id,title_display,description,posted_at,department,apply_url,employer",
             "rows": 1,
         },
         timeout=10,
@@ -4339,6 +4349,7 @@ def api_detail(idx: int = Query(...)):
         {
             "idx": idx,
             "title": _clean_text(d.get("title_display") or ""),
+            "employer_display": _pretty_employer(d.get("employer") or ""),
             "description": _clean_text(d.get("description") or ""),
             "posted_at": d.get("posted_at") or "",
             "department": d.get("department") or "",
