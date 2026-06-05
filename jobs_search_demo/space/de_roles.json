@@ -1,98 +1,146 @@
 [
 {
-"text": "pflegefachkraft",
-"n": 132
-},
-{
 "text": "fachkraft",
-"n": 117
+"n": 126
 },
 {
-"text": "techniker",
-"n": 94
+"text": "oberarzt",
+"n": 125
 },
 {
-"text": "verkäufer",
-"n": 66
+"text": "facharzt",
+"n": 89
 },
 {
-"text": "krankenpfleger",
-"n": 56
+"text": "entwickler",
+"n": 87
 },
 {
-"text": "pflegefachmann",
+"text": "berater",
+"n": 86
+},
+{
+"text": "assistenzarzt",
+"n": 69
+},
+{
+"text": "pflegefachkraft",
+"n": 68
+},
+{
+"text": "mechaniker",
+"n": 63
+},
+{
+"text": "management",
+"n": 55
+},
+{
+"text": "kaufmann",
+"n": 54
+},
+{
+"text": "elektroniker",
 "n": 53
 },
 {
-"text": "altenpfleger",
+"text": "verkäufer",
+"n": 50
+},
+{
+"text": "sachbearbeiter",
+"n": 49
+},
+{
+"text": "consultant",
 "n": 49
 },
 {
 "text": "produktionsmitarbeiter",
-"n": 46
+"n": 45
 },
 {
 "text": "erzieherin",
-"n": 37
-},
-{
-"text": "management trainee",
-"n": 36
-},
-{
-"text": "facharzt",
-"n": 32
-},
-{
-"text": "erzieher",
-"n": 31
-},
-{
-"text": "sachbearbeiter",
-"n": 31
-},
-{
-"text": "elektroniker",
-"n": 30
-},
-{
-"text": "heilerziehungspfleger",
-"n": 29
-},
-{
-"text": "reinigungskraft",
-"n": 28
+"n": 43
 },
 {
 "text": "servicetechniker",
-"n": 28
+"n": 41
 },
 {
-"text": "gesundheits- und krankenpfleger",
-"n": 27
+"text": "vertriebsmitarbeiter",
+"n": 39
 },
 {
-"text": "kaufmann",
-"n": 26
-},
-{
-"text": "initiativbewerbung",
-"n": 24
+"text": "management trainee",
+"n": 37
 },
 {
 "text": "industriemechaniker",
+"n": 37
+},
+{
+"text": "initiativbewerbung",
+"n": 36
+},
+{
+"text": "elektriker",
+"n": 31
+},
+{
+"text": "krankenpfleger",
+"n": 31
+},
+{
+"text": "mechatroniker",
+"n": 30
+},
+{
+"text": "sales manager",
+"n": 29
+},
+{
+"text": "account executive",
+"n": 28
+},
+{
+"text": "senior consultant",
+"n": 26
+},
+{
+"text": "projektleiter",
 "n": 24
 },
 {
-"text": "entwickler",
+"text": "kfz-mechatroniker",
+"n": 24
+},
+{
+"text": "anlagenmechaniker",
+"n": 24
+},
+{
+"text": "sicherheitsmitarbeiter",
 "n": 22
 },
 {
-"text": "staplerfahrer",
+"text": "director",
+"n": 22
+},
+{
+"text": "zerspanungsmechaniker",
+"n": 22
+},
+{
+"text": "selbstständiger vertriebsmitarbeiter außendienst",
 "n": 21
 },
 {
-"text": "pflegedienstleitung",
+"text": "technical",
+"n": 21
+},
+{
+"text": "erzieher",
 "n": 20
 },
 {
@@ -100,43 +148,71 @@
 "n": 20
 },
 {
-"text": "pflegehelfer",
+"text": "ingenieur",
+"n": 20
+},
+{
+"text": "medizinische fachangestellte",
 "n": 19
 },
 {
-"text": "pflegefachassistent",
+"text": "monteur",
+"n": 19
+},
+{
+"text": "lagermitarbeiter",
 "n": 18
 },
 {
-"text": "pädagogische fachkraft",
-"n": 18
-},
-{
-"text": "mechatroniker",
-"n": 18
-},
-{
-"text": "mechaniker",
+"text": "projektmanager",
 "n": 17
 },
 {
-"text": "berater",
+"text": "techniker",
 "n": 17
 },
 {
-"text": "koch",
+"text": "field",
+"n": 17
+},
+{
+"text": "ausbildung kaufmann",
 "n": 16
 },
 {
-"text": "bauleiter",
+"text": "helfer",
+"n": 16
+},
+{
+"text": "reinigungskraft",
+"n": 16
+},
+{
+"text": "maschinen- und anlagenführer",
 "n": 15
 },
 {
-"text": "arzt",
+"text": "oberarzt urologie",
 "n": 15
 },
 {
-"text": "pflegefachkraft psychiatrische einrichtung",
+"text": "account manager",
+"n": 15
+},
+{
+"text": "management berater:in",
+"n": 15
+},
+{
+"text": "staplerfahrer",
+"n": 15
+},
+{
+"text": "softwareentwickler",
+"n": 15
+},
+{
+"text": "assistenzarzt gynäkologie und geburtshilfe",
 "n": 14
 },
 {
@@ -144,31 +220,47 @@
 "n": 14
 },
 {
-"text": "helfer",
+"text": "schweißer",
 "n": 14
 },
 {
-"text": "finanzbuchhalter",
+"text": "anlagenmechaniker shk",
+"n": 14
+},
+{
+"text": "teamleiter",
+"n": 14
+},
+{
+"text": "studentische",
+"n": 14
+},
+{
+"text": "babysitter",
 "n": 13
 },
 {
-"text": "projektleiter",
+"text": "steuerfachangestellter",
 "n": 13
 },
 {
-"text": "ota",
+"text": "projektingenieur",
+"n": 13
+},
+{
+"text": "werkstudent:in",
+"n": 13
+},
+{
+"text": "schichtleiter",
+"n": 13
+},
+{
+"text": "assistenzarzt urologie",
 "n": 12
 },
 {
-"text": "operations",
-"n": 12
-},
-{
-"text": "schweißer",
-"n": 12
-},
-{
-"text": "vertriebsmitarbeiter",
+"text": "kassierer",
 "n": 12
 },
 {
@@ -176,123 +268,171 @@
 "n": 12
 },
 {
-"text": "monteur",
+"text": "oberarzt gynäkologie und geburtshilfe",
 "n": 12
 },
 {
-"text": "produktionshelfer",
-"n": 11
-},
-{
-"text": "zerspanungsmechaniker",
-"n": 11
-},
-{
-"text": "maschinen- und anlagenführer",
-"n": 10
-},
-{
-"text": "werkstudent:in",
-"n": 10
-},
-{
-"text": "lagermitarbeiter",
-"n": 10
-},
-{
-"text": "elektriker",
-"n": 10
-},
-{
-"text": "fachkrankenpfleger intensiv",
-"n": 10
-},
-{
-"text": "ingenieur",
-"n": 10
-},
-{
-"text": "leitung",
-"n": 10
-},
-{
-"text": "softwareentwickler",
-"n": 10
-},
-{
-"text": "oberarzt",
-"n": 10
-},
-{
-"text": "pflegehilfskraft",
-"n": 9
-},
-{
-"text": "kfz-mechatroniker",
-"n": 9
-},
-{
-"text": "gesundheits- und krankenpflegehelfer",
-"n": 9
-},
-{
-"text": "fitnesstrainer",
-"n": 9
-},
-{
-"text": "ata",
-"n": 9
-},
-{
-"text": "montageprüfer:in",
-"n": 9
-},
-{
 "text": "disponent",
+"n": 12
+},
+{
+"text": "digital",
+"n": 12
+},
+{
+"text": "marketing",
+"n": 12
+},
+{
+"text": "teamlead",
+"n": 12
+},
+{
+"text": "zusteller*in",
+"n": 12
+},
+{
+"text": "senior account executive",
+"n": 11
+},
+{
+"text": "fachlagerist",
+"n": 11
+},
+{
+"text": "kundenberater",
+"n": 11
+},
+{
+"text": "physiotherapeut",
+"n": 11
+},
+{
+"text": "bauleiter",
+"n": 11
+},
+{
+"text": "sozialpädagoge",
+"n": 11
+},
+{
+"text": "media",
+"n": 11
+},
+{
+"text": "finanzbuchhalter",
+"n": 10
+},
+{
+"text": "customer success manager",
+"n": 10
+},
+{
+"text": "berufskraftfahrer",
+"n": 10
+},
+{
+"text": "field sales representative",
+"n": 10
+},
+{
+"text": "bauingenieur",
+"n": 10
+},
+{
+"text": "koch",
+"n": 10
+},
+{
+"text": "produktionshelfer",
+"n": 10
+},
+{
+"text": "pflegefachfrau",
 "n": 9
-},
-{
-"text": "consultant",
-"n": 9
-},
-{
-"text": "maschinenführer",
-"n": 8
-},
-{
-"text": "steuerfachangestellter",
-"n": 8
-},
-{
-"text": "kommissionierer",
-"n": 8
-},
-{
-"text": "studentenjob",
-"n": 8
-},
-{
-"text": "altenpflegehelfer",
-"n": 8
 },
 {
 "text": "bilanzbuchhalter",
-"n": 8
+"n": 9
 },
 {
-"text": "küchenhilfe",
-"n": 8
+"text": "konstanz",
+"n": 9
+},
+{
+"text": "kommissionierer",
+"n": 9
+},
+{
+"text": "studentische aushilfe",
+"n": 9
+},
+{
+"text": "flensburg",
+"n": 9
+},
+{
+"text": "gesundheits- und krankenpfleger",
+"n": 9
+},
+{
+"text": "assistenzkraft",
+"n": 9
+},
+{
+"text": "leiter",
+"n": 9
+},
+{
+"text": "kassenkraft",
+"n": 9
+},
+{
+"text": "konstrukteur",
+"n": 9
+},
+{
+"text": "inside",
+"n": 9
+},
+{
+"text": "area",
+"n": 9
 },
 {
 "text": "teamleitung",
+"n": 9
+},
+{
+"text": "facharzt urologie",
 "n": 8
 },
 {
-"text": "projektmanager",
+"text": "service",
 "n": 8
 },
 {
-"text": "maler",
+"text": "suchen eine tagesmutter",
+"n": 8
+},
+{
+"text": "braunschweig",
+"n": 8
+},
+{
+"text": "steuerberater",
+"n": 8
+},
+{
+"text": "lagerhelfer",
+"n": 8
+},
+{
+"text": "außendienstmitarbeiter",
+"n": 8
+},
+{
+"text": "fahrer",
 "n": 8
 },
 {
@@ -300,79 +440,119 @@
 "n": 8
 },
 {
-"text": "sozialpädagogische",
+"text": "expert",
 "n": 8
 },
 {
-"text": "leiter",
+"text": "abteilungsleiter",
 "n": 8
 },
 {
-"text": "schlosser",
+"text": "spezialist",
+"n": 8
+},
+{
+"text": "call center agent",
+"n": 8
+},
+{
+"text": "produktmanager",
+"n": 8
+},
+{
+"text": "quereinstieg",
+"n": 8
+},
+{
+"text": "duales studium bwl",
+"n": 8
+},
+{
+"text": "leitung",
+"n": 8
+},
+{
+"text": "quality",
+"n": 8
+},
+{
+"text": "enterprise",
+"n": 8
+},
+{
+"text": "area sales manager",
 "n": 7
 },
 {
-"text": "ausbildung oder duales studium",
+"text": "business analyst",
 "n": 7
 },
 {
-"text": "ausbildung kaufmann",
+"text": "lernquadrat",
 "n": 7
 },
 {
-"text": "stellenangebot pflegefachkraft",
+"text": "trendyol express",
 "n": 7
 },
 {
-"text": "wohnbereichsleitung stationär",
+"text": "sales development representative",
 "n": 7
 },
 {
-"text": "duales studium",
+"text": "key account manager",
 "n": 7
 },
 {
-"text": "empfangsmitarbeiter",
+"text": "pflegehilfskraft",
 "n": 7
-},
-{
-"text": "pflegekraft",
-"n": 7
-},
-{
-"text": "dialysefachkraft",
-"n": 6
-},
-{
-"text": "erzieher*in",
-"n": 6
-},
-{
-"text": "stellenangebot physiotherapeut",
-"n": 6
-},
-{
-"text": "stellenangebot küchenhilfe",
-"n": 6
-},
-{
-"text": "facharzt allgemeinmedizin",
-"n": 6
-},
-{
-"text": "account manager",
-"n": 6
-},
-{
-"text": "schülerpraktikum",
-"n": 6
 },
 {
 "text": "metallbauer",
+"n": 7
+},
+{
+"text": "consultant*",
+"n": 7
+},
+{
+"text": "pflegehelfer",
+"n": 7
+},
+{
+"text": "arzt",
 "n": 6
 },
 {
-"text": "wir suchen aktuell: wir suchen",
+"text": "schlosser",
+"n": 6
+},
+{
+"text": "business development representative",
+"n": 6
+},
+{
+"text": "postbote",
+"n": 6
+},
+{
+"text": "hausmeister",
+"n": 6
+},
+{
+"text": "mitarbeiter vertriebsinnendienst",
+"n": 6
+},
+{
+"text": "marketing manager",
+"n": 6
+},
+{
+"text": "facharzt urologie mvz",
+"n": 6
+},
+{
+"text": "küchenhilfe",
 "n": 6
 },
 {
@@ -380,47 +560,43 @@
 "n": 6
 },
 {
-"text": "kraftfahrer",
+"text": "pädagogische fachkraft",
 "n": 6
 },
 {
-"text": "berufskraftfahrer",
+"text": "abiturientenprogram usbildung handelsfachwirt",
 "n": 5
 },
 {
-"text": "warenverräumer",
+"text": "meister",
 "n": 5
 },
 {
-"text": "gesundheits- und kinderkrankenpfleger",
+"text": "gärtner",
 "n": 5
 },
 {
-"text": "verkäufer teilzeit",
+"text": "maschinenführer",
 "n": 5
 },
 {
-"text": "pta",
+"text": "vertriebsmitarbeiter außendienst",
 "n": 5
 },
 {
-"text": "kundendiensttechniker",
+"text": "lohnbuchhalter",
 "n": 5
 },
 {
-"text": "stellenangebot reinigungskraft",
+"text": "notfallsanitäter",
 "n": 5
 },
 {
-"text": "bürokraft",
+"text": "product owner",
 "n": 5
 },
 {
-"text": "schreiner",
-"n": 5
-},
-{
-"text": "stellvertretende pflegedienstleitung ambulant",
+"text": "rechtsanwaltsfachangestellte",
 "n": 5
 },
 {
@@ -428,35 +604,63 @@
 "n": 5
 },
 {
-"text": "ausbildung kauffrau",
+"text": "lackierer",
 "n": 5
 },
 {
-"text": "fahrer",
+"text": "junior sales manager",
 "n": 5
 },
 {
-"text": "stellenangebot ergotherapeut",
+"text": "pflegedienstleitung",
 "n": 5
 },
 {
-"text": "hauswirtschaftskraft",
+"text": "zürich",
 "n": 5
 },
 {
-"text": "polier",
+"text": "tischler",
 "n": 5
 },
 {
-"text": "sozialpädagoge",
+"text": "operationstechnischer assistent",
 "n": 5
 },
 {
-"text": "auszubildende",
+"text": "sozialpädagoge oder sozialarbeiter",
 "n": 5
 },
 {
-"text": "einrichtungsleitung",
+"text": "product manager",
+"n": 5
+},
+{
+"text": "trier",
+"n": 5
+},
+{
+"text": "steuerfachangestellte",
+"n": 5
+},
+{
+"text": "accountant",
+"n": 5
+},
+{
+"text": "business development manager",
+"n": 5
+},
+{
+"text": "ausbilder",
+"n": 5
+},
+{
+"text": "bankkaufmann",
+"n": 5
+},
+{
+"text": "director public sector",
 "n": 5
 }
 ]

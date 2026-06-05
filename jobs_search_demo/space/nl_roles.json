@@ -1,82 +1,86 @@
 [
 {
 "text": "oppas",
-"n": 115
+"n": 116
 },
 {
 "text": "operator",
-"n": 94
+"n": 97
 },
 {
 "text": "chauffeur",
-"n": 77
+"n": 70
 },
 {
 "text": "docent",
-"n": 64
-},
-{
-"text": "monteur",
 "n": 61
 },
 {
-"text": "productiemedewerker",
+"text": "monteur",
 "n": 60
 },
 {
-"text": "werkvoorbereider",
+"text": "productiemedewerker",
+"n": 58
+},
+{
+"text": "accountant",
 "n": 57
 },
 {
-"text": "projectleider",
-"n": 46
+"text": "werkvoorbereider",
+"n": 56
 },
 {
-"text": "vrachtwagenchauffeur",
+"text": "projectleider",
 "n": 42
 },
 {
-"text": "begeleider",
-"n": 37
+"text": "vrachtwagenchauffeur",
+"n": 38
 },
 {
 "text": "teamleider",
-"n": 32
+"n": 36
+},
+{
+"text": "begeleider",
+"n": 36
 },
 {
 "text": "heftruckchauffeur",
-"n": 30
+"n": 31
 },
 {
 "text": "magazijnmedewerker",
-"n": 30
-},
-{
-"text": "logistiek medewerker",
-"n": 25
+"n": 29
 },
 {
 "text": "onderofficier",
 "n": 25
 },
 {
-"text": "accountant",
+"text": "logistiek medewerker",
 "n": 24
 },
 {
-"text": "timmerman",
-"n": 23
+"text": "planner",
+"n": 24
 },
 {
 "text": "lasser",
-"n": 21
-},
-{
-"text": "adviseur",
-"n": 21
+"n": 22
 },
 {
 "text": "orderpicker",
+"n": 21
+},
+{
+"text": "assistent",
+"n": 21
+},
+{
+"text": "servicemonteur",
 "n": 20
 },
 {
@@ -84,23 +88,23 @@
 "n": 19
 },
 {
-"text": "servicemonteur",
+"text": "adviseur",
 "n": 19
 },
 {
-"text": "beveiliger",
-"n": 19
-},
-{
-"text": "assistent",
+"text": "helpende",
 "n": 18
 },
 {
 "text": "accountmanager",
-"n": 17
+"n": 18
 },
 {
-"text": "helpende",
+"text": "lead",
+"n": 18
+},
+{
+"text": "beveiliger",
 "n": 17
 },
 {
@@ -108,19 +112,11 @@
 "n": 16
 },
 {
+"text": "kok",
+"n": 16
+},
+{
 "text": "assemblagemedewerker",
-"n": 15
-},
-{
-"text": "uitvoerder",
-"n": 15
-},
-{
-"text": "procesoperator",
-"n": 15
-},
-{
-"text": "verpleegkundige",
 "n": 15
 },
 {
@@ -136,23 +132,43 @@
 "n": 15
 },
 {
+"text": "uitvoerder",
+"n": 14
+},
+{
+"text": "procesoperator",
+"n": 14
+},
+{
+"text": "verpleegkundige",
+"n": 14
+},
+{
 "text": "elektromonteur",
-"n": 14
+"n": 13
 },
 {
-"text": "schoonmaker",
-"n": 14
+"text": "verkoper",
+"n": 13
 },
 {
-"text": "reachtruckchauffeur",
+"text": "lead data engineer",
 "n": 11
 },
 {
-"text": "administratief medewerker",
+"text": "schoonmaker",
+"n": 11
+},
+{
+"text": "recruiter",
 "n": 10
 },
 {
-"text": "consultant",
+"text": "reachtruckchauffeur",
+"n": 10
+},
+{
+"text": "administratief medewerker",
 "n": 10
 },
 {
@@ -160,7 +176,15 @@
 "n": 10
 },
 {
-"text": "consulent",
+"text": "bezorger",
+"n": 9
+},
+{
+"text": "consultant",
+"n": 9
+},
+{
+"text": "front",
 "n": 9
 },
 {
@@ -168,11 +192,15 @@
 "n": 9
 },
 {
-"text": "calculator",
+"text": "senior data engineer",
 "n": 8
 },
 {
-"text": "planner",
+"text": "transportplanner",
+"n": 8
+},
+{
+"text": "calculator",
 "n": 8
 },
 {
@@ -180,7 +208,15 @@
 "n": 8
 },
 {
-"text": "kok",
+"text": "timmerman",
+"n": 8
+},
+{
+"text": "chef",
+"n": 8
+},
+{
+"text": "backend",
 "n": 8
 },
 {
@@ -192,7 +228,7 @@
 "n": 7
 },
 {
-"text": "recruiter",
+"text": "commercieel medewerker",
 "n": 7
 },
 {
@@ -200,7 +236,31 @@
 "n": 7
 },
 {
+"text": "consulent",
+"n": 7
+},
+{
+"text": "start",
+"n": 6
+},
+{
+"text": "klantenservice medewerker",
+"n": 6
+},
+{
+"text": "hr adviseur",
+"n": 6
+},
+{
+"text": "loodgieter",
+"n": 6
+},
+{
 "text": "teamleider productie",
+"n": 6
+},
+{
+"text": "customer service medewerker",
 "n": 6
 },
 {
@@ -208,15 +268,19 @@
 "n": 6
 },
 {
-"text": "transportplanner",
+"text": "ontwikkelaar",
+"n": 6
+},
+{
+"text": "zelfstandig werkend kok",
 "n": 5
 },
 {
-"text": "commercieel medewerker",
+"text": "assistent bedrijfsleider",
 "n": 5
 },
 {
-"text": "financieel medewerker",
+"text": "sous chef",
 "n": 5
 },
 {
@@ -224,27 +288,19 @@
 "n": 5
 },
 {
-"text": "hr adviseur",
+"text": "sales representative",
 "n": 5
 },
 {
-"text": "zorgstudent",
+"text": "data engineer",
 "n": 5
 },
 {
-"text": "loodgieter",
-"n": 5
-},
-{
-"text": "customer service medewerker",
+"text": "personal trainer",
 "n": 5
 },
 {
 "text": "verzorgende ig",
-"n": 5
-},
-{
-"text": "klantenservice medewerker",
 "n": 5
 },
 {
