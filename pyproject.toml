@@ -23,13 +23,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "demo.py" = ["E402"]  # FastAPI imports after setup code
 "compute_bags.py" = ["SIM115"]  # Long-lived file handle for JSONL append
-"jobs_search_demo/classify_other_emb.py" = ["SIM115", "SIM905"]  # one-shot analysis loads
-"jobs_search_demo/industry_gate.py" = ["SIM115"]  # one-shot analysis loads
-"jobs_search_demo/exp_dept_gate.py" = ["SIM115"]  # one-shot analysis loads
-"jobs_search_demo/classify_other_llm.py" = ["SIM115"]  # one-shot analysis loads
 "demo_resume_match.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
 "space_demo_resume/app.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
-"jobs_search_demo/space/app.py" = ["B008"]  # FastAPI Form()/File() defaults are idiomatic
 
 [tool.ruff.format]
 quote-style = "double"

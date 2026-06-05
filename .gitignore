@@ -53,34 +53,8 @@ logs/
 scratch/
 
 # Solr runtime artifacts (Lucene indexes, config overlays, runtime logs/pid)
-jobs_search_demo/solr_home/jobs/data/
-jobs_search_demo/solr.log*
-jobs_search_demo/solr_shim.log
-jobs_search_demo/solr_shim.pid
 
-# unified_jobs/ — code and small reference labels tracked, large per-doc data on HF
-unified_jobs/titles.json
-unified_jobs/metadata.jsonl
-unified_jobs/source_index.json
-unified_jobs/doc_ids.json
-unified_jobs/doc_industry_labels*.tsv
-unified_jobs/te3_cache_canonical.json
-unified_jobs/*_te3_1024.ids.json
-unified_jobs/slug_text_bag.csv
-unified_jobs/slug_industry_labels_bge.csv
-unified_jobs/slug_industry_overrides.csv.bak
-unified_jobs/tail2_unclassified_for_labeling_part*.csv
-unified_jobs/tail2_labels_part*.csv
-unified_jobs/tail3_labels/
-unified_jobs/tail3_compact.csv
-unified_jobs/tail_v1_fix/
-unified_jobs/tail_v1_tech_review.csv
-unified_jobs/slug_industry_labels_nn_margin_*.csv
-unified_jobs/*.progress.json
 # resume->job demo caches, rebuild via precompute_resume_match.py
-unified_jobs/resume_match_cache/
-# regenerable from current Solr via jobs_search_demo/facets/dump_facets_from_solr.py
-jobs_search_demo/facets/facets.jsonl
 
 # space_demo_jobs/_stage — local HF dataset staging cache (regenerable)
 space_demo_jobs/_stage/
@@ -106,9 +80,7 @@ trained_models/
 *.faiss
 *.npy
 # tarred Solr core -- regenerable, pushed to the HF dataset, not git (~1GB)
-jobs_search_demo/solr_jobs_core.tar
 # new-slug byproduct of stage_facets -- regenerated each refresh
-jobs_search_demo/facets/new_unlabeled_slugs.txt
 
 # Misc
 memory/
@@ -134,19 +106,12 @@ judge_workload_relevance.py
 private_eval/
 
 # transient OpenAI batch ids from the 'other'-bucket backfill
-jobs_search_demo/llm_other_batch.id
 
 # ROME open-data zip cached by build_fr_related.py (re-downloadable)
-jobs_search_demo/.rome_opendata.zip
 
 # ESCO occupation backbone harvested from the open API by build_esco_backbone.py
 # (re-harvestable; ~25MB JSONL + URI list + run log)
-jobs_search_demo/.esco_records.jsonl
-jobs_search_demo/.esco_occ_uris.json
-jobs_search_demo/esco_harvest.log
 # ESCO label embedding cache for the multilingual emb-ESCO rescue (re-derivable
 # from .esco_records.jsonl + the e5 model; per-language .npz of label vectors)
-jobs_search_demo/.esco_emb_label_cache/
 # Per-deploy targeted re-push position lists (scratch; regenerable)
-jobs_search_demo/*_repush_positions.json
 .employer_ats_cache.json
