@@ -155,3 +155,4 @@ jobs_search_demo/esco_harvest.log
 jobs_search_demo/.esco_emb_label_cache/
 # Per-deploy targeted re-push position lists (scratch; regenerable)
 jobs_search_demo/*_repush_positions.json
+.employer_ats_cache.json

@@ -684,6 +684,18 @@ try:
 except FileNotFoundError:
     pass
 
+# Names recovered from ATS board metadata (build_employer_names_ats.py): for the
+# single-token slugs that neither curation nor the description carries, fetch the real
+# company name from the board's public endpoint (greenhouse/smartrecruiters JSON,
+# ashby/lever <title>) -- "samsara" -> "Samsara", "getwingapp" -> "Wing Assistant".
+# LOWEST precedence: curated and the description extraction both WIN on overlap.
+_EMP_ATS: dict[str, str] = {}
+try:
+    with open(os.path.join(os.path.dirname(__file__), "employer_names_ats.json")) as _ef:
+        _EMP_ATS = {k: v for k, v in json.load(_ef).items() if not k.startswith("_")}
+except FileNotFoundError:
+    pass
+
 # Tokens to render upper-case when they appear as a standalone word in a slug.
 _EMP_ACRONYMS = {
     "sgs",
@@ -720,6 +732,8 @@ def _pretty_employer(slug: str) -> str:
         return _EMP_OVERRIDES[slug]
     if slug in _EMP_EXTRACTED:
         return _EMP_EXTRACTED[slug]
+    if slug in _EMP_ATS:
+        return _EMP_ATS[slug]
     s = _EMP_ESTAB_ID.sub("", _EMP_TLD.sub("", slug.strip()))
     words = [w for w in re.split(r"[-_.\s]+", s) if w]
     out = [w.upper() if w in _EMP_ACRONYMS else (w[:1].upper() + w[1:]) for w in words]

@@ -1782,6 +1782,7 @@ def stage_deploy(args) -> None:
         "suggest_lib.py",
         "employer_names.json",
         "employer_names_extracted.json",
+        "employer_names_ats.json",
         "role_vocab.json",
         "role_vocab_emb.npy",
         "fr_roles.json",
