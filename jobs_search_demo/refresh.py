@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Periodic refresh of the Solr jobs demo (Space dtunkelang/jobs-search).
+"""Periodic refresh of the Solr jobs demo (Space dtunkelang/job-search).
 
 Single orchestration script. Pulls the latest OpenApply + USAJobs postings,
 rebuilds a te3-free unified catalog (RRF: BM25 + e5-small), reindexes Solr,
@@ -1758,7 +1758,7 @@ def stage_deploy(args) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi()
-    space_id = "dtunkelang/jobs-search"
+    space_id = "dtunkelang/job-search"
     space_dir = ROOT / "jobs_search_demo" / "space"
     # lang_detect.py is canonical at the demo root (imported here by stage_unify for
     # index-time lang tagging AND by the miners); the Space serves its OWN copy under

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Solr-backed jobs search demo.
+"""Solr-backed job search demo.
 
 Default retrieval strategy:
   RRF(BM25, e5-small) with RRF_K=60 over top-100 per lane.
@@ -1748,7 +1748,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Jobs Search Demo", lifespan=lifespan)
+app = FastAPI(title="Job Search Demo", lifespan=lifespan)
 
 
 # ===== Site-language localization (chrome only) =====
@@ -3406,7 +3406,7 @@ button:hover { background: var(--surface-2); border-color: #d3d7e2; }
 <body>
 <header class="masthead">
 <select id="site-lang" class="site-lang" title="Site language"></select>
-<h1>Jobs Search <span class="acc">Demo</span></h1>
+<h1>Job Search <span class="acc">Demo</span></h1>
 <div class="tagline" id="tagline">__PAGE_SUBTITLE__</div>
 <div class="meta" id="meta">__PAGE_META__</div>
 </header>
@@ -4259,7 +4259,7 @@ def index():
         n_str = f"{n:,}"
     except Exception:
         n_str = "~300,000"
-    title = f"Jobs Search Demo: {n_str} postings"
+    title = f"Job Search Demo: {n_str} postings"
     subtitle = f"Semantic + lexical search across {n_str} live job postings."
     meta = (
         "14 sources · RRF(BM25 + e5-small) · browse by default, refine with facets "

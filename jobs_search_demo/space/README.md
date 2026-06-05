@@ -1,5 +1,5 @@
 ---
-title: Jobs Search Demo
+title: Job Search Demo
 emoji: 🔎
 colorFrom: blue
 colorTo: indigo
@@ -10,7 +10,7 @@ license: cc-by-4.0
 short_description: Multilingual hybrid search over ~340K job postings
 ---
 
-# Jobs Search Demo
+# Job Search Demo
 
 Hybrid job search over **~340,000 postings** from 15 sources — ATS crawls
 (OpenApply, SmartRecruiters, Workable, Recruitee, Breezy), public/federal feeds
