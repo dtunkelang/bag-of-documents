@@ -202,7 +202,7 @@ def rescue(metadata_path, heur_labels, recs=None, langs=LANGS, model=None, use_c
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="write the overrides file")
-    ap.add_argument("--langs", default="es,it", help="comma list (default es,it)")
+    ap.add_argument("--langs", default="es,it,de,nl", help="comma list (default es,it,de,nl)")
     ap.add_argument("--audit", type=int, default=0, help="print N samples per lang")
     ap.add_argument("--no-cache", action="store_true")
     args = ap.parse_args()

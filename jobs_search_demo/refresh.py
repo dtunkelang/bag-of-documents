@@ -1277,7 +1277,8 @@ def _rescue_other_via_esco_emb(out: Path, role_fams: list[str]) -> None:
     by multilingual-e5 cosine, gated on cosine + vote-share, and the occupation's
     ISCO-08 code maps to a role_family (see classify_other_esco_emb / isco_role_family).
     The encode is OFFLINE (match step only) -- the served retrieval model is unchanged.
-    Scoped to es/it (the audited, highest-residual locales); push_docs applies it with
+    Scoped to es/it/de/nl (the audited non-English residual locales; fr/sv are already
+    covered by authoritative ROME/JobTech); push_docs applies it with
     the LOWEST precedence (after every authoritative source + lexical ESCO) only where
     the heuristic == 'other'. Deterministic on a fixed corpus + model -> reproducible."""
     sys.path.insert(0, str(ROOT / "jobs_search_demo"))
@@ -1287,12 +1288,12 @@ def _rescue_other_via_esco_emb(out: Path, role_fams: list[str]) -> None:
         print(f"[3] emb-ESCO rescue SKIPPED (import failed: {e})", flush=True)
         return
 
-    preds = esco_emb_rescue(out / "metadata.jsonl", role_fams, langs=("es", "it"))
+    preds = esco_emb_rescue(out / "metadata.jsonl", role_fams, langs=("es", "it", "de", "nl"))
     dest = ROOT / "jobs_search_demo" / "role_family_esco_emb_overrides.json"
     with open(dest, "w") as f:
         json.dump(preds, f, indent=0, sort_keys=True, ensure_ascii=False)
     print(
-        f"[3] emb-ESCO rescue: {len(preds):,} es/it 'other' docs labeled -> {dest.name}",
+        f"[3] emb-ESCO rescue: {len(preds):,} es/it/de/nl 'other' docs labeled -> {dest.name}",
         flush=True,
     )
 
