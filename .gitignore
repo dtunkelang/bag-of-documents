@@ -53,12 +53,6 @@ logs/
 scratch/
 
 # Solr runtime artifacts (Lucene indexes, config overlays, runtime logs/pid)
-solr_movies_demo/solr_home/movies/data/
-solr_movies_demo/solr_home/movies/conf/
-solr_movies_demo/solr.log*
-solr_movies_demo/solr_shim.log
-solr_movies_demo/solr_shim.pid
-solr_movies_demo/bge_vecs/
 jobs_search_demo/solr_home/jobs/data/
 jobs_search_demo/solr.log*
 jobs_search_demo/solr_shim.log

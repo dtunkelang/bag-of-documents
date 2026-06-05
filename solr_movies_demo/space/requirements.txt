@@ -1,7 +1,0 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-requests>=2.32
-numpy>=2.0,<3
-sentence-transformers>=3.0
-huggingface_hub>=0.27
-torch>=2.5,<3
