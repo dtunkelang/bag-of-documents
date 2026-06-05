@@ -672,6 +672,18 @@ try:
 except FileNotFoundError:
     pass
 
+# Names recovered from posting descriptions by slug-anchored extraction
+# (build_employer_names.py): correctly-cased company names for the concatenated
+# single-token slugs the prettifier below can't split ("toyotaconnected" ->
+# "Toyota Connected", "15five" -> "15Five"). The hand-curated map above wins on any
+# overlap, so curation is always authoritative; this just widens coverage.
+_EMP_EXTRACTED: dict[str, str] = {}
+try:
+    with open(os.path.join(os.path.dirname(__file__), "employer_names_extracted.json")) as _ef:
+        _EMP_EXTRACTED = {k: v for k, v in json.load(_ef).items() if not k.startswith("_")}
+except FileNotFoundError:
+    pass
+
 # Tokens to render upper-case when they appear as a standalone word in a slug.
 _EMP_ACRONYMS = {
     "sgs",
@@ -706,6 +718,8 @@ def _pretty_employer(slug: str) -> str:
         return ""
     if slug in _EMP_OVERRIDES:
         return _EMP_OVERRIDES[slug]
+    if slug in _EMP_EXTRACTED:
+        return _EMP_EXTRACTED[slug]
     s = _EMP_ESTAB_ID.sub("", _EMP_TLD.sub("", slug.strip()))
     words = [w for w in re.split(r"[-_.\s]+", s) if w]
     out = [w.upper() if w in _EMP_ACRONYMS else (w[:1].upper() + w[1:]) for w in words]

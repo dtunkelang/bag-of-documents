@@ -42,8 +42,10 @@ COPY maps_svg.py /opt/app/maps_svg.py
 COPY lang_detect.py /opt/app/lang_detect.py
 # Related-searches suggester: lib + offline corpus role vocab/embeddings (self-contained).
 COPY suggest_lib.py /opt/app/suggest_lib.py
-# Curated employer slug -> display-name overrides (company names for result cards).
+# Curated employer slug -> display-name overrides (company names for result cards),
+# plus names recovered from posting descriptions (build_employer_names.py; curated wins).
 COPY employer_names.json /opt/app/employer_names.json
+COPY employer_names_extracted.json /opt/app/employer_names_extracted.json
 COPY role_vocab.json /opt/app/role_vocab.json
 COPY role_vocab_emb.npy /opt/app/role_vocab_emb.npy
 # French canonical roles for autocomplete + French-resume suggested searches.
