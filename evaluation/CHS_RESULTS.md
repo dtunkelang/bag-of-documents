@@ -2568,6 +2568,304 @@ scale, not by cluster geometry.
     cost is high). ESCI chain (parts B-E): $0.26 + $0.007 + $0.004 +
     (E's cost, reused cached scores, $0) ≈ **$0.28 total**, gpt-4o-mini.
 
+28. **BM25-paraphrase leg in a real BM25+dense RRF hybrid — the
+    recall-union null replicates in real retrieval, and "dense
+    corroboration" turns out to be a paraphrase-agnostic precision
+    filter.** Direct follow-on to Pattern 27's Part E. That test found
+    union(literal top-K, paraphrase top-K) by judge score was a
+    pool-size artifact, not genuine bias recovery. This asks whether
+    the same idea does better in REAL hybrid retrieval, conditioned on
+    agreement between two independent signals: add a BM25-on-paraphrase
+    leg to a BM25+dense RRF fusion (dense stays on the ORIGINAL query,
+    untouched, as an independent corroborator). Hypothesis: docs that
+    BM25-paraphrase surfaces AND dense-on-the-original-query
+    independently also ranks highly are corroborated by two
+    independent signals and should skew true-positive; docs
+    BM25-paraphrase alone surfaces should look like the generic
+    decorrelated noise Pattern 27 found.
+
+    **Setup** (`evaluation/analyze_esci_bm25_paraphrase_rrf.py`,
+    `evaluation/results/esci_bm25_paraphrase_rrf.json`). Same 250-query
+    ESCI-US sample and same faithful/drifted fidelity split
+    (fidelity_argmax≥4, n=123 faithful / n=127 drifted) as Pattern 27.
+    BM25 (bm25s, k1=1.5, b=0.75, English stem+stopwords) and dense
+    (all-MiniLM-L6-v2) over the full 360,873-doc ESCI-US catalog,
+    RRF-fused (rrf_k=60, depth 100/leg). Four conditions: A = baseline
+    RRF(BM25-orig, dense-orig); B = treatment RRF(BM25-orig, dense-orig,
+    BM25-para) — only the BM25 leg sees the paraphrase; C = size-matched
+    control (BM25-orig extended deeper by exactly the extra candidates
+    the paraphrase leg added, zero paraphrase signal) — the same
+    discipline that killed Pattern 27's Part E; D = rank-matched control,
+    added after C turned out nearly inert (BM25-orig's own ranks
+    101-200, re-based to ranks 1-100, as a third leg carrying the same
+    RRF rank-weight profile as B's paraphrase leg but zero paraphrase
+    signal). Primary TP = ESCI Exact only (same convention as Pattern
+    27 — Substitute is the adversarial lexical near-miss class); E+S
+    reported as a sensitivity check. Paired bootstrap (n_boot=2000,
+    seed=0) on recall@{5,10} and nDCG@{5,10} deltas, by
+    faithful/drifted/unrestricted.
+
+    **Result: null on B vs A, and nDCG actively drops on the
+    unrestricted set.** Recall deltas (B−A) all have CIs including
+    zero: faithful +0.0026 (K=5, CI [-0.0160,0.0239]) / +0.0133 (K=10,
+    CI [-0.0039,0.0315]); drifted −0.0163 (K=5, CI [-0.0463,0.0104]) /
+    −0.0162 (K=10, CI [-0.0442,0.0090]); unrestricted −0.0070 (K=5) /
+    −0.0017 (K=10). nDCG@5 on the unrestricted subset is significantly
+    *negative*: −0.0229, CI [−0.0426,−0.0015] — echoing Pattern 27's
+    Part D finding that paraphrase harm concentrates in drifted
+    (low-fidelity) queries, since drifted alone carries most of the
+    damage (ΔnDCG@5 −0.0268, CI [-0.0590,0.0052]; ΔnDCG@10 −0.0147, CI
+    [-0.0374,0.0085]) while faithful is roughly neutral. Against the
+    controls, B beats neither C nor D on nDCG anywhere, and beats
+    neither on recall except one isolated cell (faithful ΔR@10 vs D,
+    +0.0241, CI [0.0035,0.0467]) out of 24 B-vs-control contrasts
+    tested (2 controls × 2 metrics × 2 K × 3 subsets) — the rate you'd
+    expect from multiple-comparisons noise alone, not a pattern of
+    real gains.
+
+    **Attribution test looks like it confirms the hypothesis — until
+    it's checked against its own control.** Split B-added docs (in B's
+    fused top-K but not A's) by whether dense-orig's raw top-100 also
+    contains them ("corroborated") or not ("uncorroborated"). On its
+    face the prediction holds: corroborated B-added docs have a higher
+    Exact-rate than uncorroborated ones, CI excluding zero in 3 of 6
+    subset×K cells — faithful K=5 (0.247 vs 0.108, diff +0.139, CI
+    [0.017,0.253]), faithful K=10 (0.174 vs 0.089, diff +0.085, CI
+    [0.010,0.160]), unrestricted K=5 (0.244 vs 0.136, diff +0.108, CI
+    [0.004,0.199]) — but not drifted K=5, drifted K=10, or unrestricted
+    K=10. It fails its own control: D-added docs (paraphrase-free, same
+    rank-weight profile) show the *same* corroboration gap (e.g.
+    unrestricted K=5: 0.069 corroborated vs 0.0 uncorroborated among
+    D-added), and the difference-in-differences — (B's gap) minus (D's
+    gap) — crosses zero in every one of the 6 cells (unrestricted K=5
+    DiD +0.040, CI [-0.071,0.140]; faithful K=5 DiD +0.103, CI
+    [-0.030,0.224]). The pool-level number that explains why:
+    docs inside dense-orig's raw top-100 have Exact rates roughly
+    15-34× higher than docs outside it, *regardless of which candidate
+    list you intersect with dense* — for BM25-paraphrase's own
+    candidates, in-pool vs out-of-pool Exact rate is 0.198 vs 0.009 on
+    unrestricted (~22×), 0.196 vs 0.013 on faithful (~15×), 0.201 vs
+    0.006 on drifted (~34×). Being inside dense's top-100 is a strong,
+    general precision filter on *any* candidate list; "a paraphrase
+    found it too" adds nothing on top of that.
+
+    **C is nearly inert in this RRF setting — methodological note.**
+    The size-matched control barely displaces anything from A's fused
+    top-K. On the unrestricted set, C's BM25 leg goes deeper by a mean
+    64.8 extra candidates per query — by construction the *exact same*
+    pool growth B gets from its paraphrase leg — yet at K=5 only 14
+    total C-added items crack the fused top-5 across all 250 queries,
+    versus 377 for B and 153 for D (D's own comparably-sized bump, mean
+    88.2 extra candidates/query); at K=10 the gap persists (56 for C
+    vs 619 for B vs 388 for D). Reason: RRF's rank-weight decay means
+    extending one existing list's tail only injects mass starting at
+    1/(60+101) and below, so a control that is honestly size-matched
+    but not rank-matched almost never displaces incumbents from the
+    fused top-K. That's why D — a third leg with B's rank-weight
+    profile, built from BM25-orig's own ranks 101-200 — was added, and
+    why D rather than C is the controlling comparison for the
+    attribution DiD test above.
+
+    **Bottom line.** Two independent implementations of "patch BM25's
+    lexical brittleness with a paraphrase, then fuse with dense" —
+    Pattern 27's judge-score union and this pattern's real hybrid
+    RRF — land on the same verdict: paraphrasing adds generic
+    diversity, not selective bias recovery. Corroboration by an
+    independent retriever (dense) is a real, strong, general-purpose
+    precision signal, but it has nothing to do with paraphrasing
+    specifically — a paraphrase riding on top of that signal doesn't
+    beat a paraphrase-free control carrying the same rank-weight
+    profile.
+
+    Cost: $0 — all local (bm25s + all-MiniLM-L6-v2 over the cached
+    360,873-doc catalog, no API calls); paraphrases and fidelity labels
+    reused from Pattern 27's cached artifacts.
+
+29. **PRF restricted to the BM25/dense intersection — the
+    "unrepresentative subset" worry is real, but the harm lands on the
+    easy queries, not the hard ones, and a lower alpha can't fix it.**
+    A new branch off the same chain, prompted by a SIGIR paper on
+    pseudo-relevance feedback (PRF) gated on agreement between two
+    independent retrievers. Concern going in: restricting PRF to docs
+    that BM25 and dense both independently rank highly could be an
+    unrepresentative, easy subset of queries, making any aggregate PRF
+    gain an artifact of "the easy queries got easier" rather than
+    genuine signal. This is an explicit SIMPLIFIED PROXY for the
+    paper's method, not a reproduction — the paper's exact feedback
+    mechanism (term selection, weighting, target retriever, depths,
+    corpus) isn't available to us; this tests the structural claim
+    only, via a dense-side Rocchio update over the intersection
+    (chosen because cached catalog embeddings make it tractable with
+    zero new API cost).
+
+    **Setup — Part 1: intersection-size stratification**
+    (`evaluation/analyze_esci_prf_intersection.py`,
+    `evaluation/results/esci_prf_intersection.json`). Same 250-query
+    ESCI-US sample and same catalog/BM25/dense infra as Patterns 27-28
+    (bm25s + all-MiniLM-L6-v2 over the 360,873-doc catalog, RRF
+    rrf_k=60), reusing cached catalog embeddings. Condition A =
+    baseline RRF(BM25-orig, dense-orig); condition P =
+    RRF(BM25-orig, dense-PRF), where dense-PRF's query vector is
+    `normalize((1-alpha)*orig_qv + alpha*centroid(catalog_vecs[d] for
+    d in intersection))`, alpha=0.5, applied only to the dense leg —
+    BM25 is unchanged. Intersection = BM25-orig-top20 ∩
+    Dense-orig-top20 per query (mean 6.74, median 6; 19/250 queries,
+    7.6%, have an empty intersection). Strata (tercile cuts of the
+    non-empty values plus an explicit empty bucket): empty (n=19,
+    |I|=0), small (n=71, |I| 1–4), mid (n=89, |I| 5–9), large (n=71,
+    |I|>9). Primary TP = ESCI Exact only, paired bootstrap (n_boot=
+    2000, seed=0) on recall@{5,10} and nDCG@{5,10}.
+
+    **Result: the baseline difficulty gradient confirms half the
+    worry — intersection size is a strong, real quality proxy on its
+    own.** With no PRF involved at all, condition A's own recall@5 and
+    nDCG@5 climb sharply across strata: R@5 0.0569 (empty, CI
+    [0.0178,0.1072]) → 0.2026 (small) → 0.2721 (mid) → 0.3710 (large,
+    CI [0.3083,0.4323]); nDCG@5 0.1997 (empty) → 0.2784 (small) →
+    0.5271 (mid) → 0.7295 (large, CI [0.6568,0.7955]). The
+    large-vs-small and large-vs-empty cross-stratum contrasts are
+    large and CI-excluding-zero everywhere (e.g. R@5 large−small
+    +0.1684, CI [0.0737,0.2578]; nDCG@5 large−empty +0.5298, CI
+    [0.3943,0.6527]). Any method that gates on "both retrievers agree"
+    is reporting on a subset that's dramatically easier than what it
+    excludes — the first half of the worry is confirmed and large.
+
+    **But the PRF delta does not concentrate on the easy stratum the
+    way the naive worry predicted — it's closer to inverted.**
+    Delta(P,A) on R@5 at K=5: the small stratum is slightly *positive*
+    at +0.0259 (CI [0.0002,0.0542], p_le_0=0.023 — the lower bound
+    sits just above zero), while the large stratum is slightly
+    *negative* at −0.0120 (CI [−0.0253,−0.0004], CI excluding zero).
+    The mid stratum is flat (−0.0029, CI crossing zero). The
+    large-minus-small concentration contrast on the delta itself is
+    CI-excluding-zero and negative: −0.0379 (CI [−0.0683,−0.0096]) on
+    R@5, −0.0456 (CI [−0.0818,−0.0085]) on nDCG@5 — i.e. the PRF
+    effect is significantly *more negative* on the easy (large)
+    stratum than on the hard (small) stratum, the opposite sign from
+    what "PRF just makes easy queries easier" predicts. This is
+    consistent with a ceiling effect: the large stratum is already at
+    nDCG@5 ≈ 0.73, so an aggressive query-vector perturbation has far
+    more room to hurt than to help, while the small stratum has
+    headroom to gain. The empty stratum shows exactly 0.0 delta by
+    construction (PRF is a no-op with no intersection, prf_qv =
+    orig_qv exactly) — asserted in the code as a self-check, not
+    merely observed (W/L/T = 0/0/19 in every cell).
+
+    **Pooled delta is null at every metric — the core methodological
+    point.** The unstratified/pooled delta_recall@5 is +0.0029 (CI
+    [−0.0070,0.0127]) and delta_nDCG@5 is −0.0008 (CI
+    [−0.0140,0.0127]) — both cross zero. An unstratified evaluation of
+    this technique would report "no effect," masking two strata moving
+    in opposite directions underneath. Don't trust an unstratified
+    PRF-on-intersection eval.
+
+    **Sensitivity check at N=10 and N=50 intersection depths: the
+    direction holds, significance is depth-dependent.** At N=10
+    (strata n: empty=39, small=70, mid=65, large=76), small-stratum
+    R@5 delta is +0.0058 (CI [−0.0209,0.0302], not significant) and
+    large-stratum delta is −0.0169 (CI [−0.0371,0.0002], borderline);
+    the large-minus-small concentration contrast is −0.0227 (CI
+    [−0.0544,0.0077]) — same sign as N=20 but not itself
+    CI-excluding-zero at this depth. At N=50 (strata n: empty=6,
+    small=80, mid=84, large=80) the pattern sharpens: small-stratum
+    delta +0.0142 (CI [−0.0047,0.0343]), large-stratum delta −0.0157
+    (CI [−0.0291,−0.0035], excluding zero), concentration contrast
+    −0.0299 (CI [−0.0532,−0.0076], excluding zero) — matching N=20's
+    significant inversion. Pooled delta stays null at both sensitivity
+    depths (N=10: −0.0039, CI [−0.0143,0.0061]; N=50: −0.0043, CI
+    [−0.0177,0.0079]). Net: the sign pattern (small
+    non-negative / large non-positive) is consistent across all three
+    depths tested; the statistical significance of the inversion
+    itself is clearest at N=20 and N=50, weaker at N=10.
+
+    **Engineering note: dense-orig was recomputed fresh for both
+    conditions, not reused from Pattern 28's cache.** Comparing the
+    freshly-recomputed dense-orig list against the cached list from
+    `analyze_esci_bm25_paraphrase_rrf.py` showed 99.98% mean overlap@
+    depth but only 27.6% of rankings bit-identical (RRF tie-break
+    nondeterminism among equal-score docs). The script recomputes
+    dense-orig fresh for both A and P specifically so tie-order noise
+    can't leak a spurious delta into the empty-intersection stratum —
+    the exactly-0.0 empty-stratum delta reported above is the
+    self-check that this worked.
+
+    **Setup — Part 2: alpha sweep** (same script extended,
+    `evaluation/results/esci_prf_intersection_alpha_sweep.json`).
+    Question: does tuning alpha down resolve the large-stratum harm
+    found in Part 1, and if so, does it do so by becoming more
+    *selective* or just weaker? Swept alpha in {0.1, 0.2, 0.3, 0.4,
+    0.5} at the same N=20 depth and strata; refactored so the
+    alpha-independent retrieval/intersection/stratification work runs
+    once and only the Rocchio-update + RRF-refuse step reruns per
+    alpha. The alpha=0.5 sweep cell reproduces Part 1's single-run
+    numbers exactly (small-stratum R@5 delta 0.0259, CI
+    [0.0002,0.0542], W/L/T 17/5/49; large-stratum delta −0.0120, CI
+    [−0.0253,−0.0004], W/L/T 4/10/57 — bit-identical to the standalone
+    run), confirming the refactor didn't change results.
+
+    **Result: the large-stratum harm shrinks by becoming inert, not by
+    becoming selective — and the sign never flips.** R@5 delta(P,A) by
+    alpha, small stratum → large stratum: alpha=0.5: +0.0259 → −0.0120
+    (CI [−0.0253,−0.0004]); alpha=0.4: +0.0267 (CI [0.0020,0.0539]) →
+    −0.0095 (CI [−0.0224,0.0016]); alpha=0.3: +0.0214 (CI
+    [−0.0017,0.0480]) → −0.0080 (CI [−0.0286,0.0082]); alpha=0.2:
+    +0.0056 → −0.0070 (CI [−0.0204,0.0056]); alpha=0.1: +0.0070 (CI
+    [−0.0175,0.0313]) → −0.0037 (CI [−0.0130,0.0035]). The
+    large-stratum harm does shrink in absolute magnitude as alpha
+    decreases (roughly −0.012 at 0.5 down to roughly −0.004 at 0.1)
+    and loses CI significance below alpha=0.5 — but it shrinks because
+    the intervention becomes inert, not more targeted: at alpha=0.1
+    the large stratum's win/loss/tie count is 1/3/67 out of 71 queries
+    (94% ties), versus 4/10/57 at alpha=0.5 — the query vector is
+    barely moving, not moving more precisely. The sign of the
+    large-stratum delta never flips positive at any alpha tested. The
+    small-stratum gain shrinks in lockstep at a comparable rate
+    (+0.0259 at 0.5 down to +0.0070 at 0.1), and the ratio of
+    small-stratum gain to large-stratum harm magnitude bounces around
+    ~0.8–2.8× across the sweep with no systematic increase as alpha
+    decreases (0.1: 1.9×; 0.2: 0.8×; 0.3: 2.7×; 0.4: 2.8×; 0.5: 2.2×)
+    — i.e. alpha behaves as a volume knob on the whole effect, scaling
+    benefit and harm together, not a selectivity knob that lets you
+    keep the benefit while discarding the harm. The empty stratum
+    stays at exactly 0.0000 delta with a degenerate [0,0] CI at every
+    alpha tested, on every metric, confirming the no-op-by-construction
+    identity holds regardless of alpha. Pooled/aggregate delta stays
+    null (CI crossing zero) at every alpha value tested too (0.1:
+    +0.0011, CI [−0.0075,0.0090]; 0.2: +0.0010; 0.3: +0.0010; 0.4:
+    +0.0020; 0.5: +0.0029, CI [−0.0070,0.0127]) — reinforcing that an
+    unstratified eval would report "no effect" at any alpha setting
+    while the two strata move in opposite directions underneath.
+
+    **Bottom line.** (1) The "unrepresentative subset" concern about
+    gating PRF on lexical/dense agreement is confirmed as a real and
+    large effect on query difficulty — intersection size alone
+    predicts recall/nDCG gaps of 0.3–0.5 absolute between strata, with
+    no PRF involved. (2) But in this dense-Rocchio proxy, the PRF
+    benefit and harm land in the *opposite* direction from the naive
+    "PRF just makes easy queries easier" worry: it's the hard
+    (small-intersection) queries that see marginal benefit and the
+    easy (large-intersection) queries that see marginal harm,
+    consistent with a ceiling effect on already-good rankings. (3) The
+    alpha sweep rules out "just tune it down" as a fix — alpha scales
+    the whole effect proportionally (both the small-stratum gain and
+    the large-stratum harm shrink together, and the harmful sign never
+    flips) rather than selectively removing the harmful part. The only
+    viable path forward that these results suggest but do not
+    build is difficulty-adaptive alpha, gated per-query on
+    intersection size or another confidence proxy, not a single global
+    alpha. As with the setup itself: this is a simplified dense-Rocchio
+    proxy for the SIGIR paper's actual method (likely lexical/
+    RM3-style expansion, not tested here), so these results
+    characterize the general structural claim — agreement is a biased
+    easy subset, and naive global-alpha PRF has a real tradeoff rather
+    than a free lunch — without confirming or refuting the specific
+    paper's reported results.
+
+    Cost: $0 — all local (bm25s + all-MiniLM-L6-v2 over the cached
+    360,873-doc catalog, no API calls); BM25 lists and catalog vectors
+    reused from Pattern 28's cached artifacts, dense-orig recomputed
+    fresh per the engineering note above.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
