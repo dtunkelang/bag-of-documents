@@ -60,14 +60,12 @@ Usage (this repo's .venv lacks numpy; use uv):
 import argparse
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
-
 from eval_esci_llm_judge_lexical_bias import (  # noqa: E402
     GRADE_LETTER,
     overlap_metrics,
@@ -157,9 +155,7 @@ def build_table(rows, para_of, lit, par):
     for qi, r in enumerate(rows):
         pinfo = para_of[r["query_id"]]
         cands = []
-        for ci, (pid, g, title) in enumerate(
-            zip(r["product_ids"], r["grades"], r["titles"])
-        ):
+        for ci, (pid, g, title) in enumerate(zip(r["product_ids"], r["grades"], r["titles"])):
             s_lit, s_par = float(lit[qi, ci]), float(par[qi, ci])
             if not (np.isfinite(s_lit) and np.isfinite(s_par)):
                 n_nan += 1
@@ -264,9 +260,7 @@ def analyse(per_q, qis, k, tp_pred, n_boot, seed):
             )
 
     d_union_lit = [u - l for u, l in zip(rec["union"], rec["literal"])]
-    d_union_sizematched = [
-        u - l for u, l in zip(rec["union"], rec["literal_size_matched"])
-    ]
+    d_union_sizematched = [u - l for u, l in zip(rec["union"], rec["literal_size_matched"])]
     d_para_lit = [p - l for p, l in zip(rec["paraphrase"], rec["literal"])]
 
     out = {
@@ -284,13 +278,9 @@ def analyse(per_q, qis, k, tp_pred, n_boot, seed):
             ),
         },
         "delta_union_minus_literal": _paired_boot(d_union_lit, n_boot, seed),
-        "delta_union_minus_literal_size_matched": _paired_boot(
-            d_union_sizematched, n_boot, seed
-        ),
+        "delta_union_minus_literal_size_matched": _paired_boot(d_union_sizematched, n_boot, seed),
         "delta_paraphrase_minus_literal": _paired_boot(d_para_lit, n_boot, seed),
-        "precision_tp": {
-            name: _mean_ci(v, n_boot, seed) for name, v in prec_tp.items()
-        },
+        "precision_tp": {name: _mean_ci(v, n_boot, seed) for name, v in prec_tp.items()},
         "precision_tp_delta_union_minus_literal": _paired_boot(
             [u - l for u, l in zip(prec_tp["union"], prec_tp["literal"])], n_boot, seed
         ),
@@ -305,12 +295,10 @@ def analyse(per_q, qis, k, tp_pred, n_boot, seed):
         "attribution": {
             "n_items": {name: len(v["cov"]) for name, v in ov.items()},
             "mean_cov_lit": {
-                name: (float(np.mean(v["cov"])) if v["cov"] else None)
-                for name, v in ov.items()
+                name: (float(np.mean(v["cov"])) if v["cov"] else None) for name, v in ov.items()
             },
             "mean_jac_lit": {
-                name: (float(np.mean(v["jac"])) if v["jac"] else None)
-                for name, v in ov.items()
+                name: (float(np.mean(v["jac"])) if v["jac"] else None) for name, v in ov.items()
             },
             # weak test: recovered TPs vs the TPs literal already had
             "cov_union_added_minus_literal_caught": _unpaired_diff_boot(
@@ -417,16 +405,22 @@ def main():
         default=None,
         help="fidelity JSON (default: <work-dir>/esci_lexbias_fidelity_<tag>.json)",
     )
-    ap.add_argument("--fidelity-threshold", type=int, default=4,
-                    help="fidelity_argmax >= this counts as faithful (matches the "
-                         "fidelity script's primary_argmax_ge_4 split)")
+    ap.add_argument(
+        "--fidelity-threshold",
+        type=int,
+        default=4,
+        help="fidelity_argmax >= this counts as faithful (matches the "
+        "fidelity script's primary_argmax_ge_4 split)",
+    )
     ap.add_argument("--out", default="evaluation/results/esci_recall_union.json")
     ap.add_argument("--n-boot", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     paths = work_paths(args.work_dir, args.tag)
-    fid_path = Path(args.fidelity or (Path(args.work_dir) / f"esci_lexbias_fidelity_{args.tag}.json"))
+    fid_path = Path(
+        args.fidelity or (Path(args.work_dir) / f"esci_lexbias_fidelity_{args.tag}.json")
+    )
 
     with open(paths["sample"]) as f:
         sample = json.load(f)
@@ -451,12 +445,8 @@ def main():
 
     thr = args.fidelity_threshold
     subsets = {
-        "faithful": [
-            q["qi"] for q in per_q if fid_of[q["qid"]]["fidelity_argmax"] >= thr
-        ],
-        "drifted": [
-            q["qi"] for q in per_q if fid_of[q["qid"]]["fidelity_argmax"] < thr
-        ],
+        "faithful": [q["qi"] for q in per_q if fid_of[q["qid"]]["fidelity_argmax"] >= thr],
+        "drifted": [q["qi"] for q in per_q if fid_of[q["qid"]]["fidelity_argmax"] < thr],
         "unrestricted": [q["qi"] for q in per_q],
     }
     print(
@@ -506,10 +496,10 @@ def main():
                 "equally large literal pool rather than against top-K"
             ),
             "fidelity_split": f"fidelity_argmax >= {thr} -> faithful "
-                              f"(mirrors primary_argmax_ge_4 in analyze_esci_paraphrase_fidelity.py)",
+            f"(mirrors primary_argmax_ge_4 in analyze_esci_paraphrase_fidelity.py)",
             "bootstrap": f"n_boot={args.n_boot}, seed={args.seed}; recall/precision "
-                         f"deltas are PAIRED over queries, attribution contrasts are "
-                         f"unpaired over items (disjoint groups of unequal size)",
+            f"deltas are PAIRED over queries, attribution contrasts are "
+            f"unpaired over items (disjoint groups of unequal size)",
         },
         "n_queries_by_subset": {k: len(v) for k, v in subsets.items()},
         "subsets": {},
@@ -519,9 +509,7 @@ def main():
         for sub_name, qis in subsets.items():
             for k in KS:
                 blk = analyse(per_q, qis, k, tp_pred, args.n_boot, args.seed)
-                results["subsets"].setdefault(tp_name, {}).setdefault(sub_name, {})[
-                    f"k{k}"
-                ] = blk
+                results["subsets"].setdefault(tp_name, {}).setdefault(sub_name, {})[f"k{k}"] = blk
 
     # console summary: primary TP definition only
     print(f"\n===== TP = {PRIMARY_TP} (primary) =====", flush=True)

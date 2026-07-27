@@ -53,7 +53,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
-
 from eval_esci_llm_judge_lexical_bias import (  # noqa: E402
     SCORERS,
     Usage,
@@ -164,9 +163,13 @@ async def _run_fidelity(args, paras, usage):
 
     async def one(p):
         ch = await _chat(
-            client, sem, usage, args.model,
+            client,
+            sem,
+            usage,
+            args.model,
             FIDELITY_PROMPT.format(query=p["query"], paraphrase=p["paraphrase"]),
-            1, logprobs=True,
+            1,
+            logprobs=True,
         )
         try:
             return _fidelity_from_logprobs(ch)
@@ -335,7 +338,9 @@ def phase_split(args, paths, fid_path, out_path):
 
     missing = [r["query_id"] for r in rows if r["query_id"] not in fid_of]
     if missing:
-        raise SystemExit(f"{len(missing)} sampled queries have no fidelity label; run --phase fidelity")
+        raise SystemExit(
+            f"{len(missing)} sampled queries have no fidelity label; run --phase fidelity"
+        )
 
     # primary split, plus the alternatives, so the headline is not a threshold
     # artefact. Declared here in one place rather than picked after seeing nDCG.
@@ -361,12 +366,12 @@ def phase_split(args, paths, fid_path, out_path):
     # the harm still concentrates in the drifted side here, the fidelity label
     # carries semantic information the placebo cannot see.
     schemes["conditional_hi_jaccard_argmax_ge_4"] = (
-        "argmax", 4, ("jaccard_with_original", float(np.median(jaccs)))
+        "argmax",
+        4,
+        ("jaccard_with_original", float(np.median(jaccs))),
     )
     fid_vs_jac = float(
-        np.corrcoef(
-            [fid_of[r["query_id"]]["fidelity_ev"] or 0.0 for r in rows], jaccs
-        )[0, 1]
+        np.corrcoef([fid_of[r["query_id"]]["fidelity_ev"] or 0.0 for r in rows], jaccs)[0, 1]
     )
     print(f"[placebo] pearson(fidelity_ev, jaccard_with_original) = {fid_vs_jac:+.4f}", flush=True)
 
@@ -427,17 +432,18 @@ def phase_split(args, paths, fid_path, out_path):
         scheme_out = {
             "rule": f"{mode} >= {thr} -> faithful",
             "n_queries": {k: len(v) for k, v in idx.items()},
-            "n_pairs": {
-                k: int(sum(len(rows[i]["titles"]) for i in v)) for k, v in idx.items()
-            },
+            "n_pairs": {k: int(sum(len(rows[i]["titles"]) for i in v)) for k, v in idx.items()},
             "n_identical_paraphrases": {
                 k: int(sum(1 for i in v if para_of[rows[i]["query_id"]]["status"] != "ok"))
                 for k, v in idx.items()
             },
             "mean_jaccard_with_original": {
                 k: (
-                    float(np.mean([para_of[rows[i]["query_id"]]["jaccard_with_original"] for i in v]))
-                    if v else None
+                    float(
+                        np.mean([para_of[rows[i]["query_id"]]["jaccard_with_original"] for i in v])
+                    )
+                    if v
+                    else None
                 )
                 for k, v in idx.items()
             },
@@ -508,8 +514,10 @@ def phase_split(args, paths, fid_path, out_path):
             if "faithful" in per_subset_dif and "drifted" in per_subset_dif:
                 scheme_out.setdefault("faithful_minus_drifted_ndcg_delta", {})[scorer] = (
                     _diff_of_diffs_boot(
-                        per_subset_dif["faithful"], per_subset_dif["drifted"],
-                        args.n_boot, args.seed,
+                        per_subset_dif["faithful"],
+                        per_subset_dif["drifted"],
+                        args.n_boot,
+                        args.seed,
                     )
                 )
         out["split_schemes"][scheme_name] = scheme_out
@@ -532,9 +540,9 @@ def _print_summary(out):
         )
         for scorer in ("graded", "yesno"):
             have = [
-                s for s in ("faithful", "drifted")
-                if scorer in sc["subsets"].get(s, {})
-                and "skipped" not in sc["subsets"][s][scorer]
+                s
+                for s in ("faithful", "drifted")
+                if scorer in sc["subsets"].get(s, {}) and "skipped" not in sc["subsets"][s][scorer]
             ]
             if not have:
                 continue

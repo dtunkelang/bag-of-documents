@@ -165,8 +165,28 @@ Rewritten query:"""
 # Minimal stoplist: the bias under test is about *content* token overlap, and
 # leaving function words in mostly adds noise to short product queries.
 STOP = {
-    "a", "an", "and", "the", "for", "of", "with", "in", "on", "to", "or",
-    "by", "at", "from", "is", "are", "be", "my", "your", "it", "that", "this",
+    "a",
+    "an",
+    "and",
+    "the",
+    "for",
+    "of",
+    "with",
+    "in",
+    "on",
+    "to",
+    "or",
+    "by",
+    "at",
+    "from",
+    "is",
+    "are",
+    "be",
+    "my",
+    "your",
+    "it",
+    "that",
+    "this",
 }
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -412,8 +432,12 @@ def phase_data(args):
         d = tbl.to_pydict()
         n = 0
         for qid, q, pid, title, loc, lab in zip(
-            d["query_id"], d["query"], d["product_id"], d["product_title"],
-            d["product_locale"], d["esci_label"],
+            d["query_id"],
+            d["query"],
+            d["product_id"],
+            d["product_title"],
+            d["product_locale"],
+            d["esci_label"],
         ):
             if loc != "us":
                 continue
@@ -652,7 +676,7 @@ def _clean_paraphrase(resp, original):
         line = line.strip()
         if not line:
             continue
-        line = re.sub(r'^(rewritten query|query|answer)\s*[:\-]\s*', "", line, flags=re.I)
+        line = re.sub(r"^(rewritten query|query|answer)\s*[:\-]\s*", "", line, flags=re.I)
         line = line.strip().strip('"').strip("'").strip()
         line = re.sub(r"[.\s]+$", "", line)
         if line:
@@ -666,9 +690,13 @@ async def _run_paraphrase(args, rows, usage):
 
     async def one(r):
         ch = await _chat(
-            client, sem, usage, args.model,
+            client,
+            sem,
+            usage,
+            args.model,
             PARAPHRASE_PROMPT.format(query=r["query"]),
-            args.para_max_tokens, logprobs=False,
+            args.para_max_tokens,
+            logprobs=False,
         )
         return (ch.message.content if ch is not None else "") or ""
 
@@ -841,9 +869,7 @@ def phase_judge(args, paths):
                 t0 = time.time()
                 print(f"== judging {scorer} / {cond} ==", flush=True)
                 try:
-                    n = await_run(
-                        _run_judge_combo(args, rows, qfns[cond], scorer, scores, usage)
-                    )
+                    n = await_run(_run_judge_combo(args, rows, qfns[cond], scorer, scores, usage))
                 finally:
                     np.save(path, scores)  # bank partial progress for --resume
                 fin = scores[np.isfinite(scores)]
@@ -851,8 +877,7 @@ def phase_judge(args, paths):
                     "wall_clock_s": time.time() - t0,
                     "n_pairs_scored": int(n),
                     "n_nan": int(
-                        np.isnan(scores).sum()
-                        - (n_q * max_c - sum(len(r["titles"]) for r in rows))
+                        np.isnan(scores).sum() - (n_q * max_c - sum(len(r["titles"]) for r in rows))
                     ),
                     "score_mean": float(fin.mean()) if fin.size else None,
                     "score_std": float(fin.std()) if fin.size else None,
@@ -891,6 +916,7 @@ def phase_judge(args, paths):
 def await_run(coro):
     """Run a coroutine from sync code (one event loop per combo)."""
     return asyncio.run(coro)
+
 
 # --------------------------------------------------------------------------
 # phase: eval
@@ -939,9 +965,7 @@ def _analyze_scorer(args, rows, n_q, para_of, lit, par):
     recs = []
     for qi, r in enumerate(rows):
         pinfo = para_of[r["query_id"]]
-        for ci, (pid, g, title) in enumerate(
-            zip(r["product_ids"], r["grades"], r["titles"])
-        ):
+        for ci, (pid, g, title) in enumerate(zip(r["product_ids"], r["grades"], r["titles"])):
             cov_lit, jac_lit = overlap_metrics(r["query"], title)
             cov_par, jac_par = overlap_metrics(pinfo["paraphrase"], title)
             recs.append(
@@ -1087,13 +1111,18 @@ def _analyze_scorer(args, rows, n_q, para_of, lit, par):
             "mean_S_low_overlap": float(np.mean([x[fld] for x in s_lo])) if s_lo else None,
             "mean_C": (
                 float(np.mean([x[fld] for x in sub(lambda x: x["label"] == "C")]))
-                if sub(lambda x: x["label"] == "C") else None
+                if sub(lambda x: x["label"] == "C")
+                else None
             ),
             "mean_I": (
                 float(np.mean([x[fld] for x in sub(lambda x: x["label"] == "I")]))
-                if sub(lambda x: x["label"] == "I") else None
+                if sub(lambda x: x["label"] == "I")
+                else None
             ),
-            "n_E": len(e), "n_S": len(s), "n_S_high": len(s_hi), "n_S_low": len(s_lo),
+            "n_E": len(e),
+            "n_S": len(s),
+            "n_S_high": len(s_hi),
+            "n_S_low": len(s_lo),
         }
         d["gap_E_minus_S"] = d["mean_E"] - d["mean_S"]
         if d["mean_S_high_overlap"] is not None:
@@ -1181,9 +1210,7 @@ def _analyze_scorer(args, rows, n_q, para_of, lit, par):
         "literal-query token coverage": lambda qi, g: [x["cov_lit"] for x in g],
         "LLM judge, literal query": lambda qi, g: [x["s_lit"] for x in g],
         "LLM judge, paraphrased query": lambda qi, g: [x["s_par"] for x in g],
-        "LLM judge, literal+para mean": lambda qi, g: [
-            0.5 * (x["z_lit"] + x["z_par"]) for x in g
-        ],
+        "LLM judge, literal+para mean": lambda qi, g: [0.5 * (x["z_lit"] + x["z_par"]) for x in g],
     }
     ranking = {}
     per_query_ndcg = {}
@@ -1312,16 +1339,17 @@ def _actual_spend(purpose_prefix="esci lexical-bias"):
     if not SPEND_LEDGER.exists():
         return {"total_usd": 0.0, "records": []}
     recs = []
-    for line in open(SPEND_LEDGER):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-        except Exception:
-            continue
-        if str(r.get("purpose", "")).startswith(purpose_prefix):
-            recs.append(r)
+    with open(SPEND_LEDGER) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            if str(r.get("purpose", "")).startswith(purpose_prefix):
+                recs.append(r)
     return {
         "total_usd": round(sum(float(r.get("cost_usd", 0.0)) for r in recs), 6),
         "tokens_in": sum(int(r.get("tokens_in", 0)) for r in recs),
@@ -1411,20 +1439,30 @@ def phase_eval(args, paths):
         flush=True,
     )
 
+
 # --------------------------------------------------------------------------
 def main():
     global COST_CEILING_USD
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", required=True,
-                    choices=["data", "sample", "estimate", "paraphrase", "judge", "eval"])
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--phase",
+        required=True,
+        choices=["data", "sample", "estimate", "paraphrase", "judge", "eval"],
+    )
     ap.add_argument("--data-dir", default="esci_us_data")
     ap.add_argument("--work-dir", default="/tmp/esci_lexbias")
     ap.add_argument("--tag", default="esci_us")
     ap.add_argument("--out", default="evaluation/results/esci_llm_judge_lexical_bias.json")
     ap.add_argument("--model", default="gpt-4o-mini", help="OpenAI judge/paraphrase model")
     ap.add_argument("--concurrency", type=int, default=32)
-    ap.add_argument("--cost-ceiling", type=float, default=COST_CEILING_USD,
-                    help="refuse to start a paid phase projected above this (USD)")
+    ap.add_argument(
+        "--cost-ceiling",
+        type=float,
+        default=COST_CEILING_USD,
+        help="refuse to start a paid phase projected above this (USD)",
+    )
     ap.add_argument("--sample", type=int, default=250)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--min-cands", type=int, default=8)
