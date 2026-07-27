@@ -2451,6 +2451,123 @@ scale, not by cluster geometry.
     Pattern 26 evidence: ~$9.59 across five corpora (BestBuy, NFCorpus,
     ESCI-US, ESCI-ES, ESCI-JP) and both model variants.
 
+27. **LLM-as-judge reranking and query-paraphrase debiasing — both
+    clean negatives.** Motivated by arXiv:2501.17969 (Alaofi et al.,
+    SIGIR-AP '24), which shows LLM relevance judges are biased toward
+    literal query-token overlap and vulnerable to keyword-stuffing/
+    instruction-injection. Tested whether an LLM judge could improve
+    on Pattern 23's BestBuy CE-rerank baseline (BoD+BGE w=0.25, R@10
+    0.5375) without much added serving cost, and whether paraphrasing
+    the query could debias the judge's lexical-overlap sensitivity.
+
+    **Part A — LLM-judge rerank on BestBuy (`evaluation/eval_bestbuy_llm_judge_rerank.py`,
+    `evaluation/results/bestbuy_llm_judge_rerank.json`).** Local MLX
+    Qwen2.5-7B-Instruct-4bit, pointwise-logit scorer, on the
+    gitignored 53K-catalog test set's public full-catalog (1.27M
+    product) analogue since the Kaggle-gated 53K artifact wasn't on
+    the build machine — absolute numbers are NOT comparable to
+    Pattern 23's 0.5375/0.4450, only the in-run comparisons are.
+    At the incumbent's w=0.25, LLM-judge ties BGE-CE (head-to-head
+    10W/11L/229T). At w=0.50, LLM-judge gives the only rerank config
+    with a bootstrap CI excluding zero on ΔR@10 (+3.51pp, CI
+    [+1.33,+5.89]) but *loses* E@1 (0.168 vs 0.172 no-rerank) — a
+    recall/precision trade, not a clean win. **Cost kills it
+    regardless of the quality question**: even the cheapest possible
+    formulation (single-token yes/no logit, no decoding) ran
+    30.7s/query — ~4 orders of magnitude off serving latency. Local
+    32B judge was ruled out before running: this repo's dev machine
+    is a 16GB M4 MacBook Air, and Qwen2.5-32B-4bit needs ~16-18GB for
+    weights alone, at or over total system RAM. Root cause the eval
+    exposed: BestBuy's click qrels average ~2 golds/query among
+    near-identical SKU colorway variants (e.g. one specific color of
+    an otherwise-identical stylus) — no judge, human or LLM, can
+    recover the clicked variant from content alone. Same structural
+    ceiling that sank Pattern 23's BM25/BoD-as-reranker attempts.
+
+    **Part B — lexical-bias diagnosis on ESCI, gpt-4o-mini
+    (`evaluation/eval_esci_llm_judge_lexical_bias.py`,
+    `evaluation/results/esci_llm_judge_lexical_bias.json`).** Moved
+    off BestBuy because its qrels noise floor swamps any lexical-bias
+    signal; ESCI's graded E/S/C/I labels (Substitute = lexically-close-
+    but-wrong by construction) are the closer match to the paper's
+    setup. 250 queries, 4,340 pairs, $0.26 total. **The bias
+    replicates directly**: judge score vs. query-token-overlap
+    Spearman = 0.437 for Exact matches; E-vs-S inversion rate is 21.4%
+    baseline but **43.6%** when the Substitute has more lexical
+    overlap than the true Exact match — the paper's failure mode,
+    reproduced organically in human-judged e-commerce qrels, no
+    adversarial construction needed. The judge does carry real
+    semantic signal (beats BM25 on nDCG@10), the bias just rides
+    along with it.
+
+    **Part C — does query paraphrasing debias it? No — it re-anchors.**
+    Paraphrasing the query (gpt-4o-mini, temp 0, mean Jaccard 0.30 vs
+    original) and rescoring: correlating the paraphrased-condition
+    score against the *paraphrase's own* token overlap gives 0.415 for
+    Exact — essentially the same bias strength, just pointed at
+    different words. Discrimination gets worse, not better (E-vs-S
+    z-gap 0.700→0.602, inversion 0.214→0.249), and naive nDCG@10
+    dropped significantly (−0.0143, CI [−0.0215,−0.0071]).
+
+    **Part D — fidelity split separates two confounded effects**
+    (`evaluation/analyze_esci_paraphrase_fidelity.py`,
+    `evaluation/results/esci_llm_judge_lexical_bias_fidelity_split.json`).
+    Manual inspection found ~15-20% of paraphrases have real semantic
+    drift beyond synonym substitution (`sick puppies`→`ill puppies`
+    destroys a band-name referent; `banshee`→`wraith` swaps distinct
+    entities; `sandvik saw`→`cutting tool` broadens category). Added a
+    gpt-4o-mini fidelity judge (250 calls, $0.007) and split
+    faithful (n=123, argmax≥4) vs. drifted (n=127). Result: **the
+    nDCG harm is not robust** — it concentrates entirely in the
+    drifted subset (ΔnDCG −0.0242, CI excludes zero); faithful
+    paraphrases are nDCG-*neutral* (−0.0041, CI straddles zero,
+    P=0.002 that faithful is less harmful than drifted). Caveat:
+    fidelity is collinear with lexical distance (r=0.38) — a placebo
+    split on jaccard alone reproduces the same pattern, so "harm from
+    bad paraphrases" isn't cleanly separated from "harm from big
+    rewrites." **But the debiasing failure itself is robust** — even
+    in the cleanest subset (fidelity 5/5, n=52), own-token correlation
+    is 0.391 vs. literal 0.432 (same pattern), and discrimination does
+    not improve (z-gap 0.868→0.839, inversion 0.183→0.200).
+
+    **Part E — recall-union alternative also negative**
+    (`evaluation/analyze_esci_recall_union.py`,
+    `evaluation/results/esci_recall_union.json`). Hypothesis: since
+    faithful-paraphrase reranking is nDCG-neutral rather than harmful,
+    maybe union(top-K-by-literal, top-K-by-faithful-paraphrase)
+    recovers true positives the literal-query bias specifically
+    buries, raising recall for a downstream ranker to sort with other
+    factors. Raw union beats literal-alone by +6.5pp recall@5 — but
+    that's a pool-size artifact (union pool averages 6.11 items, not
+    5); size-matched against literal ranked one item deeper, the
+    advantage evaporates (+0.0065, CI [−0.0040,+0.0175]) or reverses
+    (−0.0047 at K=10). The attribution check runs backward: candidates
+    the union adds beyond literal have *higher* literal-query lexical
+    overlap than the true positives literal already misses (+0.039 to
+    +0.073), the opposite of what bias-blind-spot recovery predicts —
+    this is generic decorrelated noise, not bias recovery.
+
+    **Framework implication.** Query-side perturbation (paraphrase,
+    or paraphrase-union) does not fix LLM-judge lexical bias under
+    either framing tested (reranking-replacement or recall-expansion);
+    a literature search (arXiv search sweep, 2026-07-27) found no
+    prior work testing query-side perturbation specifically for this
+    failure mode either — closest adjacent work ensembles judge
+    *models* or *prompt templates* (JudgeBlender, arXiv:2412.13268),
+    not queries. In both framings tested here, the trivial baseline
+    (just rank deeper on the literal-query judge) matches or beats the
+    paraphrase variant, with no extra LLM call, no paraphrase-quality
+    risk, and no fidelity-gating engineering. If this is revisited,
+    the more promising untested direction is *calibration*
+    (residualizing judge score against a lexical-overlap feature)
+    rather than *input rewriting* (hiding the overlap from the judge).
+
+    Cost: BestBuy local-model pilot $0 but ~2h08m wall-clock (later
+    superseded per [[feedback_default_openai_judge]] — OpenAI models
+    are now the default judge for this kind of work unless projected
+    cost is high). ESCI chain (parts B-E): $0.26 + $0.007 + $0.004 +
+    (E's cost, reused cached scores, $0) ≈ **$0.28 total**, gpt-4o-mini.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):

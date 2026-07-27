@@ -1,0 +1,1125 @@
+{
+  "experiment": "esci_llm_judge_lexical_bias",
+  "question": "Is a pointwise LLM relevance judge biased toward literal query-token overlap, and does paraphrasing the query before judging reduce it?",
+  "reference": "arXiv:2501.17969 (Alaofi et al., SIGIR-AP '24)",
+  "corpus": "ESCI-US (tasksource/esci, test split), human graded E/S/C/I",
+  "data_dir": "/Users/dtunkelang/bag-of-documents/esci_us_data",
+  "pool": "ESCI's own human-judged candidate set per query (no first-stage retriever)",
+  "judge_model": "gpt-4o-mini",
+  "judge_mode": "logprob scorers over the OpenAI API, max_tokens=1, top_logprobs=20. graded (PRIMARY) = expected value of a 0-3 rating; yesno (robustness check) = log p(yes) - log p(no).",
+  "primary_scorer": "graded",
+  "graded_prompt": "Search query: {query}\nProduct: {title}\n\nOn a scale of 0 to 3, how relevant is this product to the search query?\n3 = the product is exactly what the query asks for\n2 = the product is highly relevant but not exactly what was asked for\n1 = the product is only marginally relevant\n0 = the product is not relevant\n\nAnswer with a single digit (0, 1, 2, or 3).",
+  "yesno_prompt": "Search query: {query}\nProduct: {title}\n\nIs this product a relevant result for that search query? Answer yes or no.",
+  "n_queries": 250,
+  "n_pairs": 4340,
+  "n_eligible_queries": 14257,
+  "sample_seed": 0,
+  "sample_selection": "random.Random(0).sample over sorted eligible qids",
+  "eligibility": ">=8 judged candidates with a title, >=1 Exact and >=1 Substitute; candidates capped at 24",
+  "label_counts": {
+    "E": 2231,
+    "S": 1508,
+    "I": 463,
+    "C": 138
+  },
+  "lexical_overlap_metric": "coverage = |content tokens of query present in title| / |content tokens of query|; lowercased [a-z0-9]+ tokens, minimal stoplist",
+  "ndcg": "standard nDCG@10, linear gains = ESCI grade (E=3,S=2,C=1,I=0)",
+  "paraphrase": {
+    "model": "gpt-4o-mini",
+    "decoding": "temperature=0.0",
+    "max_tokens": 48,
+    "prompt": "Rewrite this online shopping search query so it means exactly the same thing but uses different words.\n\nRules:\n- Keep it a short search query, not a sentence.\n- Replace words with synonyms wherever a synonym exists.\n- Do not add, drop, or loosen any requirement (brand, model, size, colour, quantity, negations).\n- Output only the rewritten query, nothing else.\n\nQuery: {query}\n\nRewritten query:",
+    "wall_clock_s": 8.284729957580566,
+    "status_counts": {
+      "ok": 245,
+      "identical": 5
+    },
+    "api_errors": 0,
+    "tokens_in": 23924,
+    "tokens_out": 1300,
+    "cost_usd": 0.0043686,
+    "mean_jaccard_with_original": 0.29974790764790765,
+    "median_jaccard_with_original": 0.3333333333333333,
+    "frac_zero_overlap": 0.2
+  },
+  "judge_runtime": {
+    "graded_literal": {
+      "wall_clock_s": 83.08065485954285,
+      "n_pairs_scored": 4340,
+      "n_nan": 0,
+      "score_mean": 1.9583545923233032,
+      "score_std": 0.8957098722457886,
+      "score_min": 1.2508568399821618e-12,
+      "score_max": 3.0
+    },
+    "graded_paraphrased": {
+      "wall_clock_s": 75.90973114967346,
+      "n_pairs_scored": 4340,
+      "n_nan": 0,
+      "score_mean": 1.75794517993927,
+      "score_std": 0.8571624159812927,
+      "score_min": 2.4612516885680336e-13,
+      "score_max": 3.0
+    },
+    "yesno_literal": {
+      "wall_clock_s": 82.95197105407715,
+      "n_pairs_scored": 4340,
+      "n_nan": 0,
+      "score_mean": 4.72600793838501,
+      "score_std": 14.388199806213379,
+      "score_min": -22.25,
+      "score_max": 23.5
+    },
+    "yesno_paraphrased": {
+      "wall_clock_s": 74.58886194229126,
+      "n_pairs_scored": 4340,
+      "n_nan": 0,
+      "score_mean": 1.2651209831237793,
+      "score_std": 13.89865779876709,
+      "score_min": -22.0,
+      "score_max": 23.625
+    },
+    "judge_model": "gpt-4o-mini",
+    "mode": "logprob scorers, max_tokens=1, top_logprobs=20; graded = E[0-3 rating], yesno = log p(yes) - log p(no)",
+    "graded_prompt": "Search query: {query}\nProduct: {title}\n\nOn a scale of 0 to 3, how relevant is this product to the search query?\n3 = the product is exactly what the query asks for\n2 = the product is highly relevant but not exactly what was asked for\n1 = the product is only marginally relevant\n0 = the product is not relevant\n\nAnswer with a single digit (0, 1, 2, or 3).",
+    "yesno_prompt": "Search query: {query}\nProduct: {title}\n\nIs this product a relevant result for that search query? Answer yes or no.",
+    "tokens_in": 1659736,
+    "tokens_out": 17360,
+    "api_calls": 17360,
+    "api_errors": 0,
+    "cost_usd": 0.2593764,
+    "total_wall_clock_s": 316.53594613075256
+  },
+  "api_spend": {
+    "total_usd": 0.263745,
+    "tokens_in": 1683660,
+    "tokens_out": 18660,
+    "records": [
+      {
+        "ts": "2026-07-27T06:16:04Z",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "tokens": 25224,
+        "tokens_in": 23924,
+        "tokens_out": 1300,
+        "cost_usd": 0.004369,
+        "purpose": "esci lexical-bias: paraphrase"
+      },
+      {
+        "ts": "2026-07-27T06:22:40Z",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "tokens": 1677096,
+        "tokens_in": 1659736,
+        "tokens_out": 17360,
+        "cost_usd": 0.259376,
+        "purpose": "esci lexical-bias: judge"
+      }
+    ]
+  },
+  "n_boot": 2000,
+  "results_by_scorer": {
+    "graded": {
+      "overlap_score_correlation_by_label": {
+        "E": {
+          "n": 2231,
+          "mean_cov_literal": 0.6047805809908007,
+          "spearman_literalcov_vs_score_literal": 0.4368918971578086,
+          "spearman_literalcov_vs_score_paraphrased": 0.2081385699698786,
+          "pearson_literalcov_vs_score_literal": 0.38568501670294436,
+          "pearson_literalcov_vs_score_paraphrased": 0.2053603446404396,
+          "spearman_owncov_vs_score_literal": 0.4368918971578086,
+          "spearman_owncov_vs_score_paraphrased": 0.41466991573520295,
+          "spearman_jaccard_vs_score_literal": 0.3063154938687499,
+          "spearman_jaccard_vs_score_paraphrased": 0.14287764110794843,
+          "delta_spearman_literalcov": -0.22875332718792998
+        },
+        "S": {
+          "n": 1508,
+          "mean_cov_literal": 0.41584564860426926,
+          "spearman_literalcov_vs_score_literal": 0.2789727889073257,
+          "spearman_literalcov_vs_score_paraphrased": 0.16495029080403048,
+          "pearson_literalcov_vs_score_literal": 0.2857691433228583,
+          "pearson_literalcov_vs_score_paraphrased": 0.15045506332041514,
+          "spearman_owncov_vs_score_literal": 0.2789727889073257,
+          "spearman_owncov_vs_score_paraphrased": 0.16693095819755854,
+          "spearman_jaccard_vs_score_literal": 0.14826291322358742,
+          "spearman_jaccard_vs_score_paraphrased": 0.09825602822459428,
+          "delta_spearman_literalcov": -0.1140224981032952,
+          "delta_spearman_ci95": [
+            -0.19096924530371953,
+            -0.05271911186947548
+          ],
+          "delta_spearman_p_lt_0": 1.0
+        },
+        "C": {
+          "n": 138,
+          "mean_cov_literal": 0.4334541062801932,
+          "spearman_literalcov_vs_score_literal": 0.3767635741356746,
+          "spearman_literalcov_vs_score_paraphrased": 0.3655151604277906,
+          "pearson_literalcov_vs_score_literal": 0.4894343295456517,
+          "pearson_literalcov_vs_score_paraphrased": 0.4267819262756036,
+          "spearman_owncov_vs_score_literal": 0.3767635741356746,
+          "spearman_owncov_vs_score_paraphrased": 0.0656623993980019,
+          "spearman_jaccard_vs_score_literal": 0.19606222375039434,
+          "spearman_jaccard_vs_score_paraphrased": 0.27821286168189224,
+          "delta_spearman_literalcov": -0.011248413707883986
+        },
+        "I": {
+          "n": 463,
+          "mean_cov_literal": 0.29696852823202713,
+          "spearman_literalcov_vs_score_literal": 0.2954378728833928,
+          "spearman_literalcov_vs_score_paraphrased": 0.2346791435242348,
+          "pearson_literalcov_vs_score_literal": 0.30470442623772503,
+          "pearson_literalcov_vs_score_paraphrased": 0.21100082038082124,
+          "spearman_owncov_vs_score_literal": 0.2954378728833928,
+          "spearman_owncov_vs_score_paraphrased": 0.29504374164215574,
+          "spearman_jaccard_vs_score_literal": 0.2212039908076933,
+          "spearman_jaccard_vs_score_paraphrased": 0.19599794065056936,
+          "delta_spearman_literalcov": -0.06075872935915799
+        },
+        "ALL": {
+          "n": 4340,
+          "spearman_literalcov_vs_score_literal": 0.48977349271887316,
+          "spearman_literalcov_vs_score_paraphrased": 0.3291391184476484,
+          "spearman_grade_vs_score_literal": 0.5838205064237825,
+          "spearman_grade_vs_score_paraphrased": 0.48429587526004,
+          "spearman_grade_vs_literalcov": 0.3454953656944827,
+          "delta_spearman_literalcov": -0.16063437427122473
+        }
+      },
+      "e_vs_s_discrimination": {
+        "s_cov_literal_median": 0.5,
+        "literal": {
+          "mean_E": 2.4342707183420287,
+          "mean_S": 1.5738851306014592,
+          "mean_S_high_overlap": 1.8508418029262015,
+          "mean_S_low_overlap": 1.4575737597381495,
+          "mean_C": 1.6352738852715578,
+          "mean_I": 1.0136370078908707,
+          "n_E": 2231,
+          "n_S": 1508,
+          "n_S_high": 446,
+          "n_S_low": 1062,
+          "gap_E_minus_S": 0.8603855877405695,
+          "gap_E_minus_S_high_overlap": 0.5834289154158272,
+          "gap_E_minus_S_low_overlap": 0.9766969586038792,
+          "z_mean_E": 0.36468565179197876,
+          "z_mean_S": -0.335339301485261,
+          "z_gap_E_minus_S": 0.7000249532772398,
+          "z_mean_S_high_overlap": -0.14649101326492683,
+          "z_mean_S_low_overlap": -0.41464846960792484,
+          "z_gap_E_minus_S_high_overlap": 0.5111766650569056,
+          "z_gap_E_minus_S_low_overlap": 0.7793341213999037,
+          "per_query_gap_E_minus_S_mean": 0.7107845907892096,
+          "per_query_gap_E_minus_S_ci95": [
+            0.6249598822064627,
+            0.8000430184200085
+          ],
+          "per_query_gap_frac_positive": 0.844
+        },
+        "paraphrased": {
+          "mean_E": 2.1254153554255706,
+          "mean_S": 1.4884378505873799,
+          "mean_S_high_overlap": 1.6289400658938178,
+          "mean_S_low_overlap": 1.429432212144187,
+          "mean_C": 1.4746919148399393,
+          "mean_I": 0.9494784228206018,
+          "n_E": 2231,
+          "n_S": 1508,
+          "n_S_high": 446,
+          "n_S_low": 1062,
+          "gap_E_minus_S": 0.6369775048381907,
+          "gap_E_minus_S_high_overlap": 0.4964752895317528,
+          "gap_E_minus_S_low_overlap": 0.6959831432813837,
+          "z_mean_E": 0.3178451291032096,
+          "z_mean_S": -0.28390940698472505,
+          "z_gap_E_minus_S": 0.6017545360879346,
+          "z_mean_S_high_overlap": -0.1789539015365654,
+          "z_mean_S_low_overlap": -0.3279867661465698,
+          "z_gap_E_minus_S_high_overlap": 0.49679903063977504,
+          "z_gap_E_minus_S_low_overlap": 0.6458318952497795,
+          "per_query_gap_E_minus_S_mean": 0.5512747500826078,
+          "per_query_gap_E_minus_S_ci95": [
+            0.4748517135385089,
+            0.6293525745632438
+          ],
+          "per_query_gap_frac_positive": 0.824
+        },
+        "paired_delta_per_query_gap": {
+          "mean": -0.15950984070660185,
+          "ci95": [
+            -0.20941991336912374,
+            -0.10855078724889795
+          ],
+          "frac_improved": 0.308,
+          "n_queries": 250
+        }
+      },
+      "es_inversion_rates": {
+        "literal": {
+          "n_ES_pairs": 9486,
+          "inversion_rate": 0.2144212523719165,
+          "n_ES_pairs_S_more_lexical": 1316,
+          "inversion_rate_when_S_more_lexical": 0.43617021276595747
+        },
+        "paraphrased": {
+          "n_ES_pairs": 9486,
+          "inversion_rate": 0.24920936116382036,
+          "n_ES_pairs_S_more_lexical": 1316,
+          "inversion_rate_when_S_more_lexical": 0.41641337386018235
+        },
+        "delta_inversion_rate": 0.03478810879190386,
+        "delta_inversion_rate_when_S_more_lexical": -0.01975683890577512
+      },
+      "ranking_ndcg10": {
+        "ESCI file order (baseline)": {
+          "ndcg10": 0.7973797952851278,
+          "ci95": [
+            0.7762313058167718,
+            0.81765660511953
+          ],
+          "n": 250
+        },
+        "BM25 (pure lexical)": {
+          "ndcg10": 0.8888215390300583,
+          "ci95": [
+            0.8709491617417058,
+            0.9043339512896221
+          ],
+          "n": 250
+        },
+        "literal-query token coverage": {
+          "ndcg10": 0.8748105853823582,
+          "ci95": [
+            0.8561979719439399,
+            0.892299673811917
+          ],
+          "n": 250
+        },
+        "LLM judge, literal query": {
+          "ndcg10": 0.9226040095078569,
+          "ci95": [
+            0.9089324419047621,
+            0.93563044563715
+          ],
+          "n": 250
+        },
+        "LLM judge, paraphrased query": {
+          "ndcg10": 0.9083052452192355,
+          "ci95": [
+            0.8940288519110775,
+            0.9221328648516371
+          ],
+          "n": 250
+        },
+        "LLM judge, literal+para mean": {
+          "ndcg10": 0.9156995989235275,
+          "ci95": [
+            0.901279971283031,
+            0.929357028527549
+          ],
+          "n": 250
+        },
+        "_paired_delta_para_minus_literal": {
+          "mean": -0.014298764288621407,
+          "ci95": [
+            -0.021452800514629233,
+            -0.007069323866772219
+          ],
+          "wins": 59,
+          "losses": 114,
+          "ties": 77
+        }
+      },
+      "judge_score_by_overlap_bucket": {
+        "E": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 558,
+            "z_mean_literal": 0.06515080426575916,
+            "z_mean_paraphrased": 0.12377902981469255
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 826,
+            "z_mean_literal": 0.3257115773347007,
+            "z_mean_paraphrased": 0.28781373980068153
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 847,
+            "z_mean_literal": 0.6000257113213081,
+            "z_mean_paraphrased": 0.47498185987874764
+          }
+        ],
+        "S": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 678,
+            "z_mean_literal": -0.4693176244958335,
+            "z_mean_paraphrased": -0.37831899532552854
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 647,
+            "z_mean_literal": -0.2781916043274568,
+            "z_mean_paraphrased": -0.22612166643723128
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 183,
+            "z_mean_literal": -0.041007372851004496,
+            "z_mean_paraphrased": -0.13843928260857
+          }
+        ],
+        "C": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 62,
+            "z_mean_literal": -0.5327373071758501,
+            "z_mean_paraphrased": -0.49050287887506555
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 56,
+            "z_mean_literal": -0.1361421429723338,
+            "z_mean_paraphrased": -0.17368740891616843
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 20,
+            "z_mean_literal": 0.5520470099218598,
+            "z_mean_paraphrased": 0.3058728856522338
+          }
+        ],
+        "I": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 287,
+            "z_mean_literal": -0.7254895419373376,
+            "z_mean_paraphrased": -0.6526527018150909
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 131,
+            "z_mean_literal": -0.4344911199559556,
+            "z_mean_paraphrased": -0.3763172771460482
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 45,
+            "z_mean_literal": -0.2927878756659708,
+            "z_mean_paraphrased": -0.22995539761593453
+          }
+        ]
+      },
+      "n_pairs_scored": 4340,
+      "n_pairs_dropped_nan": 0
+    },
+    "yesno": {
+      "overlap_score_correlation_by_label": {
+        "E": {
+          "n": 2231,
+          "mean_cov_literal": 0.6047805809908007,
+          "spearman_literalcov_vs_score_literal": 0.4187838769420743,
+          "spearman_literalcov_vs_score_paraphrased": 0.21743048309437285,
+          "pearson_literalcov_vs_score_literal": 0.37949358842694475,
+          "pearson_literalcov_vs_score_paraphrased": 0.18562801311846575,
+          "spearman_owncov_vs_score_literal": 0.4187838769420743,
+          "spearman_owncov_vs_score_paraphrased": 0.39997548029422547,
+          "spearman_jaccard_vs_score_literal": 0.2377468400778257,
+          "spearman_jaccard_vs_score_paraphrased": 0.10911923134534379,
+          "delta_spearman_literalcov": -0.20135339384770146
+        },
+        "S": {
+          "n": 1508,
+          "mean_cov_literal": 0.41584564860426926,
+          "spearman_literalcov_vs_score_literal": 0.2783055487070975,
+          "spearman_literalcov_vs_score_paraphrased": 0.16498783036110568,
+          "pearson_literalcov_vs_score_literal": 0.2873110619065452,
+          "pearson_literalcov_vs_score_paraphrased": 0.1503870144214712,
+          "spearman_owncov_vs_score_literal": 0.2783055487070975,
+          "spearman_owncov_vs_score_paraphrased": 0.14892303410789248,
+          "spearman_jaccard_vs_score_literal": 0.11557947255585149,
+          "spearman_jaccard_vs_score_paraphrased": 0.07433979436132303,
+          "delta_spearman_literalcov": -0.11331771834599183,
+          "delta_spearman_ci95": [
+            -0.1842847302872431,
+            -0.05490761812867432
+          ],
+          "delta_spearman_p_lt_0": 1.0
+        },
+        "C": {
+          "n": 138,
+          "mean_cov_literal": 0.4334541062801932,
+          "spearman_literalcov_vs_score_literal": 0.34333496328141594,
+          "spearman_literalcov_vs_score_paraphrased": 0.35942372544645923,
+          "pearson_literalcov_vs_score_literal": 0.40840141873368585,
+          "pearson_literalcov_vs_score_paraphrased": 0.4091938555890662,
+          "spearman_owncov_vs_score_literal": 0.34333496328141594,
+          "spearman_owncov_vs_score_paraphrased": 0.06185887261639504,
+          "spearman_jaccard_vs_score_literal": 0.25721423715722336,
+          "spearman_jaccard_vs_score_paraphrased": 0.30586796883234874,
+          "delta_spearman_literalcov": 0.01608876216504329
+        },
+        "I": {
+          "n": 463,
+          "mean_cov_literal": 0.29696852823202713,
+          "spearman_literalcov_vs_score_literal": 0.2613808850088701,
+          "spearman_literalcov_vs_score_paraphrased": 0.18271715664946075,
+          "pearson_literalcov_vs_score_literal": 0.26897791746819494,
+          "pearson_literalcov_vs_score_paraphrased": 0.13864754887015535,
+          "spearman_owncov_vs_score_literal": 0.2613808850088701,
+          "spearman_owncov_vs_score_paraphrased": 0.22244568043982504,
+          "spearman_jaccard_vs_score_literal": 0.18475114656346833,
+          "spearman_jaccard_vs_score_paraphrased": 0.14048115365423922,
+          "delta_spearman_literalcov": -0.07866372835940932
+        },
+        "ALL": {
+          "n": 4340,
+          "spearman_literalcov_vs_score_literal": 0.47551189189187804,
+          "spearman_literalcov_vs_score_paraphrased": 0.3211915149741505,
+          "spearman_grade_vs_score_literal": 0.5496164861824148,
+          "spearman_grade_vs_score_paraphrased": 0.4684980433821458,
+          "spearman_grade_vs_literalcov": 0.3454953656944827,
+          "delta_spearman_literalcov": -0.15432037691772754
+        }
+      },
+      "e_vs_s_discrimination": {
+        "s_cov_literal_median": 0.5,
+        "literal": {
+          "mean_E": 12.207810452936497,
+          "mean_S": -1.5832227384641016,
+          "mean_S_high_overlap": 3.382006790233898,
+          "mean_S_low_overlap": -3.6684321262223953,
+          "mean_C": -1.1585144196667727,
+          "mean_I": -9.022408164786722,
+          "n_E": 2231,
+          "n_S": 1508,
+          "n_S_high": 446,
+          "n_S_low": 1062,
+          "gap_E_minus_S": 13.791033191400599,
+          "gap_E_minus_S_high_overlap": 8.825803662702599,
+          "gap_E_minus_S_low_overlap": 15.876242579158893,
+          "z_mean_E": 0.3741622363756193,
+          "z_mean_S": -0.34739040121883263,
+          "z_gap_E_minus_S": 0.7215526375944519,
+          "z_mean_S_high_overlap": -0.10709745746037666,
+          "z_mean_S_low_overlap": -0.4483043870156984,
+          "z_gap_E_minus_S_high_overlap": 0.481259693835996,
+          "z_gap_E_minus_S_low_overlap": 0.8224666233913177,
+          "per_query_gap_E_minus_S_mean": 11.495566718623234,
+          "per_query_gap_E_minus_S_ci95": [
+            10.060692170492642,
+            12.850812725443165
+          ],
+          "per_query_gap_frac_positive": 0.84
+        },
+        "paraphrased": {
+          "mean_E": 7.381275299574875,
+          "mean_S": -3.7368202093205425,
+          "mean_S_high_overlap": -0.7853138154613084,
+          "mean_S_low_overlap": -4.976341726892311,
+          "mean_C": -4.648550648620163,
+          "mean_I": -10.151997788090274,
+          "n_E": 2231,
+          "n_S": 1508,
+          "n_S_high": 446,
+          "n_S_low": 1062,
+          "gap_E_minus_S": 11.118095508895417,
+          "gap_E_minus_S_high_overlap": 8.166589115036183,
+          "gap_E_minus_S_low_overlap": 12.357617026467185,
+          "z_mean_E": 0.33262858046130106,
+          "z_mean_S": -0.30426390247141816,
+          "z_gap_E_minus_S": 0.6368924829327192,
+          "z_mean_S_high_overlap": -0.12593187612770035,
+          "z_mean_S_low_overlap": -0.37915663669862915,
+          "z_gap_E_minus_S_high_overlap": 0.4585604565890014,
+          "z_gap_E_minus_S_low_overlap": 0.7117852171599302,
+          "per_query_gap_E_minus_S_mean": 9.279540273388129,
+          "per_query_gap_E_minus_S_ci95": [
+            7.942970186012411,
+            10.652225980447634
+          ],
+          "per_query_gap_frac_positive": 0.82
+        },
+        "paired_delta_per_query_gap": {
+          "mean": -2.2160264452351037,
+          "ci95": [
+            -3.026363252765834,
+            -1.39887695402119
+          ],
+          "frac_improved": 0.388,
+          "n_queries": 250
+        }
+      },
+      "es_inversion_rates": {
+        "literal": {
+          "n_ES_pairs": 9486,
+          "inversion_rate": 0.22464684798650644,
+          "n_ES_pairs_S_more_lexical": 1316,
+          "inversion_rate_when_S_more_lexical": 0.43465045592705165
+        },
+        "paraphrased": {
+          "n_ES_pairs": 9486,
+          "inversion_rate": 0.2559561458992199,
+          "n_ES_pairs_S_more_lexical": 1316,
+          "inversion_rate_when_S_more_lexical": 0.42401215805471126
+        },
+        "delta_inversion_rate": 0.031309297912713446,
+        "delta_inversion_rate_when_S_more_lexical": -0.010638297872340385
+      },
+      "ranking_ndcg10": {
+        "ESCI file order (baseline)": {
+          "ndcg10": 0.7973797952851278,
+          "ci95": [
+            0.7762313058167718,
+            0.81765660511953
+          ],
+          "n": 250
+        },
+        "BM25 (pure lexical)": {
+          "ndcg10": 0.8888215390300583,
+          "ci95": [
+            0.8709491617417058,
+            0.9043339512896221
+          ],
+          "n": 250
+        },
+        "literal-query token coverage": {
+          "ndcg10": 0.8748105853823582,
+          "ci95": [
+            0.8561979719439399,
+            0.892299673811917
+          ],
+          "n": 250
+        },
+        "LLM judge, literal query": {
+          "ndcg10": 0.9188343223726445,
+          "ci95": [
+            0.9048908220349297,
+            0.9321474770499047
+          ],
+          "n": 250
+        },
+        "LLM judge, paraphrased query": {
+          "ndcg10": 0.9072409677015847,
+          "ci95": [
+            0.8919906986606648,
+            0.9212933709395741
+          ],
+          "n": 250
+        },
+        "LLM judge, literal+para mean": {
+          "ndcg10": 0.9181133597655848,
+          "ci95": [
+            0.9035813566380262,
+            0.9316768844469087
+          ],
+          "n": 250
+        },
+        "_paired_delta_para_minus_literal": {
+          "mean": -0.011593354671059795,
+          "ci95": [
+            -0.01895603227210612,
+            -0.004282186791978327
+          ],
+          "wins": 80,
+          "losses": 108,
+          "ties": 62
+        }
+      },
+      "judge_score_by_overlap_bucket": {
+        "E": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 558,
+            "z_mean_literal": 0.10216321971985382,
+            "z_mean_paraphrased": 0.14415160060643692
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 826,
+            "z_mean_literal": 0.3535274926704528,
+            "z_mean_paraphrased": 0.30902970282754877
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 847,
+            "z_mean_literal": 0.5734771709616696,
+            "z_mean_paraphrased": 0.4798101952009627
+          }
+        ],
+        "S": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 678,
+            "z_mean_literal": -0.5071308476988186,
+            "z_mean_paraphrased": -0.43440669552194633
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 647,
+            "z_mean_literal": -0.2927624370320918,
+            "z_mean_paraphrased": -0.23067757187548865
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 183,
+            "z_mean_literal": 0.051296647330943974,
+            "z_mean_paraphrased": -0.0822614008720099
+          }
+        ],
+        "C": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 62,
+            "z_mean_literal": -0.6233376668942614,
+            "z_mean_paraphrased": -0.49888249777532545
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 56,
+            "z_mean_literal": -0.09446200379994998,
+            "z_mean_paraphrased": -0.11540857306355144
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 20,
+            "z_mean_literal": 0.718742779456728,
+            "z_mean_paraphrased": 0.3335687233468504
+          }
+        ],
+        "I": [
+          {
+            "cov_range": [
+              0.0,
+              0.34
+            ],
+            "n": 287,
+            "z_mean_literal": -0.7172737964147573,
+            "z_mean_paraphrased": -0.645362325158491
+          },
+          {
+            "cov_range": [
+              0.34,
+              0.67
+            ],
+            "n": 131,
+            "z_mean_literal": -0.47336419550451014,
+            "z_mean_paraphrased": -0.44795360358631564
+          },
+          {
+            "cov_range": [
+              0.67,
+              1.0
+            ],
+            "n": 45,
+            "z_mean_literal": -0.29913295917275495,
+            "z_mean_paraphrased": -0.1920281823395029
+          }
+        ]
+      },
+      "n_pairs_scored": 4340,
+      "n_pairs_dropped_nan": 0
+    }
+  },
+  "results": {
+    "overlap_score_correlation_by_label": {
+      "E": {
+        "n": 2231,
+        "mean_cov_literal": 0.6047805809908007,
+        "spearman_literalcov_vs_score_literal": 0.4368918971578086,
+        "spearman_literalcov_vs_score_paraphrased": 0.2081385699698786,
+        "pearson_literalcov_vs_score_literal": 0.38568501670294436,
+        "pearson_literalcov_vs_score_paraphrased": 0.2053603446404396,
+        "spearman_owncov_vs_score_literal": 0.4368918971578086,
+        "spearman_owncov_vs_score_paraphrased": 0.41466991573520295,
+        "spearman_jaccard_vs_score_literal": 0.3063154938687499,
+        "spearman_jaccard_vs_score_paraphrased": 0.14287764110794843,
+        "delta_spearman_literalcov": -0.22875332718792998
+      },
+      "S": {
+        "n": 1508,
+        "mean_cov_literal": 0.41584564860426926,
+        "spearman_literalcov_vs_score_literal": 0.2789727889073257,
+        "spearman_literalcov_vs_score_paraphrased": 0.16495029080403048,
+        "pearson_literalcov_vs_score_literal": 0.2857691433228583,
+        "pearson_literalcov_vs_score_paraphrased": 0.15045506332041514,
+        "spearman_owncov_vs_score_literal": 0.2789727889073257,
+        "spearman_owncov_vs_score_paraphrased": 0.16693095819755854,
+        "spearman_jaccard_vs_score_literal": 0.14826291322358742,
+        "spearman_jaccard_vs_score_paraphrased": 0.09825602822459428,
+        "delta_spearman_literalcov": -0.1140224981032952,
+        "delta_spearman_ci95": [
+          -0.19096924530371953,
+          -0.05271911186947548
+        ],
+        "delta_spearman_p_lt_0": 1.0
+      },
+      "C": {
+        "n": 138,
+        "mean_cov_literal": 0.4334541062801932,
+        "spearman_literalcov_vs_score_literal": 0.3767635741356746,
+        "spearman_literalcov_vs_score_paraphrased": 0.3655151604277906,
+        "pearson_literalcov_vs_score_literal": 0.4894343295456517,
+        "pearson_literalcov_vs_score_paraphrased": 0.4267819262756036,
+        "spearman_owncov_vs_score_literal": 0.3767635741356746,
+        "spearman_owncov_vs_score_paraphrased": 0.0656623993980019,
+        "spearman_jaccard_vs_score_literal": 0.19606222375039434,
+        "spearman_jaccard_vs_score_paraphrased": 0.27821286168189224,
+        "delta_spearman_literalcov": -0.011248413707883986
+      },
+      "I": {
+        "n": 463,
+        "mean_cov_literal": 0.29696852823202713,
+        "spearman_literalcov_vs_score_literal": 0.2954378728833928,
+        "spearman_literalcov_vs_score_paraphrased": 0.2346791435242348,
+        "pearson_literalcov_vs_score_literal": 0.30470442623772503,
+        "pearson_literalcov_vs_score_paraphrased": 0.21100082038082124,
+        "spearman_owncov_vs_score_literal": 0.2954378728833928,
+        "spearman_owncov_vs_score_paraphrased": 0.29504374164215574,
+        "spearman_jaccard_vs_score_literal": 0.2212039908076933,
+        "spearman_jaccard_vs_score_paraphrased": 0.19599794065056936,
+        "delta_spearman_literalcov": -0.06075872935915799
+      },
+      "ALL": {
+        "n": 4340,
+        "spearman_literalcov_vs_score_literal": 0.48977349271887316,
+        "spearman_literalcov_vs_score_paraphrased": 0.3291391184476484,
+        "spearman_grade_vs_score_literal": 0.5838205064237825,
+        "spearman_grade_vs_score_paraphrased": 0.48429587526004,
+        "spearman_grade_vs_literalcov": 0.3454953656944827,
+        "delta_spearman_literalcov": -0.16063437427122473
+      }
+    },
+    "e_vs_s_discrimination": {
+      "s_cov_literal_median": 0.5,
+      "literal": {
+        "mean_E": 2.4342707183420287,
+        "mean_S": 1.5738851306014592,
+        "mean_S_high_overlap": 1.8508418029262015,
+        "mean_S_low_overlap": 1.4575737597381495,
+        "mean_C": 1.6352738852715578,
+        "mean_I": 1.0136370078908707,
+        "n_E": 2231,
+        "n_S": 1508,
+        "n_S_high": 446,
+        "n_S_low": 1062,
+        "gap_E_minus_S": 0.8603855877405695,
+        "gap_E_minus_S_high_overlap": 0.5834289154158272,
+        "gap_E_minus_S_low_overlap": 0.9766969586038792,
+        "z_mean_E": 0.36468565179197876,
+        "z_mean_S": -0.335339301485261,
+        "z_gap_E_minus_S": 0.7000249532772398,
+        "z_mean_S_high_overlap": -0.14649101326492683,
+        "z_mean_S_low_overlap": -0.41464846960792484,
+        "z_gap_E_minus_S_high_overlap": 0.5111766650569056,
+        "z_gap_E_minus_S_low_overlap": 0.7793341213999037,
+        "per_query_gap_E_minus_S_mean": 0.7107845907892096,
+        "per_query_gap_E_minus_S_ci95": [
+          0.6249598822064627,
+          0.8000430184200085
+        ],
+        "per_query_gap_frac_positive": 0.844
+      },
+      "paraphrased": {
+        "mean_E": 2.1254153554255706,
+        "mean_S": 1.4884378505873799,
+        "mean_S_high_overlap": 1.6289400658938178,
+        "mean_S_low_overlap": 1.429432212144187,
+        "mean_C": 1.4746919148399393,
+        "mean_I": 0.9494784228206018,
+        "n_E": 2231,
+        "n_S": 1508,
+        "n_S_high": 446,
+        "n_S_low": 1062,
+        "gap_E_minus_S": 0.6369775048381907,
+        "gap_E_minus_S_high_overlap": 0.4964752895317528,
+        "gap_E_minus_S_low_overlap": 0.6959831432813837,
+        "z_mean_E": 0.3178451291032096,
+        "z_mean_S": -0.28390940698472505,
+        "z_gap_E_minus_S": 0.6017545360879346,
+        "z_mean_S_high_overlap": -0.1789539015365654,
+        "z_mean_S_low_overlap": -0.3279867661465698,
+        "z_gap_E_minus_S_high_overlap": 0.49679903063977504,
+        "z_gap_E_minus_S_low_overlap": 0.6458318952497795,
+        "per_query_gap_E_minus_S_mean": 0.5512747500826078,
+        "per_query_gap_E_minus_S_ci95": [
+          0.4748517135385089,
+          0.6293525745632438
+        ],
+        "per_query_gap_frac_positive": 0.824
+      },
+      "paired_delta_per_query_gap": {
+        "mean": -0.15950984070660185,
+        "ci95": [
+          -0.20941991336912374,
+          -0.10855078724889795
+        ],
+        "frac_improved": 0.308,
+        "n_queries": 250
+      }
+    },
+    "es_inversion_rates": {
+      "literal": {
+        "n_ES_pairs": 9486,
+        "inversion_rate": 0.2144212523719165,
+        "n_ES_pairs_S_more_lexical": 1316,
+        "inversion_rate_when_S_more_lexical": 0.43617021276595747
+      },
+      "paraphrased": {
+        "n_ES_pairs": 9486,
+        "inversion_rate": 0.24920936116382036,
+        "n_ES_pairs_S_more_lexical": 1316,
+        "inversion_rate_when_S_more_lexical": 0.41641337386018235
+      },
+      "delta_inversion_rate": 0.03478810879190386,
+      "delta_inversion_rate_when_S_more_lexical": -0.01975683890577512
+    },
+    "ranking_ndcg10": {
+      "ESCI file order (baseline)": {
+        "ndcg10": 0.7973797952851278,
+        "ci95": [
+          0.7762313058167718,
+          0.81765660511953
+        ],
+        "n": 250
+      },
+      "BM25 (pure lexical)": {
+        "ndcg10": 0.8888215390300583,
+        "ci95": [
+          0.8709491617417058,
+          0.9043339512896221
+        ],
+        "n": 250
+      },
+      "literal-query token coverage": {
+        "ndcg10": 0.8748105853823582,
+        "ci95": [
+          0.8561979719439399,
+          0.892299673811917
+        ],
+        "n": 250
+      },
+      "LLM judge, literal query": {
+        "ndcg10": 0.9226040095078569,
+        "ci95": [
+          0.9089324419047621,
+          0.93563044563715
+        ],
+        "n": 250
+      },
+      "LLM judge, paraphrased query": {
+        "ndcg10": 0.9083052452192355,
+        "ci95": [
+          0.8940288519110775,
+          0.9221328648516371
+        ],
+        "n": 250
+      },
+      "LLM judge, literal+para mean": {
+        "ndcg10": 0.9156995989235275,
+        "ci95": [
+          0.901279971283031,
+          0.929357028527549
+        ],
+        "n": 250
+      },
+      "_paired_delta_para_minus_literal": {
+        "mean": -0.014298764288621407,
+        "ci95": [
+          -0.021452800514629233,
+          -0.007069323866772219
+        ],
+        "wins": 59,
+        "losses": 114,
+        "ties": 77
+      }
+    },
+    "judge_score_by_overlap_bucket": {
+      "E": [
+        {
+          "cov_range": [
+            0.0,
+            0.34
+          ],
+          "n": 558,
+          "z_mean_literal": 0.06515080426575916,
+          "z_mean_paraphrased": 0.12377902981469255
+        },
+        {
+          "cov_range": [
+            0.34,
+            0.67
+          ],
+          "n": 826,
+          "z_mean_literal": 0.3257115773347007,
+          "z_mean_paraphrased": 0.28781373980068153
+        },
+        {
+          "cov_range": [
+            0.67,
+            1.0
+          ],
+          "n": 847,
+          "z_mean_literal": 0.6000257113213081,
+          "z_mean_paraphrased": 0.47498185987874764
+        }
+      ],
+      "S": [
+        {
+          "cov_range": [
+            0.0,
+            0.34
+          ],
+          "n": 678,
+          "z_mean_literal": -0.4693176244958335,
+          "z_mean_paraphrased": -0.37831899532552854
+        },
+        {
+          "cov_range": [
+            0.34,
+            0.67
+          ],
+          "n": 647,
+          "z_mean_literal": -0.2781916043274568,
+          "z_mean_paraphrased": -0.22612166643723128
+        },
+        {
+          "cov_range": [
+            0.67,
+            1.0
+          ],
+          "n": 183,
+          "z_mean_literal": -0.041007372851004496,
+          "z_mean_paraphrased": -0.13843928260857
+        }
+      ],
+      "C": [
+        {
+          "cov_range": [
+            0.0,
+            0.34
+          ],
+          "n": 62,
+          "z_mean_literal": -0.5327373071758501,
+          "z_mean_paraphrased": -0.49050287887506555
+        },
+        {
+          "cov_range": [
+            0.34,
+            0.67
+          ],
+          "n": 56,
+          "z_mean_literal": -0.1361421429723338,
+          "z_mean_paraphrased": -0.17368740891616843
+        },
+        {
+          "cov_range": [
+            0.67,
+            1.0
+          ],
+          "n": 20,
+          "z_mean_literal": 0.5520470099218598,
+          "z_mean_paraphrased": 0.3058728856522338
+        }
+      ],
+      "I": [
+        {
+          "cov_range": [
+            0.0,
+            0.34
+          ],
+          "n": 287,
+          "z_mean_literal": -0.7254895419373376,
+          "z_mean_paraphrased": -0.6526527018150909
+        },
+        {
+          "cov_range": [
+            0.34,
+            0.67
+          ],
+          "n": 131,
+          "z_mean_literal": -0.4344911199559556,
+          "z_mean_paraphrased": -0.3763172771460482
+        },
+        {
+          "cov_range": [
+            0.67,
+            1.0
+          ],
+          "n": 45,
+          "z_mean_literal": -0.2927878756659708,
+          "z_mean_paraphrased": -0.22995539761593453
+        }
+      ]
+    },
+    "n_pairs_scored": 4340,
+    "n_pairs_dropped_nan": 0
+  }
+}
