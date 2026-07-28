@@ -34,7 +34,6 @@ import json
 import os
 from pathlib import Path
 
-import gradio as gr
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
@@ -347,6 +346,11 @@ judge is itself unreliable on the flagship anecdote &mdash; it waved through the
 
 
 def build_app(R):
+    # Imported lazily: gradio is a local-demo-only dependency, not in
+    # requirements.txt, and tests/test_imports.py imports every evaluation/
+    # script in clean CI.
+    import gradio as gr
+
     def run(query, model_choice, top_n):
         query = (query or "").strip().lower()
         top_n = int(top_n)

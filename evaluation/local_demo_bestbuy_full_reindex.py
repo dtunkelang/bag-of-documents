@@ -30,7 +30,6 @@ import json
 import os
 import time
 
-import gradio as gr
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -257,6 +256,11 @@ live re-fetch.*
 
 
 def main():
+    # Imported lazily: gradio is a local-demo-only dependency, not in
+    # requirements.txt, and tests/test_imports.py imports every evaluation/
+    # script in clean CI.
+    import gradio as gr
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--old-dir", default=DEFAULT_OLD_DIR, help="pre-upload HF cache snapshot")
     ap.add_argument("--new-dir", default=DEFAULT_NEW_DIR, help="re-indexed artifacts dir")
