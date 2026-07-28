@@ -1,0 +1,5183 @@
+{
+  "experiment": "BestBuy top-10 category-error (junk) rate, base MiniLM vs BoD MiniLM",
+  "question": "Do these encoders surface outright wrong-CATEGORY products in the top-10, and can a cheap LLM judge detect that? Distinct from Pattern 27, whose click-qrel R@10/E@1 metrics only credit exact SKU matches and are near-blind to product-type errors.",
+  "step": "1 of N: measurement only, no reranking or filtering applied",
+  "config": {
+    "dataset_repo": "dtunkelang/bag-of-documents-bestbuy",
+    "base_model": "all-MiniLM-L6-v2",
+    "bod_model": "dtunkelang/bag-of-documents-bestbuy-minilm",
+    "catalog_size": 1274801,
+    "sample_size": 250,
+    "seed": 0,
+    "selection": "random.Random(0).sample over sorted eval-eligible qids",
+    "top_k": 10,
+    "k_eval": 10,
+    "judge_model": "gpt-4o-mini",
+    "judge_prompt": "Search query: {query}\nProduct: {title}\n\nIgnore whether this is the exact item someone would buy - judge only whether this product is a plausible TYPE of thing for what someone typing this search is looking for. Answer \"no\" if it's a different product category (e.g. an accessory when the query names the main product, or an unrelated product type), even if it shares a brand name or keyword with the query. Answer yes or no.",
+    "junk_threshold_p_yes": 0.5,
+    "n_boot": 2000,
+    "dedup": "each unique (query, product_id) judged once, reused for both models"
+  },
+  "judge_run": {
+    "judge_model": "gpt-4o-mini",
+    "prompt": "Search query: {query}\nProduct: {title}\n\nIgnore whether this is the exact item someone would buy - judge only whether this product is a plausible TYPE of thing for what someone typing this search is looking for. Answer \"no\" if it's a different product category (e.g. an accessory when the query names the main product, or an unrelated product type), even if it shares a brand name or keyword with the query. Answer yes or no.",
+    "mode": "pointwise category yes/no, max_tokens=1, top_logprobs=20; margin = log p(yes) - log p(no)",
+    "n_pairs_judged": 4348,
+    "n_pairs_total": 4348,
+    "tokens_in": 479581,
+    "tokens_out": 4348,
+    "api_calls": 4348,
+    "api_errors": 0,
+    "cost_usd": 0.07454595,
+    "wall_clock_s": 90.98959803581238,
+    "cost_usd_cumulative": 0.074546
+  },
+  "summary": {
+    "base": {
+      "junk_rate_at_10": 0.258,
+      "junk_rate_ci95": [
+        0.2184,
+        0.30081
+      ],
+      "mean_p_yes": 0.7379500234971805,
+      "queries_with_zero_junk": 0.412,
+      "queries_majority_junk": 0.216,
+      "recall_at_10_fraction_recovered": 0.1279693654137999,
+      "hit_rate_at_10": 0.328,
+      "ndcg_at_10": 0.10791364250438666,
+      "e_at_1": 0.092
+    },
+    "bod": {
+      "junk_rate_at_10": 0.1412,
+      "junk_rate_ci95": [
+        0.112,
+        0.17240999999999995
+      ],
+      "mean_p_yes": 0.8587595225488424,
+      "queries_with_zero_junk": 0.632,
+      "queries_majority_junk": 0.108,
+      "recall_at_10_fraction_recovered": 0.24551968347083436,
+      "hit_rate_at_10": 0.48,
+      "ndcg_at_10": 0.19968759889599333,
+      "e_at_1": 0.168
+    }
+  },
+  "delta": {
+    "junk_rate_bod_minus_base": -0.1168,
+    "junk_rate_delta_ci95": [
+      -0.15319999999999998,
+      -0.08159999999999999
+    ],
+    "recall_at_10_delta": 0.11755031805703445,
+    "hit_rate_at_10_delta": 0.15199999999999997,
+    "e_at_1_delta": 0.07600000000000001
+  },
+  "correlations": {
+    "base_pearson_junkrate_vs_recall10": -0.1044608274008761,
+    "base_pearson_junkrate_vs_e1": -0.027329622498054054,
+    "bod_pearson_junkrate_vs_recall10": -0.05474110288909634,
+    "bod_pearson_junkrate_vs_e1": -0.022399518610323556
+  },
+  "examples_highest_junk": {
+    "base": [
+      {
+        "query": "ford focus",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Focus - CASSETTE",
+            "p_yes": 0.03732700867343165,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Focus - CASSETTE",
+            "p_yes": 0.060086745069591725,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Focus - CD",
+            "p_yes": 0.0019267428765836416,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Focus - CD",
+            "p_yes": 0.029312309133296556,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Focus - CD",
+            "p_yes": 0.014063685328192308,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Focus - CD",
+            "p_yes": 0.0066928612031977005,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Focus - CD",
+            "p_yes": 0.029312309133296556,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Focus - CD",
+            "p_yes": 0.0066928612031977005,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Focus - CD",
+            "p_yes": 0.0066928612031977005,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Focus - CD",
+            "p_yes": 0.0066928612031977005,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "samsung galaxy tap",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "On Tap - CD",
+            "p_yes": 1.2751189746424222e-07,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Samsung - Gravity Touch 2 Mobile Phone - Red (T-Mobile)",
+            "p_yes": 1.760337415139476e-06,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "The Clip Company - Soft-Touch Belt Clip for Select Samsung Cell Phones",
+            "p_yes": 0.00015843588733762285,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "T-Mobile Prepaid - TAP Mobile Phone - Blue",
+            "p_yes": 0.0007096711213873776,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Samsung - Instinct S30 Mobile Phone - Touch of Copper (Sprint)",
+            "p_yes": 8.314734181813516e-07,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "iGo - Power Tip A03 for Select Samsung Cell Phones",
+            "p_yes": 0.0011695118688748185,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Tip Tap - CD",
+            "p_yes": 4.450062970615675e-07,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Let's Tap - Nintendo Wii",
+            "p_yes": 2.8437565658653233e-08,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "T-Mobile - Hauwei Tap 3G Mobile Phone - Purple",
+            "p_yes": 6.475718338331428e-07,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Samsung - Multifunction Touch-Screen Learning Remote",
+            "p_yes": 4.785089975558051e-06,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "bravia 40",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Clasicas Bravias - CD",
+            "p_yes": 0.0007096723582524768,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Braseiro - CD",
+            "p_yes": 7.734260633918882e-08,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Bravada - CD",
+            "p_yes": 2.260321897918032e-06,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Romantica & Bravia - CD",
+            "p_yes": 0.010986971673365752,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Clasicas Bravias - CASSETTE",
+            "p_yes": 0.014063682039467945,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Brava - CD",
+            "p_yes": 7.889196718537266e-06,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Brava - CD",
+            "p_yes": 2.7535592368762186e-05,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Brava - CD",
+            "p_yes": 2.1444946963257876e-05,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Brava - CD",
+            "p_yes": 7.889196718537266e-06,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Brava - CD",
+            "p_yes": 2.7535592368762186e-05,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "cannon elf 300",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Elf - CD",
+            "p_yes": 0.3208217198701787,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Elf - CD",
+            "p_yes": 0.26894193741975286,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Elf - CD",
+            "p_yes": 0.26894193741975286,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Elf - CD",
+            "p_yes": 0.14804739364798797,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Canon - CD",
+            "p_yes": 0.0229774165995287,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Canon - CD",
+            "p_yes": 0.022977427879272722,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Canon - CD",
+            "p_yes": 0.0373270009159637,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Canon - CD",
+            "p_yes": 0.022977427879272722,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Canon - CD",
+            "p_yes": 0.0229774165995287,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Canon - CD",
+            "p_yes": 0.04742593747366685,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "driving wheel",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Driving Wheel - CD",
+            "p_yes": 0.0005527789453423278,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Wheel - CD",
+            "p_yes": 2.2602768291834562e-06,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Wheel - CD",
+            "p_yes": 7.88907750441502e-06,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "A Wheel Within a Wheel - CD",
+            "p_yes": 1.8553397748807896e-07,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Wheel - CASSETTE",
+            "p_yes": 5.829134366235999e-05,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Driving Wheel - CASSETTE",
+            "p_yes": 0.001926738374129308,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Taking The Wheel - CD",
+            "p_yes": 0.000911052414633961,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Turn of the Wheel - CD",
+            "p_yes": 2.902233921262904e-06,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "The Wheel - CD",
+            "p_yes": 5.829115592479392e-05,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "The Wheel - CD",
+            "p_yes": 2.7535458561091585e-05,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "tamrac",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Tamiz - CD",
+            "p_yes": 0.022977412029774283,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Tam - CD",
+            "p_yes": 0.01406365894271097,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Tambu - CD",
+            "p_yes": 0.0002034275059702053,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Tambu - CD",
+            "p_yes": 0.0002034275059702053,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Tambu - CD",
+            "p_yes": 9.610246889846897e-05,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Tamia - CD",
+            "p_yes": 0.00407016131677071,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Tamure - CD",
+            "p_yes": 0.006692892551760778,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Tamurinillis - CD",
+            "p_yes": 0.017986276452797247,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Tambolero - CD",
+            "p_yes": 0.014063722389345692,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Tambo - CD",
+            "p_yes": 0.001169511973948482,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "sam sung galaxy tab",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Sam Na Sam - CD",
+            "p_yes": 3.396389439172551e-09,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Sam - CD",
+            "p_yes": 1.955325734041057e-08,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Sam - CD",
+            "p_yes": 7.193599137348662e-09,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Sam - CD",
+            "p_yes": 5.602540460301839e-09,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Sam Songs - CD",
+            "p_yes": 9.235987817656041e-09,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Samadhi - CD",
+            "p_yes": 2.6400246883507567e-09,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Samadhi - CD",
+            "p_yes": 6.690221918021288e-10,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Samadhi - CD",
+            "p_yes": 3.848613113017287e-09,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Samadhi - CD",
+            "p_yes": 2.3343019475823305e-09,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Samaagam - CD",
+            "p_yes": 4.934916586638142e-09,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "motorola zoom tablet",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Zoom Zoom Zoom: Premier Doo-Wop, Vol. 1 - CD",
+            "p_yes": 6.345279221442748e-09,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Zoom - CD",
+            "p_yes": 1.855375582571423e-07,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Zoom - CD",
+            "p_yes": 1.125343282994218e-07,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Zoom - CD",
+            "p_yes": 1.125343282994218e-07,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Zoom - CD",
+            "p_yes": 1.125343282994218e-07,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Zoom - CD",
+            "p_yes": 1.855375582571423e-07,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Zoom Zoom Zoom - CD",
+            "p_yes": 1.3439616746110366e-08,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Zoomer - CD",
+            "p_yes": 8.763999074537627e-08,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Zoom - ZDTV Wireless Keyboard",
+            "p_yes": 0.008577497242287964,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "I Go Zoom - CD",
+            "p_yes": 7.19403709673098e-09,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "outterbox reflex",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Reflex Action - VHS",
+            "p_yes": 0.0007096712932537201,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Outdebox - CD",
+            "p_yes": 1.6701438988089764e-05,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Outdebox - CASSETTE",
+            "p_yes": 0.014063658282204808,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Reflex - CD",
+            "p_yes": 0.008577548961159153,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Reflex - CD",
+            "p_yes": 0.01406363191832463,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Reflexology: A Practical Guide - VHS",
+            "p_yes": 0.0066928639079872855,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Total Reflex - CD",
+            "p_yes": 0.0007096711063368966,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Reflexiones - CASSETTE",
+            "p_yes": 2.1444948579772192e-05,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Reflexiones - CASSETTE",
+            "p_yes": 2.1444974644671146e-05,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Reflexiones - CASSETTE",
+            "p_yes": 2.1444948579772192e-05,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "sansung galaxtablet",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "L'Esprit Galant - CD",
+            "p_yes": 2.998177832703227e-09,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Noche de Gala - CD",
+            "p_yes": 2.0604620731373766e-09,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Se Viste De Gala - CD",
+            "p_yes": 1.4144814891601336e-09,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "En Riktig Svensk Jul - CD",
+            "p_yes": 7.57716886560931e-10,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Bachata De Gala - CD",
+            "p_yes": 1.1026461585161676e-09,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Bachata De Gala - CD",
+            "p_yes": 1.1027807431224612e-09,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Die Schone Galathee - CD",
+            "p_yes": 3.849956813643339e-09,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Melange Sans Appel - CD",
+            "p_yes": 3.224039602702939e-08,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Sans Souci - CD",
+            "p_yes": 6.348317117188136e-09,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Lachen Und Weinen - CD",
+            "p_yes": 9.727329315789172e-10,
+            "junk": true
+          }
+        ]
+      }
+    ],
+    "bod": [
+      {
+        "query": "a skylit drive",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Test Drive Platinum Hits - Xbox",
+            "p_yes": 2.0998249575557552e-07,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Test Drive 5 - PlayStation (PS one)",
+            "p_yes": 1.06769937876485e-06,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Test Drive Unlimited 2 - PlayStation 3",
+            "p_yes": 3.0582906710435397e-07,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Test Drive Unlimited 2 - Xbox 360",
+            "p_yes": 6.475916245182022e-07,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Test Drive: Eve of Destruction - Xbox",
+            "p_yes": 1.2751554149761933e-07,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Test Drive Unlimited - Xbox 360",
+            "p_yes": 1.0675146605732708e-06,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Test Drive Unlimited - Xbox 360",
+            "p_yes": 8.315267452357529e-07,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Test Drive: Unlimited - PlayStation 2",
+            "p_yes": 5.043428045236395e-07,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "PNY - Darth Vader 4GB USB 2.0 Flash Drive",
+            "p_yes": 2.215674383701852e-08,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "PNY - 4GB USB 2.0 Flash Drive - Magenta Madness",
+            "p_yes": 8.315095051310818e-07,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "tamrac",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Tamiz - CD",
+            "p_yes": 0.022977412029774283,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Best Of Tamaris 2  - Various - CD",
+            "p_yes": 0.010986968053710595,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Tam - CD",
+            "p_yes": 0.01406365894271097,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Tambu - CD",
+            "p_yes": 9.610246889846897e-05,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Tambu - CD",
+            "p_yes": 0.0002034275059702053,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Tambu - CD",
+            "p_yes": 0.0002034275059702053,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Tambo - CD",
+            "p_yes": 0.001169511973948482,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Tambo - CD",
+            "p_yes": 0.001169511973948482,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Tam-Tam [ECD] - CD",
+            "p_yes": 0.09534974752437841,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Best of Tamaris, Vol. 1 - Various - CD",
+            "p_yes": 0.0005527796544829538,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "laptops for teachers",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Teachers - Widescreen Fullscreen Dubbed - DVD",
+            "p_yes": 1.2492640844285867e-09,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Teachers - Widescreen Fullscreen Dubbed - DVD",
+            "p_yes": 9.230881597794679e-09,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Art for Teachers of Children - VHS",
+            "p_yes": 8.151727021210911e-09,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Professor Teaches Microsoft Office, Windows, Web & Graphics Super Set - Windows",
+            "p_yes": 0.0007096716825565047,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Microsoft Office XP Standard for Students and Teachers - Windows",
+            "p_yes": 0.00015843638381207587,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Teachers & Students (2pc) - DVD",
+            "p_yes": 2.8452320009354256e-08,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Professor Teaches Microsoft Windows XP (Home and Professional) - Windows",
+            "p_yes": 2.260318082247884e-06,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Teacher's Pet, Vol. 4 - DVD",
+            "p_yes": 5.203577866769037e-10,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "The Teacher - DVD",
+            "p_yes": 1.1860781669405598e-08,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "The Teacher - DVD",
+            "p_yes": 3.84973675119404e-09,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "ps4 console",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "PS2 Console with Free Game Case",
+            "p_yes": 1.637345399550253e-07,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "PS2 Console with Free Game Case",
+            "p_yes": 1.637345399550253e-07,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Sony - PlayStation 2 Console",
+            "p_yes": 1.0129880757044726e-05,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Sony - PlayStation 2 Console (PS2)",
+            "p_yes": 0.00020342731523035064,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Sony - PS one Console",
+            "p_yes": 0.017986290558701202,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "PS2 Console Bundle with Vertical Stand",
+            "p_yes": 1.8553855718286328e-07,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "PlayStation 2 Console Bundle: Basic",
+            "p_yes": 3.7266331714238898e-06,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Microsoft - Xbox 360 4GB Console - Black",
+            "p_yes": 9.931077268783681e-08,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Sony - PlayStation 2 Console with Toy Story 3: The Video Game",
+            "p_yes": 8.315102064212967e-07,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Microsoft - Xbox Video Game System",
+            "p_yes": 2.9022955954831065e-06,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "imac laptop",
+        "junk_rate": 1.0,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Apple&#xAE; - iMac&#xAE; / Intel&#xAE; Core&#x2122;2 Duo Processor / 21.5\" Display / 4GB Memory / 500GB Hard Drive",
+            "p_yes": 2.144497656652813e-05,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Apple&#xAE; MC508LL/A iMac&#xAE; & $125 Gift Card Package",
+            "p_yes": 1.7603353524511819e-06,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Apple&#xAE; - iMac&#xAE; G4 with 17\" Display",
+            "p_yes": 1.0129996960748791e-05,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Apple&#xAE; - iMac&#xAE; G4 with 17\" Display",
+            "p_yes": 1.0129995788373647e-05,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Apple&#xAE; - iMac&#xAE; G5 with 20\" Display",
+            "p_yes": 1.3709584561414043e-06,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Apple&#xAE; - iMac&#xAE; G5 with 20\" Display",
+            "p_yes": 2.902313464771767e-06,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Apple&#xAE; - iMac&#xAE; G5 with 20\" Display",
+            "p_yes": 1.3709584561414043e-06,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Apple&#xAE; - iMac&#xAE; G4 with 20\" Display",
+            "p_yes": 2.902315051388819e-06,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Apple&#xAE; - iMac&#xAE; G5 with 17\" Display",
+            "p_yes": 6.47594214471662e-07,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Apple&#xAE; - iMac&#xAE; G5 with 17\" Display",
+            "p_yes": 5.043469001389791e-07,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "the foster people",
+        "junk_rate": 0.9,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "The Life and Times of Foster & Allen - CD",
+            "p_yes": 0.02931228599962795,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Foster & Lloyd - CD",
+            "p_yes": 0.22270051679455413,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "The Essential Foster and Lloyd - CD",
+            "p_yes": 0.7773001719991134,
+            "junk": false
+          },
+          {
+            "rank": 4,
+            "title": "Friday Foster - VHS",
+            "p_yes": 0.008577498777667293,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Jodie Foster: Echoes of a Summer / Mesmerized - DVD",
+            "p_yes": 0.04742611008326449,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Magic of David Foster & Friends - CD",
+            "p_yes": 0.11920310864845621,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Magic Of David Foster & Friends - CD",
+            "p_yes": 0.11920340455618776,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Foster & Allen's Christmas Collection [Honest] - CD",
+            "p_yes": 0.017986242421268322,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Stephen Foster - CD",
+            "p_yes": 0.3775412127998385,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Touch of David Foster - CD",
+            "p_yes": 0.26894172785835124,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "balance board",
+        "junk_rate": 0.9,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Balance - Various - CD",
+            "p_yes": 4.4505031078920155e-07,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "GoFit - Ultimate 15 Inch Adjustable Round Wood Balance Board",
+            "p_yes": 0.9999999999200806,
+            "junk": false
+          },
+          {
+            "rank": 3,
+            "title": "Balance [International] - Various - CD",
+            "p_yes": 3.4663164295526745e-07,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Balance - CD",
+            "p_yes": 5.04267673322157e-07,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Balance - CD",
+            "p_yes": 1.1251715914103332e-07,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Balance - CD",
+            "p_yes": 3.058908563106122e-07,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Balance - CD",
+            "p_yes": 2.2600816205710535e-06,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Balance - CD",
+            "p_yes": 1.1251715914103332e-07,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Balance - CD",
+            "p_yes": 2.2600816205710535e-06,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Balance - CD",
+            "p_yes": 3.058908563106122e-07,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "htc evo 3d car charger",
+        "junk_rate": 0.9,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "HTC - Smart Car Kit for HTC EVO 3D",
+            "p_yes": 0.999999352407168,
+            "junk": false
+          },
+          {
+            "rank": 2,
+            "title": "Lenmar - Lithium-Ion Battery for HTC EVO 3D Mobile Phones",
+            "p_yes": 3.2240702080512713e-08,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Platinum Series - Lithium-Polymer Battery for HTC EVO 3D Mobile Phones",
+            "p_yes": 2.845166757660934e-08,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Platinum Series - 2X Extended Life Lithium-Polymer Battery for HTC EVO 3D Mobile Phones",
+            "p_yes": 2.8451179769281548e-08,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Rocketfish&#x2122; - Case for HTC EVO 3D Mobile Phones - Black",
+            "p_yes": 2.3354551965592263e-09,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Platinum Series - Cruiser Case for HTC EVO 3D Mobile Phones - Black",
+            "p_yes": 1.1860962569208692e-08,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "ZAGG - InvisibleSHIELD for HTC EVO 3D Mobile Phones",
+            "p_yes": 6.345278760166905e-09,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Platinum Series - Cruiser Case for HTC EVO 3D Mobile Phones - White",
+            "p_yes": 8.151726231367143e-09,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "OtterBox - Defender Series Case for HTC EVO 3D Mobile Phones - Black",
+            "p_yes": 4.944158569817462e-09,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Platinum Series - Hard Case with Holster for HTC EVO 3D Mobile Phones - Black",
+            "p_yes": 1.7257436135553075e-08,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "carriage disney doll playset",
+        "junk_rate": 0.9,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Disney's Cinderella: Dollhouse 2 - Windows",
+            "p_yes": 0.005220146056849202,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Disney Princess: Magical Dress-Up / Cinderella's Dollhouse - Mac/Windows",
+            "p_yes": 0.182425687339308,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Disney Electronics - Disney Princess 13\" Color TV",
+            "p_yes": 3.0589826104674055e-07,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "Disney/Pixar Toy Story 3 - Mac/Windows",
+            "p_yes": 1.855384522075558e-07,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Disney Electronics - Disney Princess 19\" Color Television",
+            "p_yes": 8.315288636304076e-07,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Disney Electronics - Disney Princess Corded Telephone",
+            "p_yes": 2.902295635772754e-06,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Cinderella's Dollhouse - Mac/Windows",
+            "p_yes": 0.9914225268802522,
+            "junk": false
+          },
+          {
+            "rank": 8,
+            "title": "Digital Blue - Disney Princess Digital Movie Creator",
+            "p_yes": 3.7266442927522845e-06,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "New York Doll - DVD",
+            "p_yes": 1.3709585652531737e-06,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "New York Doll - DVD",
+            "p_yes": 1.3709585652531737e-06,
+            "junk": true
+          }
+        ]
+      },
+      {
+        "query": "modern warfare 3 pc",
+        "junk_rate": 0.8,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Call of Duty: Modern Warfare 3 - Windows",
+            "p_yes": 0.9999999995941354,
+            "junk": false
+          },
+          {
+            "rank": 2,
+            "title": "Call of Duty: Modern Warfare 2 Hardened Edition - Windows",
+            "p_yes": 0.001501187982570972,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "Call of Duty 4: Modern Warfare Limited Collector's Edition - Windows",
+            "p_yes": 0.7310588724470105,
+            "junk": false
+          },
+          {
+            "rank": 4,
+            "title": "Call of Duty: Modern Warfare 3 - Xbox 360",
+            "p_yes": 6.144183964586928e-06,
+            "junk": true
+          },
+          {
+            "rank": 5,
+            "title": "Call of Duty: Modern Warfare 2 - Xbox 360",
+            "p_yes": 2.7535609191017472e-05,
+            "junk": true
+          },
+          {
+            "rank": 6,
+            "title": "Call of Duty 4: Modern Warfare - Mac",
+            "p_yes": 0.0031726978112670023,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Call of Duty: Modern Warfare 2 - Windows",
+            "p_yes": 0.01798633699511811,
+            "junk": true
+          },
+          {
+            "rank": 8,
+            "title": "Call of Duty: Modern Warfare 3 Hardened Edition - Xbox 360",
+            "p_yes": 6.824609226441455e-08,
+            "junk": true
+          },
+          {
+            "rank": 9,
+            "title": "Call of Duty: Modern Warfare 2 Hardened Edition - Xbox 360",
+            "p_yes": 5.314795149292219e-08,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Microsoft - Xbox 360 Modern Warfare 2 Limited Edition Console",
+            "p_yes": 1.275179690913889e-07,
+            "junk": true
+          }
+        ]
+      }
+    ]
+  },
+  "manual_checks": {
+    "apple tablet": {
+      "base": {
+        "query": "apple tablet",
+        "junk_rate": 0.3,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Rocketfish&#x2122; - Keyboard Capsule for Apple&#xAE; iPad&#xAE; 2 and iPad (3rd Generation)",
+            "p_yes": 0.9999989323000132,
+            "junk": false
+          },
+          {
+            "rank": 2,
+            "title": "Tablet Keyboard, USB Charger & Invisible Shield Package for Apple&#xAE; iPad&#xAE; 2",
+            "p_yes": 0.9999869928984605,
+            "junk": false
+          },
+          {
+            "rank": 3,
+            "title": "Acer - Iconia Tab A510 Series Olympic Edition Tablet with 32GB Memory - Silver",
+            "p_yes": 4.4507447730855816e-07,
+            "junk": true
+          },
+          {
+            "rank": 4,
+            "title": "iPad&#xAE; for Dummies 2nd Edition - Other",
+            "p_yes": 0.999999996149265,
+            "junk": false
+          },
+          {
+            "rank": 5,
+            "title": "Rocketfish&#x2122; - Refurbished Advanced Series iCapsule Keyboard for Apple&#xAE; iPad&#xAE;",
+            "p_yes": 0.999978555099949,
+            "junk": false
+          },
+          {
+            "rank": 6,
+            "title": "Acer - Iconia Tab A510 Series Olympic Edition Tablet with 32GB Memory - Black",
+            "p_yes": 2.9022869330168183e-06,
+            "junk": true
+          },
+          {
+            "rank": 7,
+            "title": "Timbuk2 - Catapult Sling for Apple&#xAE; iPad&#xAE; and up to 10\" Tablets - Gray/Blue",
+            "p_yes": 0.9999999994094706,
+            "junk": false
+          },
+          {
+            "rank": 8,
+            "title": "Rocketfish&#x2122; - Stand for Apple&#xAE; iPad&#x2122;",
+            "p_yes": 0.9999999847700481,
+            "junk": false
+          },
+          {
+            "rank": 9,
+            "title": "E Fun - Nextbook3 Tablet - Black",
+            "p_yes": 0.26894257861630894,
+            "junk": true
+          },
+          {
+            "rank": 10,
+            "title": "Incase - Origami Workstation for Apple&#xAE; iPad&#xAE;",
+            "p_yes": 0.999999990762567,
+            "junk": false
+          }
+        ]
+      },
+      "bod": {
+        "query": "apple tablet",
+        "junk_rate": 0.1,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Apple&#xAE; - Keyboard",
+            "p_yes": 0.18242577720158226,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Apple&#xAE; - iPad&#x2122; with Wi-Fi - 32GB",
+            "p_yes": 0.9999999998837181,
+            "junk": false
+          },
+          {
+            "rank": 3,
+            "title": "Apple&#xAE; - Wireless Keyboard",
+            "p_yes": 0.6791790494131764,
+            "junk": false
+          },
+          {
+            "rank": 4,
+            "title": "Apple&#xAE; - Wireless Keyboard",
+            "p_yes": 0.6791790494131764,
+            "junk": false
+          },
+          {
+            "rank": 5,
+            "title": "Apple&#xAE; - iPad&#x2122; with Wi-Fi - 64GB",
+            "p_yes": 0.9999999999294714,
+            "junk": false
+          },
+          {
+            "rank": 6,
+            "title": "Apple&#xAE; - iPad&#x2122; with Wi-Fi - 16GB",
+            "p_yes": 0.9999999997210548,
+            "junk": false
+          },
+          {
+            "rank": 7,
+            "title": "Apple&#xAE; - iPad&#xAE; 2 with Wi-Fi - 32GB - Black",
+            "p_yes": 0.999999998394778,
+            "junk": false
+          },
+          {
+            "rank": 8,
+            "title": "Apple&#xAE; - APP for Apple&#xAE; iPad&#x2122;",
+            "p_yes": 0.998073268164518,
+            "junk": false
+          },
+          {
+            "rank": 9,
+            "title": "Apple&#xAE; - iPad&#xAE; 2 with Wi-Fi - 16GB - Black",
+            "p_yes": 0.9999999991407865,
+            "junk": false
+          },
+          {
+            "rank": 10,
+            "title": "Apple&#xAE; - iPad&#xAE; 2 with Wi-Fi - 32GB - White",
+            "p_yes": 0.9999999970010562,
+            "junk": false
+          }
+        ]
+      }
+    },
+    "nokia phone": {
+      "base": {
+        "query": "nokia phone",
+        "junk_rate": 0.2,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Nokia - Headset",
+            "p_yes": 2.1444877213745673e-05,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Nokia - Headset",
+            "p_yes": 2.1444877213745673e-05,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "AT&T GoPhone - Nokia 2610 Cell Phone - Silver",
+            "p_yes": 0.9999999966017575,
+            "junk": false
+          },
+          {
+            "rank": 4,
+            "title": "Nokia - 2330 Mobile Phone - Silver (AT&T)",
+            "p_yes": 0.9999999970010502,
+            "junk": false
+          },
+          {
+            "rank": 5,
+            "title": "AT&T - Nokia 6555 Cell Phone - Gold",
+            "p_yes": 0.9999999981810451,
+            "junk": false
+          },
+          {
+            "rank": 6,
+            "title": "AT&T - Nokia 6650 Mobile Phone - Silver",
+            "p_yes": 0.9999999983947779,
+            "junk": false
+          },
+          {
+            "rank": 7,
+            "title": "T-Mobile - Nokia 6301 Cell Phone - Silver",
+            "p_yes": 0.9999999994094763,
+            "junk": false
+          },
+          {
+            "rank": 8,
+            "title": "T-Mobile - Nokia 7510 Mobile Phone - Silver",
+            "p_yes": 0.9999999991407866,
+            "junk": false
+          },
+          {
+            "rank": 9,
+            "title": "Nokia - In-The-Ear Headset for Most Nokia Cell Phones",
+            "p_yes": 0.8807972474216021,
+            "junk": false
+          },
+          {
+            "rank": 10,
+            "title": "Nokia - 6350 Mobile Phone - Silver (AT&T)",
+            "p_yes": 0.9999999976644157,
+            "junk": false
+          }
+        ]
+      },
+      "bod": {
+        "query": "nokia phone",
+        "junk_rate": 0.2,
+        "top_10": [
+          {
+            "rank": 1,
+            "title": "Nokia - Headset",
+            "p_yes": 2.1444877213745673e-05,
+            "junk": true
+          },
+          {
+            "rank": 2,
+            "title": "Nokia - Headset",
+            "p_yes": 2.1444877213745673e-05,
+            "junk": true
+          },
+          {
+            "rank": 3,
+            "title": "AT&T - Nokia 6555 Cell Phone - Black",
+            "p_yes": 0.9999999983947749,
+            "junk": false
+          },
+          {
+            "rank": 4,
+            "title": "AT&T - Nokia 6555 Cell Phone - Red",
+            "p_yes": 0.9999999981810452,
+            "junk": false
+          },
+          {
+            "rank": 5,
+            "title": "Nokia - Lumia 900 4G Mobile Phone - Cyan (AT&T)",
+            "p_yes": 0.9999999991408028,
+            "junk": false
+          },
+          {
+            "rank": 6,
+            "title": "AT&T - Nokia E71X Mobile Phone - Black",
+            "p_yes": 0.9999999993308426,
+            "junk": false
+          },
+          {
+            "rank": 7,
+            "title": "Nokia - GSM/GPRS Cell Phone with Internet (AT&T) - Silver/White",
+            "p_yes": 0.9999999994094718,
+            "junk": false
+          },
+          {
+            "rank": 8,
+            "title": "AT&T - Nokia 6555 Cell Phone - Gold",
+            "p_yes": 0.9999999981810451,
+            "junk": false
+          },
+          {
+            "rank": 9,
+            "title": "Nokia - TracFone Cellular Phone with Prepaid Wireless Airtime",
+            "p_yes": 0.9999999996418258,
+            "junk": false
+          },
+          {
+            "rank": 10,
+            "title": "Nokia - Lumia 900 4G Mobile Phone - White (AT&T)",
+            "p_yes": 0.9999999985834235,
+            "junk": false
+          }
+        ]
+      }
+    }
+  },
+  "per_query": {
+    "base": {
+      "q006c5432": {
+        "query": "sstylus",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q042c3e48": {
+        "query": "best buy tablet",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q04682b53": {
+        "query": "ge refrigerators",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q04b0b636": {
+        "query": "monkey see monkey do",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q053f11ec": {
+        "query": "battery packs",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q06ff4e10": {
+        "query": "jvc kw-xr610",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0764903d": {
+        "query": "tv series greek abc",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q08c6cfd4": {
+        "query": "the foster people",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0b098434": {
+        "query": "la ink",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q0c581434": {
+        "query": "pocket wireless router usb",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0d3f3024": {
+        "query": "car power outlet",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0d63b4c1": {
+        "query": "usb adapter 100",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0daeebd5": {
+        "query": "community tv",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0f0bb2d0": {
+        "query": "adaptors",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0f23de4a": {
+        "query": "mini laptop",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q139f9878": {
+        "query": "ford focus",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q149979d6": {
+        "query": "usb sata",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1506c9ca": {
+        "query": "un55d8000y",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q150e8d5d": {
+        "query": "tritton headset",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5714285714285714,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q154c704b": {
+        "query": "nicki minaj",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.1,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q172d038e": {
+        "query": "apple speaker",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q176f06f3": {
+        "query": "monte carlo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.1111111111111111,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1804047a": {
+        "query": "rush hour2",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q18b4a6f1": {
+        "query": "hotpoint range",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q18c9da3c": {
+        "query": "touch screen radios",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1a238300": {
+        "query": "cisco wireless adapter",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1a941562": {
+        "query": "computer software photos",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1aaa45d3": {
+        "query": "nockcolor",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1b41e33e": {
+        "query": "tv plate",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1de3f8b2": {
+        "query": "camera case",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.008849557522123894,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1e7f01e1": {
+        "query": "passion christ",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1e942330": {
+        "query": "htc evo view",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1eaa70b7": {
+        "query": "geek squad install",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1f48e5c3": {
+        "query": "balance board",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1fe9b35d": {
+        "query": "samsung galaxy tap",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q214dd494": {
+        "query": "epic 4g case",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q2201b4ec": {
+        "query": "music from the north country",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q22083e0c": {
+        "query": "appe",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2211ee49": {
+        "query": "screamers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q22419777": {
+        "query": "translater",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q24c270f4": {
+        "query": "projectors vivitek",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q271b077f": {
+        "query": "camcorder bags",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2762e247": {
+        "query": "mixr",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q27bf036b": {
+        "query": "sony mexbt",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q27c37cd0": {
+        "query": "modern warfare 3 pc",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q28b706b2": {
+        "query": "camcorder 1080",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a2cdca0": {
+        "query": "printer package",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a68b78f": {
+        "query": "digital camcoder",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a859bc9": {
+        "query": "canon 50d",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2c52e57b": {
+        "query": "skull candy black",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q2e455474": {
+        "query": "car stereo player",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2f8483b5": {
+        "query": "coby mp3",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q2fbcf3d4": {
+        "query": "bravia 40",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q30de431c": {
+        "query": "miyazaki movies",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q324eaeb2": {
+        "query": "car audio stereos",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q328c8777": {
+        "query": "survalince cameras",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q33578a83": {
+        "query": "t759",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q34c36005": {
+        "query": "mio",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q36b94bf0": {
+        "query": "backup batteries",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q381f445e": {
+        "query": "iphone 4gs",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.2608695652173913,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3a89c59f": {
+        "query": "dvd bluray",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3ace67e1": {
+        "query": "cricket broadband",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.8,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3c0d2493": {
+        "query": "major league",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.2,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3ddf130d": {
+        "query": "macbook cover",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3f0fd4d4": {
+        "query": "twilight eclipse",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3f5ed6f0": {
+        "query": "dell 1545 battery",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3ff20521": {
+        "query": "olympus\ufffd vn-8100pc digital voice recorder",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q4066eef5": {
+        "query": "acer iconoa a100",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q409f9165": {
+        "query": "everything must go",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q40f7c90c": {
+        "query": "composite cable iphone",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q4132cdf0": {
+        "query": "gateway pc laptops",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4279d171": {
+        "query": "bose videowave",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4408ef90": {
+        "query": "radio cable",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4596382d": {
+        "query": "deadlist catch",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q459e0937": {
+        "query": "nootbook",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q45f71954": {
+        "query": "cannon elf 300",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4858538d": {
+        "query": "planet of the apes",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.19047619047619047,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q49f34b8b": {
+        "query": "a skylit drive",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4b13d18d": {
+        "query": "4g wiffil",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4b4031a4": {
+        "query": "driving wheel",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4bc4d9c4": {
+        "query": "samsung un32d4000",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4be70858": {
+        "query": "phone headphones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4c4bca39": {
+        "query": "bluray laptop",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q513b6733": {
+        "query": "tamrac",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5226c3b5": {
+        "query": "it crowd",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q53997a4a": {
+        "query": "otterbox iphone cases",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.18181818181818182,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q53ecb177": {
+        "query": "freddy got fingered",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q54406117": {
+        "query": "gaming projector",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q56509388": {
+        "query": "touch screen cd players",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q565d9820": {
+        "query": "radio adapter mitsubishi",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q566a710d": {
+        "query": "slipknot",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.23809523809523808,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q591e653a": {
+        "query": "bluetooth motorola",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.14285714285714285,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q59616dfb": {
+        "query": "dell inspiron charger",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q597b2d56": {
+        "query": "proform",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q5994fdd2": {
+        "query": "desk computer",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q59b5ecb1": {
+        "query": "gps speak to text",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5d10192d": {
+        "query": "sam sung galaxy tab",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5e79aaf7": {
+        "query": "placebo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q5e875aa9": {
+        "query": "canon 18-200mm",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q60524587": {
+        "query": "computadora",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q60931c20": {
+        "query": "otterbox for i phone 4",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q624312e0": {
+        "query": "toshiba laptop chargers",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.125,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q634b8603": {
+        "query": "superman animated",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q638e4ffc": {
+        "query": "lcd dvd combo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.14285714285714285,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q66f599b5": {
+        "query": "expresso maker",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q671889b6": {
+        "query": "lg 24.9",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q67de712c": {
+        "query": "ace hood cd",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6a3b3263": {
+        "query": "13 inch tv",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6aa4e1a9": {
+        "query": "appradio sph-da01",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6c83ca6e": {
+        "query": "google",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6cf56541": {
+        "query": "weight",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6e14f54a": {
+        "query": "soda stream",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5555555555555556,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q6f3da2ad": {
+        "query": "motorola zoom tablet",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6f7c74d9": {
+        "query": "incase",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q71015854": {
+        "query": "outterbox reflex",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q71cd9f5d": {
+        "query": "cable amplifier",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q71d38087": {
+        "query": "firewire external",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q71ebc2e5": {
+        "query": "panasonic blueray",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q726cee03": {
+        "query": "samsung virgin mobile",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q72a9109b": {
+        "query": "nikon en-el5 battery",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q75566c81": {
+        "query": "gears vault",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q77da6aa3": {
+        "query": "keybord bluetooth",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q790b440f": {
+        "query": "sansung galaxtablet",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7a2f45ed": {
+        "query": "lonesome dove",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7a4f0e88": {
+        "query": "htc evo 3d car charger",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q7a93bae2": {
+        "query": "panasojic 3d glasses",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q7ac2141d": {
+        "query": "no contract cell phones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7eccb63d": {
+        "query": "canon power shot elph 300hs case",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7fbf24d8": {
+        "query": "samson microphones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q84706bb1": {
+        "query": "digimon",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8488ad2b": {
+        "query": "coffee makers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.025,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q857f1c16": {
+        "query": "m325",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8695665a": {
+        "query": "1564276",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8695bf30": {
+        "query": "mastadon",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q89229e99": {
+        "query": "55 inc led",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8b760cb4": {
+        "query": "ipod a/v",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8cf5e445": {
+        "query": "componrt wall shelves",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q90217ea4": {
+        "query": "charles bronson",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q907cd2c7": {
+        "query": "dbz guitars",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q9268596a": {
+        "query": "smart tvs",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.027777777777777776,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q928a9d26": {
+        "query": "interstella",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q95804df1": {
+        "query": "touch screen car audio",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9635ebc4": {
+        "query": "dumbo blu ray",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q98a00cfd": {
+        "query": "verizon iphone 4s",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.375,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q98bf338a": {
+        "query": "wand scanner",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q996e00bd": {
+        "query": "hdmi computers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9a3fcac7": {
+        "query": "play station 3 (120gb)",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9b42a226": {
+        "query": "huawei",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.058823529411764705,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q9ddde693": {
+        "query": "logitech revue",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.2,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa0eec23f": {
+        "query": "derulo",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa1bd87c2": {
+        "query": "saving silverman",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa25d8ea5": {
+        "query": "floor vacuum",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa26fda87": {
+        "query": "sony goggle tv",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qa3f590b1": {
+        "query": "soulja boy tellem cds",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa3fc38fe": {
+        "query": "dell computer desktop",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa41d3dee": {
+        "query": "sanding galaxy tab 10.1",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa513b9f0": {
+        "query": "car cd",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa75cf72e": {
+        "query": "lil waye",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa7772946": {
+        "query": "lbc22520sw",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa84a6b98": {
+        "query": "epic touch 4g",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa98c7e1e": {
+        "query": "foreign power converter",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa9d0a751": {
+        "query": "radeon 5670",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qad258486": {
+        "query": "plug adapter",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.2222222222222222,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qad9aaf47": {
+        "query": "microsoft key card",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qaef1d162": {
+        "query": "korg",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.2222222222222222,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qaf32f89a": {
+        "query": "alpine pdx-5",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb03e3979": {
+        "query": "refurbish plasma",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb3778c3f": {
+        "query": "lasko heaters",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb39743f9": {
+        "query": "sansung p1000",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb480a3bc": {
+        "query": "black berry 9780",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb660ef19": {
+        "query": "ps3 controler",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb7a9b72c": {
+        "query": "dell inspiration",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb8436e58": {
+        "query": "wireless presenter",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qba4c53ac": {
+        "query": "file cabinets",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qba5fa83a": {
+        "query": "ps3 headphone",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qbb15cbf5": {
+        "query": "ipad 2 case red",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qbb8f75dc": {
+        "query": "as good as it gets",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbb98517c": {
+        "query": "laptops for teachers",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbc8bfc43": {
+        "query": "26inch tvs",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbc9ca7cc": {
+        "query": "asus u56e",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbcddbeec": {
+        "query": "pimp c still pimping",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qbde14bdd": {
+        "query": "9427774",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbe588cdd": {
+        "query": "desus ex",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc10c1483": {
+        "query": "for mac",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc1419948": {
+        "query": "galaxy tab case",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.125,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qc42d9c53": {
+        "query": "angel season5",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc4b8ddd2": {
+        "query": "gaming mic",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc50c3804": {
+        "query": "carriage disney doll playset",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc671c899": {
+        "query": "32 plasma",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc706d049": {
+        "query": "beats dr. dre",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.09090909090909091,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qc71d5e43": {
+        "query": "cover  for iphone",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc84ae726": {
+        "query": "spice girls",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc98ff0b4": {
+        "query": "video game chair",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcaafaa9d": {
+        "query": "klipsch mp3 dock",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qcad1eceb": {
+        "query": "ps4 console",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qcb72a095": {
+        "query": "imac laptop",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.06666666666666667,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcdab6fcd": {
+        "query": "samsung galaxy cases",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qcdcd5027": {
+        "query": "polk soundbar",
+        "junk_rate": 0.5,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcdf1890c": {
+        "query": "joy sticks",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd0382c5a": {
+        "query": "jgss05dembb",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd05cc608": {
+        "query": "photo digital",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd0948746": {
+        "query": "ipod audio adapters",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd15fb8dd": {
+        "query": "radio harness for dodge",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd1b98e36": {
+        "query": "smallville season",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd35b67cd": {
+        "query": "transformers revenge of the fallen",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.14285714285714285,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd3dc5b39": {
+        "query": "grateful dead cd",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd445a5fc": {
+        "query": "nikkon d5100",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd5f3c0d6": {
+        "query": "horton hears a who",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd6cc54ed": {
+        "query": "toshiba lcd hdtv",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd85356fc": {
+        "query": "barbra straisand",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd9e75f2b": {
+        "query": "breaking dawn soundtrack",
+        "junk_rate": 0.6,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qdb6d9fdb": {
+        "query": "netnook",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qdbb867e6": {
+        "query": "amplifeir",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qdd9bc32c": {
+        "query": "clipse",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qddde3526": {
+        "query": "in dash car navigation",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qdff14c19": {
+        "query": "ipod touch 4th generation cases",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe0779abd": {
+        "query": "capacitive stlus",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qe3496dca": {
+        "query": "legends of the fall",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe3af42fa": {
+        "query": "ps3 game console",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe450d05d": {
+        "query": "pn598000",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe69e10f9": {
+        "query": "canon camera battery charger",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe7675447": {
+        "query": "v season",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe91553a5": {
+        "query": "nikon dsl camera",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qea387d3f": {
+        "query": "note pad",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qeb3924c9": {
+        "query": "heater outdoor",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qeb6cda1c": {
+        "query": "viziio",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qeb72b1f6": {
+        "query": "lg phone cases",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qebca5145": {
+        "query": "17 laptop",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qebfccf92": {
+        "query": "big bang teory",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qececd18b": {
+        "query": "rage pc",
+        "junk_rate": 0.3,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qed02eda2": {
+        "query": "digital audio cables",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qef57a391": {
+        "query": "car amplier",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf15ba13c": {
+        "query": "the story so far",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qf15cf56a": {
+        "query": "hoover",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf1fe2557": {
+        "query": "flip camcorders",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf2558c17": {
+        "query": "3.5 mm jack to rca",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf36a6f7a": {
+        "query": "panasonic viera television",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf3e20659": {
+        "query": "hp netbook",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0625,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf3e763a5": {
+        "query": "logitec keyboard",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf3e8936e": {
+        "query": "plug in wifi",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf45d2cf7": {
+        "query": "2045097",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf56bc34c": {
+        "query": "kitchen aid professional",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf7f21fec": {
+        "query": "dial up modem",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.1111111111111111,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf881f7a2": {
+        "query": "radio wiring harness",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfba4123b": {
+        "query": "instaliation kits",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfc77a9ed": {
+        "query": "people and things",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qfca5fe2f": {
+        "query": "core workout",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfcef012c": {
+        "query": "sons of anarkey",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfcf36176": {
+        "query": "com",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qff85f261": {
+        "query": "filing cabinets",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      }
+    },
+    "bod": {
+      "q006c5432": {
+        "query": "sstylus",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q042c3e48": {
+        "query": "best buy tablet",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q04682b53": {
+        "query": "ge refrigerators",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q04b0b636": {
+        "query": "monkey see monkey do",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q053f11ec": {
+        "query": "battery packs",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q06ff4e10": {
+        "query": "jvc kw-xr610",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0764903d": {
+        "query": "tv series greek abc",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q08c6cfd4": {
+        "query": "the foster people",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0b098434": {
+        "query": "la ink",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q0c581434": {
+        "query": "pocket wireless router usb",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0d3f3024": {
+        "query": "car power outlet",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0d63b4c1": {
+        "query": "usb adapter 100",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0daeebd5": {
+        "query": "community tv",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q0f0bb2d0": {
+        "query": "adaptors",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q0f23de4a": {
+        "query": "mini laptop",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.027777777777777776,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q139f9878": {
+        "query": "ford focus",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q149979d6": {
+        "query": "usb sata",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q1506c9ca": {
+        "query": "un55d8000y",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q150e8d5d": {
+        "query": "tritton headset",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.7142857142857143,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q154c704b": {
+        "query": "nicki minaj",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q172d038e": {
+        "query": "apple speaker",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q176f06f3": {
+        "query": "monte carlo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4444444444444444,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q1804047a": {
+        "query": "rush hour2",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q18b4a6f1": {
+        "query": "hotpoint range",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q18c9da3c": {
+        "query": "touch screen radios",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1a238300": {
+        "query": "cisco wireless adapter",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1a941562": {
+        "query": "computer software photos",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1aaa45d3": {
+        "query": "nockcolor",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1b41e33e": {
+        "query": "tv plate",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q1de3f8b2": {
+        "query": "camera case",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1e7f01e1": {
+        "query": "passion christ",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q1e942330": {
+        "query": "htc evo view",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1eaa70b7": {
+        "query": "geek squad install",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1f48e5c3": {
+        "query": "balance board",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q1fe9b35d": {
+        "query": "samsung galaxy tap",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q214dd494": {
+        "query": "epic 4g case",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q2201b4ec": {
+        "query": "music from the north country",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q22083e0c": {
+        "query": "appe",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2211ee49": {
+        "query": "screamers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q22419777": {
+        "query": "translater",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q24c270f4": {
+        "query": "projectors vivitek",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q271b077f": {
+        "query": "camcorder bags",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2762e247": {
+        "query": "mixr",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q27bf036b": {
+        "query": "sony mexbt",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q27c37cd0": {
+        "query": "modern warfare 3 pc",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q28b706b2": {
+        "query": "camcorder 1080",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a2cdca0": {
+        "query": "printer package",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a68b78f": {
+        "query": "digital camcoder",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2a859bc9": {
+        "query": "canon 50d",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2c52e57b": {
+        "query": "skull candy black",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q2e455474": {
+        "query": "car stereo player",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q2f8483b5": {
+        "query": "coby mp3",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q2fbcf3d4": {
+        "query": "bravia 40",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q30de431c": {
+        "query": "miyazaki movies",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q324eaeb2": {
+        "query": "car audio stereos",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q328c8777": {
+        "query": "survalince cameras",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q33578a83": {
+        "query": "t759",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q34c36005": {
+        "query": "mio",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q36b94bf0": {
+        "query": "backup batteries",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q381f445e": {
+        "query": "iphone 4gs",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.043478260869565216,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3a89c59f": {
+        "query": "dvd bluray",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3ace67e1": {
+        "query": "cricket broadband",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.8,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q3c0d2493": {
+        "query": "major league",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3ddf130d": {
+        "query": "macbook cover",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.08333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q3f0fd4d4": {
+        "query": "twilight eclipse",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q3f5ed6f0": {
+        "query": "dell 1545 battery",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q3ff20521": {
+        "query": "olympus\ufffd vn-8100pc digital voice recorder",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q4066eef5": {
+        "query": "acer iconoa a100",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q409f9165": {
+        "query": "everything must go",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q40f7c90c": {
+        "query": "composite cable iphone",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q4132cdf0": {
+        "query": "gateway pc laptops",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4279d171": {
+        "query": "bose videowave",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4408ef90": {
+        "query": "radio cable",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4596382d": {
+        "query": "deadlist catch",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q459e0937": {
+        "query": "nootbook",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q45f71954": {
+        "query": "cannon elf 300",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q4858538d": {
+        "query": "planet of the apes",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.2857142857142857,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q49f34b8b": {
+        "query": "a skylit drive",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4b13d18d": {
+        "query": "4g wiffil",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4b4031a4": {
+        "query": "driving wheel",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4bc4d9c4": {
+        "query": "samsung un32d4000",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4be70858": {
+        "query": "phone headphones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q4c4bca39": {
+        "query": "bluray laptop",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.2,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q513b6733": {
+        "query": "tamrac",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5226c3b5": {
+        "query": "it crowd",
+        "junk_rate": 0.3,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q53997a4a": {
+        "query": "otterbox iphone cases",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.18181818181818182,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q53ecb177": {
+        "query": "freddy got fingered",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q54406117": {
+        "query": "gaming projector",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q56509388": {
+        "query": "touch screen cd players",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q565d9820": {
+        "query": "radio adapter mitsubishi",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q566a710d": {
+        "query": "slipknot",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.14285714285714285,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q591e653a": {
+        "query": "bluetooth motorola",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q59616dfb": {
+        "query": "dell inspiron charger",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q597b2d56": {
+        "query": "proform",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5994fdd2": {
+        "query": "desk computer",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q59b5ecb1": {
+        "query": "gps speak to text",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q5d10192d": {
+        "query": "sam sung galaxy tab",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q5e79aaf7": {
+        "query": "placebo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q5e875aa9": {
+        "query": "canon 18-200mm",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q60524587": {
+        "query": "computadora",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q60931c20": {
+        "query": "otterbox for i phone 4",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q624312e0": {
+        "query": "toshiba laptop chargers",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.125,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q634b8603": {
+        "query": "superman animated",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q638e4ffc": {
+        "query": "lcd dvd combo",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q66f599b5": {
+        "query": "expresso maker",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q671889b6": {
+        "query": "lg 24.9",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q67de712c": {
+        "query": "ace hood cd",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6a3b3263": {
+        "query": "13 inch tv",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6aa4e1a9": {
+        "query": "appradio sph-da01",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q6c83ca6e": {
+        "query": "google",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.08695652173913043,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q6cf56541": {
+        "query": "weight",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q6e14f54a": {
+        "query": "soda stream",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4444444444444444,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q6f3da2ad": {
+        "query": "motorola zoom tablet",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q6f7c74d9": {
+        "query": "incase",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.028985507246376812,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q71015854": {
+        "query": "outterbox reflex",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q71cd9f5d": {
+        "query": "cable amplifier",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q71d38087": {
+        "query": "firewire external",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q71ebc2e5": {
+        "query": "panasonic blueray",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q726cee03": {
+        "query": "samsung virgin mobile",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q72a9109b": {
+        "query": "nikon en-el5 battery",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q75566c81": {
+        "query": "gears vault",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.25,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q77da6aa3": {
+        "query": "keybord bluetooth",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q790b440f": {
+        "query": "sansung galaxtablet",
+        "junk_rate": 0.6,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q7a2f45ed": {
+        "query": "lonesome dove",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7a4f0e88": {
+        "query": "htc evo 3d car charger",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q7a93bae2": {
+        "query": "panasojic 3d glasses",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q7ac2141d": {
+        "query": "no contract cell phones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7eccb63d": {
+        "query": "canon power shot elph 300hs case",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q7fbf24d8": {
+        "query": "samson microphones",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q84706bb1": {
+        "query": "digimon",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q8488ad2b": {
+        "query": "coffee makers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.1,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q857f1c16": {
+        "query": "m325",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.2,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q8695665a": {
+        "query": "1564276",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8695bf30": {
+        "query": "mastadon",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q89229e99": {
+        "query": "55 inc led",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q8b760cb4": {
+        "query": "ipod a/v",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q8cf5e445": {
+        "query": "componrt wall shelves",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q90217ea4": {
+        "query": "charles bronson",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q907cd2c7": {
+        "query": "dbz guitars",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9268596a": {
+        "query": "smart tvs",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.05555555555555555,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q928a9d26": {
+        "query": "interstella",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q95804df1": {
+        "query": "touch screen car audio",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q9635ebc4": {
+        "query": "dumbo blu ray",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q98a00cfd": {
+        "query": "verizon iphone 4s",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.625,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "q98bf338a": {
+        "query": "wand scanner",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q996e00bd": {
+        "query": "hdmi computers",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9a3fcac7": {
+        "query": "play station 3 (120gb)",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "q9b42a226": {
+        "query": "huawei",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.23529411764705882,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "q9ddde693": {
+        "query": "logitech revue",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.3,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa0eec23f": {
+        "query": "derulo",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa1bd87c2": {
+        "query": "saving silverman",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa25d8ea5": {
+        "query": "floor vacuum",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa26fda87": {
+        "query": "sony goggle tv",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qa3f590b1": {
+        "query": "soulja boy tellem cds",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa3fc38fe": {
+        "query": "dell computer desktop",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa41d3dee": {
+        "query": "sanding galaxy tab 10.1",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa513b9f0": {
+        "query": "car cd",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa75cf72e": {
+        "query": "lil waye",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa7772946": {
+        "query": "lbc22520sw",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa84a6b98": {
+        "query": "epic touch 4g",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qa98c7e1e": {
+        "query": "foreign power converter",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qa9d0a751": {
+        "query": "radeon 5670",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qad258486": {
+        "query": "plug adapter",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qad9aaf47": {
+        "query": "microsoft key card",
+        "junk_rate": 0.2,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qaef1d162": {
+        "query": "korg",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qaf32f89a": {
+        "query": "alpine pdx-5",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb03e3979": {
+        "query": "refurbish plasma",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb3778c3f": {
+        "query": "lasko heaters",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb39743f9": {
+        "query": "sansung p1000",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qb480a3bc": {
+        "query": "black berry 9780",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb660ef19": {
+        "query": "ps3 controler",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.23076923076923078,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb7a9b72c": {
+        "query": "dell inspiration",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qb8436e58": {
+        "query": "wireless presenter",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qba4c53ac": {
+        "query": "file cabinets",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qba5fa83a": {
+        "query": "ps3 headphone",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qbb15cbf5": {
+        "query": "ipad 2 case red",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qbb8f75dc": {
+        "query": "as good as it gets",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qbb98517c": {
+        "query": "laptops for teachers",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbc8bfc43": {
+        "query": "26inch tvs",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbc9ca7cc": {
+        "query": "asus u56e",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.375,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qbcddbeec": {
+        "query": "pimp c still pimping",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qbde14bdd": {
+        "query": "9427774",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qbe588cdd": {
+        "query": "desus ex",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qc10c1483": {
+        "query": "for mac",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc1419948": {
+        "query": "galaxy tab case",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.125,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qc42d9c53": {
+        "query": "angel season5",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qc4b8ddd2": {
+        "query": "gaming mic",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc50c3804": {
+        "query": "carriage disney doll playset",
+        "junk_rate": 0.9,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc671c899": {
+        "query": "32 plasma",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc706d049": {
+        "query": "beats dr. dre",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc71d5e43": {
+        "query": "cover  for iphone",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc84ae726": {
+        "query": "spice girls",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qc98ff0b4": {
+        "query": "video game chair",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcaafaa9d": {
+        "query": "klipsch mp3 dock",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcad1eceb": {
+        "query": "ps4 console",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qcb72a095": {
+        "query": "imac laptop",
+        "junk_rate": 1.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qcdab6fcd": {
+        "query": "samsung galaxy cases",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.6666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qcdcd5027": {
+        "query": "polk soundbar",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qcdf1890c": {
+        "query": "joy sticks",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd0382c5a": {
+        "query": "jgss05dembb",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd05cc608": {
+        "query": "photo digital",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd0948746": {
+        "query": "ipod audio adapters",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd15fb8dd": {
+        "query": "radio harness for dodge",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd1b98e36": {
+        "query": "smallville season",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd35b67cd": {
+        "query": "transformers revenge of the fallen",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.42857142857142855,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd3dc5b39": {
+        "query": "grateful dead cd",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd445a5fc": {
+        "query": "nikkon d5100",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.3333333333333333,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qd5f3c0d6": {
+        "query": "horton hears a who",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qd6cc54ed": {
+        "query": "toshiba lcd hdtv",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd85356fc": {
+        "query": "barbra straisand",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qd9e75f2b": {
+        "query": "breaking dawn soundtrack",
+        "junk_rate": 0.6,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qdb6d9fdb": {
+        "query": "netnook",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qdbb867e6": {
+        "query": "amplifeir",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qdd9bc32c": {
+        "query": "clipse",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qddde3526": {
+        "query": "in dash car navigation",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qdff14c19": {
+        "query": "ipod touch 4th generation cases",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.06666666666666667,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qe0779abd": {
+        "query": "capacitive stlus",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qe3496dca": {
+        "query": "legends of the fall",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qe3af42fa": {
+        "query": "ps3 game console",
+        "junk_rate": 0.4,
+        "recall_at_10": 0.14285714285714285,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qe450d05d": {
+        "query": "pn598000",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qe69e10f9": {
+        "query": "canon camera battery charger",
+        "junk_rate": 0.6,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qe7675447": {
+        "query": "v season",
+        "junk_rate": 0.0,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qe91553a5": {
+        "query": "nikon dsl camera",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qea387d3f": {
+        "query": "note pad",
+        "junk_rate": 0.8,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qeb3924c9": {
+        "query": "heater outdoor",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qeb6cda1c": {
+        "query": "viziio",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qeb72b1f6": {
+        "query": "lg phone cases",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qebca5145": {
+        "query": "17 laptop",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qebfccf92": {
+        "query": "big bang teory",
+        "junk_rate": 0.3,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qececd18b": {
+        "query": "rage pc",
+        "junk_rate": 0.3,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 1.0
+      },
+      "qed02eda2": {
+        "query": "digital audio cables",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.2,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qef57a391": {
+        "query": "car amplier",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf15ba13c": {
+        "query": "the story so far",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf15cf56a": {
+        "query": "hoover",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.010416666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf1fe2557": {
+        "query": "flip camcorders",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf2558c17": {
+        "query": "3.5 mm jack to rca",
+        "junk_rate": 0.2,
+        "recall_at_10": 0.5,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf36a6f7a": {
+        "query": "panasonic viera television",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf3e20659": {
+        "query": "hp netbook",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.03125,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf3e763a5": {
+        "query": "logitec keyboard",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.16666666666666666,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf3e8936e": {
+        "query": "plug in wifi",
+        "junk_rate": 0.1,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf45d2cf7": {
+        "query": "2045097",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf56bc34c": {
+        "query": "kitchen aid professional",
+        "junk_rate": 0.5,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qf7f21fec": {
+        "query": "dial up modem",
+        "junk_rate": 0.7,
+        "recall_at_10": 0.1111111111111111,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qf881f7a2": {
+        "query": "radio wiring harness",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfba4123b": {
+        "query": "instaliation kits",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfc77a9ed": {
+        "query": "people and things",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.4,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qfca5fe2f": {
+        "query": "core workout",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qfcef012c": {
+        "query": "sons of anarkey",
+        "junk_rate": 0.1,
+        "recall_at_10": 1.0,
+        "hit_at_10": 1.0,
+        "e_at_1": 0.0
+      },
+      "qfcf36176": {
+        "query": "com",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      },
+      "qff85f261": {
+        "query": "filing cabinets",
+        "junk_rate": 0.0,
+        "recall_at_10": 0.0,
+        "hit_at_10": 0.0,
+        "e_at_1": 0.0
+      }
+    }
+  }
+}

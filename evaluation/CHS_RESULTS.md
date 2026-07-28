@@ -2866,6 +2866,519 @@ scale, not by cluster geometry.
     reused from Pattern 28's cached artifacts, dense-orig recomputed
     fresh per the engineering note above.
 
+30. **Categorical junk-rate is a distinct eval signal from the click
+    metrics — and of the three levers tested against it, only
+    indexing-side category enrichment works; the free query-side
+    classifier is a nearest-centroid lookup, not an LLM.** Motivated
+    by a concrete anecdote from manual inspection: the BestBuy query
+    `apple tablet` returns Apple-branded *keyboards* ranked with and
+    above the actual iPad. None of the metrics this repo tracks
+    (R@10, E@1, exact-click-match) can see that failure — a keyboard
+    is simply "not the clicked SKU," identically scored to a
+    wrong-brand tablet. This chain builds a metric that can see it,
+    then tests three separate mechanisms for fixing it.
+
+    **Part A — a categorical junk-rate metric on BestBuy
+    (`evaluation/eval_bestbuy_llm_judge_junkrate.py`,
+    `evaluation/results/bestbuy_llm_judge_junkrate.json`).** 250
+    sampled holdout queries, base MiniLM vs. the BoD-fine-tuned
+    MiniLM, retrieval over the full public 1.27M-product catalog.
+    gpt-4o-mini judges each top-10 result on one question only — is
+    this even the right PRODUCT TYPE for the query — explicitly *not*
+    exact-click-match. 4,348 deduped (query, product) pairs judged
+    once and reused across both models, $0.0745. Result: junk-rate@10
+    base 0.258 → BoD 0.1412 (delta −0.1168, CI [−0.1532,−0.0816]) —
+    BoD is better here too, consistent with its click-metric lead, so
+    the new metric doesn't overturn any prior verdict. But it is
+    **weakly correlated with the click metrics**: per-query Pearson
+    between junk-rate and R@10 is −0.104 (base) / −0.055 (BoD), and
+    vs. E@1 −0.027 / −0.022. It is measuring something the existing
+    metrics essentially do not. Real headroom remains: BoD still
+    shows ≥1 junk result in 36.8% of queries and majority-junk in
+    10.8%. The dominant failure pattern is **not** the brand-
+    association anecdote — it is OOV/misspelled queries collapsing
+    into the catalog's enormous CD/DVD/media long tail (`tamrac` →
+    "Tambu - CD", `ford focus` → "Focus - CD", `bravia 40` → "Brava -
+    CD", `a skylit drive` → eight *Test Drive* console games). The
+    `apple tablet` anecdote does reproduce (3 keyboards in BoD's
+    top-4), but the judge itself only flags 1 of them: it rewards
+    "Apple"/"iPad" token overlap — the same lexical bias documented
+    in Pattern 27 Part B — while flagging a correctly-categorized but
+    wrong-brand Acer tablet as junk. The metric is useful in
+    aggregate and unreliable per-item, for exactly the reason
+    Pattern 27 established.
+
+    **Part B — BM25 fusion as a junk fix: negative
+    (`evaluation/eval_bestbuy_bm25_junk_gate.py`,
+    `evaluation/results/bestbuy_bm25_junk_gate.json`, $0.034).**
+    Hypothesis going in: OOV-collapse junk is dense drift with zero
+    lexical grounding, so a BM25 leg should veto it. **The diagnosis
+    refutes the premise.** Only 7.8% of junk is pure subword-collision
+    with zero query-token overlap, and that feature isn't even
+    discriminative — 8.1% of *non-junk* also has zero overlap. Junk is
+    instead characterized by *partial* overlap on short titles (mean
+    5.45 title tokens vs. 7.07 for ok; mean coverage 0.32 vs. 0.52),
+    and BM25 barely separates the two (30.1% of junk has zero BM25
+    score vs. 20.2% of ok — weak ~1.5:1 odds). Hubness was ruled out:
+    898 distinct products across 921 junk pairs, max 3 appearances, no
+    repeat offenders. Both interventions fail. RRF(BoD-dense, BM25) at
+    depth 200 makes junk **significantly worse** — 0.1412 → 0.2060
+    (rrf_k=10) / 0.2164 (rrf_k=60), +6.5 to +7.5pp with CI excluding
+    zero — while also costing R@10 (0.246 → 0.220 / 0.208) and E@1
+    (0.164 → 0.164 / 0.144), because it promotes exactly the short
+    one-term-match media titles that constitute the junk. The
+    zero-BM25 demotion gate is a null: it touches 24/250 queries and
+    moves nothing in aggregate (junk 0.1412 → 0.1456 shallow / 0.1424
+    deep). **Disqualified** under the standing constraint that click
+    metrics can't regress. The specific anecdotes split instructively:
+    `tamrac` is fully fixable by the deep BM25 gate (junk 1.00 →
+    0.00), but `laptops for teachers` stays 100% junk even under
+    BM25-ALONE retrieval — a catalog-coverage / ambiguous-query
+    problem that no ranking algorithm fixes.
+
+    **Part C — the raw catalog has rich, unused metadata**
+    (investigation only, no script; direct inspection of the Kaggle
+    source XML at `acm-sf-chapter-hackathon-big/product_data/products/
+    *.xml`, kept as an 805MB tarball at
+    `/tmp/bestbuy_raw_inspect/product_data.tar.gz`, outside the repo).
+    The indexing pipeline
+    (`download/expand_bestbuy_catalog.py`) only ever regex-extracted
+    `sku` + `name`, discarding ~90 other fields per product. Present
+    and 100% populated for `type=HardGood` (the electronics):
+    `class` (224 distinct values catalog-wide, 179 in the eval
+    subset), `subclass` (1,407), `categoryPath`, `manufacturer`. This
+    resolves the motivating anecdote at the *data* level, with no
+    classifier needed on the product side: iPad Wi-Fi 32GB has
+    `class=TABLET`, Apple Keyboard / Wireless Keyboard have
+    `class=INPUT DEVICES`, and Rocketfish Keyboard Capsule has
+    `class=TABLET ACCESSORIES` — the accessory-vs-core-product
+    distinction already exists as vendor ground truth. Also surfaced a
+    live bug: title extraction doesn't HTML-unescape, leaving
+    `&#xAE;` / `&#x2122;` literal in indexed titles (confirmed in
+    `evaluation/results/bestbuy_llm_judge_junkrate.json`'s stored
+    titles), polluting BM25 tokenization and wasting embedding
+    capacity. LLM product categorization was costed at ~$64 per-item /
+    ~$21 batched (25/call) for the full 1.27M catalog with gpt-4o-mini
+    — and **ruled unnecessary**: the ground truth already exists and
+    is strictly more reliable than what an LLM could infer from the
+    bare name, since an LLM shown only "Apple - Keyboard" has the same
+    Mac-desktop-vs-iPad-accessory ambiguity a human would. The only
+    defensible LLM use here is normalizing the ~3,700 distinct
+    class/subclass/categoryPath jargon strings into clean phrasing —
+    a one-time <$1 lookup table, not a per-product cost.
+
+    **Part D — category-enriched indexing prototype: one mechanism
+    works in-pool, one is dead
+    (`evaluation/eval_bestbuy_category_enrichment_prototype.py`,
+    `evaluation/results/bestbuy_category_enrichment_prototype.json`,
+    $0.0434).** **Limitation, stated up front: this is a CLOSED-POOL
+    RERANK, not full-catalog retrieval** — the candidate set per query
+    is the union of that query's cached base top-10 and BoD top-10
+    (6,890 products total), so R@10 can only fall or stay flat and
+    junk can only improve by reordering an already-retrieved set. It
+    is a necessary-not-sufficient screen for a re-index, not a
+    validation of one. Same 250 queries. Two mechanisms:
+    **(a) enriched embedding text** — `name — manufacturer —
+    categoryPath leaf — Class`, HTML-unescaped, re-embedded with the
+    *same unmodified* models, no retraining. Real win *within the
+    pool* for the base model: junk 0.258 → 0.190 (−0.068, CI
+    [−0.0912,−0.0464]), and critically R@10 (0.130 → 0.195, CI
+    [+0.0404,+0.0920]) and E@1
+    (0.096 → 0.128) move the *same* direction — not a junk/recall
+    tradeoff. It fixes both `apple tablet` (real iPads take ranks 1-2)
+    and `nokia phone` directly. For BoD it is marginal and
+    non-significant (junk −0.0064, CI [−0.0128, ~0.0] touching zero;
+    R@10 +0.0087, CI crossing zero) — BoD's click training has
+    already captured most of this signal, the same
+    diminishing-returns shape Pattern 18 found for stacked levers.
+    **(b) LLM-classify-then-boost** — gpt-4o-mini picks 1-3 compatible
+    `class` values per query from the 179-value vocabulary, matching
+    candidates get boosted — is **dead**. 80.4% of queries (201/250)
+    lost at least one gold category from the predicted compatible set
+    and 50.4% (126/250) lost *every* gold, i.e. a hard category filter
+    would have removed all relevant results for half the queries. Root
+    cause is taxonomy, not reasoning: `class` is a messy merchandising
+    vocabulary in which phones fragment across AT&T HARDWARE /
+    T-MOBILE HARDWARE / PREPAID HARDWARE / MVNO CELLULAR, and the LLM
+    has no way to know that. It actively hurt `apple tablet` (floated
+    other junk tablets above the real iPads) and was a total no-op on
+    `nokia phone` (its predicted classes matched no candidate at all).
+    **Read (a) as a screen passed, not a fix validated:** the numbers
+    above are accurate for what they measure — reordering ~6,890
+    already-retrieved products — and they say the mechanism is worth
+    building and testing at full scale, nothing more. Part F builds it
+    and finds the junk-rate win does not survive genuine full-corpus
+    retrieval.
+
+    **Part E — nearest-centroid query classification beats the LLM,
+    for free** (same script and results file as Part D). Given that
+    D-b failed on taxonomy ignorance rather than on the idea of
+    query-side category signal, this tests whether TODAY's unmodified
+    embedding space already supports the classification with no
+    retraining and no LLM: assign a query to the class whose product
+    centroid it is nearest. It does, decisively. Nearest-centroid on
+    BoD embeddings: top-1 0.524, top-3 0.748 (leave-golds-out-
+    adjusted, so the query's own gold products don't contribute to
+    their centroid: 0.496 / 0.724); base embeddings 0.456 / 0.656.
+    gpt-4o-mini with the full 179-class vocabulary in-prompt gets
+    0.296 / 0.496 under identical scoring — the free embedding lookup
+    beats the paid LLM by ~20-25 points, confirming the bottleneck was
+    the LLM's ignorance of the idiosyncratic vocabulary and not the
+    embedding space. `apple tablet` → TABLET wins decisively (0.53
+    cosine), INPUT DEVICES nowhere close; `nokia phone` → the correct
+    carrier-hardware classes win. Two checks were run specifically
+    against the worry that centroid classification just inherits
+    retrieval's own bias. **Category coherence**: intra-class cosine
+    clearly exceeds nearest-other-class cosine for nearly every class
+    (TABLET margin 0.228 base / 0.283 BoD; TABLET vs. INPUT DEVICES
+    separation 0.18-0.21) — *except* TABLET vs. TABLET ACCESSORIES
+    (0.62-0.71 cosine, and TABLET ACCESSORIES is the modal
+    nearest-other class for TABLET in both models): the taxonomy
+    separates tablets from unrelated categories but not from their own
+    accessories, which is precisely the `apple tablet` failure.
+    **k-NN product purity** — does a product's actual nearest-neighbor
+    *products* share its class, measured on the ORIGINAL unenriched
+    embeddings: mean purity@5/@10 = 0.758/0.706 (base), 0.756/0.707
+    (BoD), and the iPad's own top-5 nearest neighbors are all other
+    iPads in both models. Brand-over-category bias at the
+    product-embedding level is ruled out. That refines the root cause
+    from Parts A and C: the `apple tablet` confusion is a
+    query-text-matching artifact, not a product-clustering pathology.
+
+    **Part F — the full re-index, built and validated: the closed-pool
+    junk win does not survive full-corpus retrieval
+    (`evaluation/eval_bestbuy_full_reindex_validation.py`,
+    `evaluation/results/bestbuy_full_reindex_validation.json`,
+    $0.0396).** The confirmation step Part D deferred. The entire
+    1.27M-product catalog was re-extracted from the raw XML (100%
+    coverage of shipped SKUs, zero fallbacks to the old title) and
+    re-embedded from the Part D-a enriched text — `name — manufacturer
+    — categoryPath leaf — Class`, HTML-unescaped — with both
+    *unmodified* models; the same 250 holdout queries were then re-run
+    as genuine exact-cosine top-10 over the full catalog for all four
+    arms (OLD/NEW × base/BoD), no candidate pool anywhere, same judge
+    and same prompt as Part A. **The Part D-a junk result does not
+    replicate.** Base junk@10 0.2580 → 0.2508 (Δ −0.0072, CI
+    [−0.0372,+0.0212] — null, against the −0.068 with CI excluding zero
+    measured in the pool), and BoD junk@10 0.1412 → 0.1456 (Δ +0.0044,
+    CI [−0.0088,+0.0184] — null). The only statistically real effect
+    anywhere is base R@10 0.1280 → 0.1691 (Δ **+0.0412**, CI
+    [+0.0104,+0.0719]), with nDCG@10 +0.0264 (CI [+0.0021,+0.0493])
+    and E@1 0.092 → 0.116 (Δ +0.024, CI [−0.016,+0.064], null). For
+    BoD — the actually-deployed, better-performing model — all three
+    metrics are null: R@10 0.2455 → 0.2467 (Δ +0.0012, CI
+    [−0.0206,+0.0241]), E@1 0.168 → 0.160 (Δ −0.008, CI
+    [−0.048,+0.036]). **This is a null, not a no-op mistaken for one:**
+    mean top-10 overlap between OLD and NEW is 0.32 (base) / 0.55
+    (BoD), top-1 is unchanged in only 18% / 29% of queries, and mean
+    old-vs-new cosine on the product vectors themselves is ~0.80.
+    Enrichment substantially changes *what gets retrieved* — it simply
+    doesn't net out to less junk at full catalog depth. The motivating
+    anecdotes are genuinely fixed: `apple tablet` junk 0.30 → 0.00
+    (base) / 0.10 → 0.00 (BoD), with the top-10 becoming all iPads, and
+    `nokia phone` 0.20 → 0.10 / 0.20 → 0.00 — but two hand-picked
+    queries are an existence proof, not a general fix, and the
+    aggregate says exactly that. **A second, distinct negative case**
+    surfaced from driving the local centroid-classifier demo
+    (`evaluation/local_demo_bestbuy_enrichment.py`) by hand: the query
+    `roomba` is not associated with floor care in *either* embedding
+    space. Top predicted classes are nonsense (TECH TOYS, PREMIUMS,
+    …), with VACUUM ACCESSORY appearing only at rank 5 for BoD at
+    0.232 cosine — even though raw catalog titles literally read
+    "iRobot - Roomba 530 Vacuum Cleaning Robot," so exact lexical
+    matching finds the right answer trivially. That is the *opposite*
+    shape from `apple tablet`, where the correct title never contains
+    the disambiguating word at all and lexical matching is no help
+    either. **Publish decision: ship the re-index anyway.** There is
+    zero measured regression on any of the three metrics for either
+    model, it fixes a real display bug (23,367 titles carried
+    unescaped HTML entities such as `&#xAE;` into the index), and
+    it fixes the specific known-bad anecdotes — so the artifacts are
+    strictly no worse and concretely better on two counts, even though
+    they do not deliver the general junk-rate reduction that motivated
+    the work.
+
+    **Part G — base and BoD barely overlap at all, and the entire
+    aggregate lift lives in the queries where they share nothing
+    (`evaluation/eval_bestbuy_base_vs_bod_divergence.py`,
+    `evaluation/results/bestbuy_base_vs_bod_divergence.json`, **$0** —
+    every (query, product) pair was already judged in Parts A/B and
+    F, so the whole analysis is cache reuse).** Part F left BoD-NEW
+    ahead of base-NEW in aggregate (junk@10 0.1456 vs. 0.2508, hit@10
+    0.500 vs. 0.368); this asks *which* queries produce that lead.
+    The two models turn out to barely agree: mean top-10 Jaccard
+    **0.180** (median 0.111), top-1 is the same product in only
+    **14.8%** of queries, and **not one of the 250 queries has an
+    identical top-10** — the intersection-size histogram runs 59
+    queries sharing 0 products, 44 sharing 1, 33 at 2, 30 at 3, and a
+    single query as high as 9. 166/250 (66%) are *divergent* under
+    the ≤3-shared rule. On those 166 BoD wins on both axes: junk@10
+    0.292 (base) vs. 0.157 (BoD), Δ 0.135 CI [+0.0886,+0.1825];
+    hit@10 0.211 vs. 0.392, Δ +0.181 CI [+0.1024,+0.2590]; per-query
+    categorical winner BoD 70 / base 25 / tie 71 (73.7% excluding
+    ties) and click winner BoD 40 / base 10 / tie 116 (80.0%
+    excluding ties). **The 59 zero-overlap queries carry the whole
+    aggregate lift**: hit@10 base **0.034** vs. BoD **0.305** (Δ
+    +0.271, CI [+0.153,+0.390]), base nDCG@10 0.005 — base is
+    effectively not answering those queries at all — and all 16
+    decided click comparisons in that bucket go to BoD.
+
+    **What BoD wins:** model-number, misspelling and brand-entity
+    queries, where base fails on pure lexical/brand mismatch and
+    BoD's click training recovers the right product type.
+    `un55d8000y` (base: Acer/HP notebooks, junk 1.00 → BoD: Samsung
+    55" HDTVs, junk 0.00), `outterbox reflex` (base: *Reflexology: A
+    Practical Guide — VHS* → BoD: the actual OtterBox Reflex iPhone
+    cases, plus the gold click), `panasonic blueray` (base: Panasonic
+    Lumix cameras *in blue* → BoD: Panasonic Blu-ray players),
+    `bravia 40` (base: a 46" bundle and *40 Bachatas Poderosas — CD*
+    → BoD: Sony BRAVIA XBR 40" sets), `google` (base: *Biography: The
+    Google Boys — DVD* → BoD: Logitech Revue with Google TV).
+    **What base wins** has a consistent and instructive shape:
+    multi-word natural-language queries whose head word collides with
+    a media/CD/DVD title. `balance board` — base returns real balance
+    boards *and both golds*, BoD collapses to *Scott Cole: The
+    Perfect Balance Collection — DVD* and *Balance — CD* (junk 0.30 →
+    0.90); `a skylit drive` — a band name BoD reads as storage
+    hardware (USB flash drives, external optical drives, junk 1.00);
+    `laptops for teachers` — BoD returns a movie called *Teachers*
+    (junk 0.90) where base returns Toshiba laptop bundles. BoD's
+    click training pulls hardest into the catalog's media long tail
+    precisely when the query reads like natural language rather than
+    a product identifier — the mirror image of the OOV-collapse mode
+    Part A found in the *base* model.
+
+    **Qrels-artifact caveat on the loss list.** Two of base's ten
+    divergent click "wins" are cases where BoD's answer is arguably
+    *more* correct than the clicked gold: on `canon 50d` BoD returns
+    actual EOS **50D** cameras with junk 0.00 while the recorded gold
+    is an EOS **60D** that base happens to surface, and on `computer
+    software photos` BoD returns Photoshop CS2 / Viveza while base's
+    credited hit sits behind two results titled simply `Computers`.
+    The same skepticism Pattern 27 established about the judge
+    applies to the qrels: a per-query "loss" against click data is
+    not automatically a real loss.
+
+    **Brand-diversity check.** Motivated by directly observing base
+    fixate on one brand for `laptop` / `windows laptop` in the live
+    demo. On those two specific queries the observation is exactly
+    right: for `laptop`, base returns 2 distinct manufacturers with
+    7/10 slots Sony (and only 8 distinct titles — several are
+    colorway variants of the same VAIO) against BoD's 4 brands; for
+    `windows laptop`, base puts 9/10 slots on Toshiba
+    (max-brand-share 0.90, 6 distinct titles) against BoD's 3 brands
+    at 0.56. It does **not** generalize. Across all 250 queries the
+    mean count of distinct manufacturers in the top-10 is base
+    **3.35** vs. BoD **3.24** (Δ −0.108, CI [−0.388,+0.184]) — base
+    is marginally *more* brand-diverse on average — single-brand
+    top-10 rate is 31.2% (base) vs. 32.0% (BoD), and brand diversity
+    is uncorrelated with divergence (Pearson r against
+    |intersection|: −0.133 base, −0.115 BoD, +0.088 for max brand
+    share). Both models have their own fixation failures in opposite
+    directions (`the foster people`: base 1 brand vs. BoD 9; `black
+    berry 9780`: BoD 1 brand vs. base 9). A vivid single-query
+    observation can be real, reproducible, *and* not a systemic
+    pattern — the same anecdote-vs-aggregate discipline Part F
+    applied to `apple tablet`.
+
+    **Part H — a real regression that only manual testing could find:
+    348 empty product titles in the published re-index** (no script
+    for the bug itself — found by hand-driving the local demo; fix
+    applied with a throwaway upload script that is not committed).
+    While manually testing the Part F artifacts through
+    `evaluation/local_demo_bestbuy_full_reindex.py`, BoD's top result
+    for `laptop` came back with a completely blank title — visible in
+    Part G's own stored output, where the rank-1 entry for both
+    `laptop` and `windows laptop` is `{"brand": "", "title": ""}`.
+    Root cause: the Part F build applied a sensible fallback (raw
+    `name`, else a category-derived string) when constructing the
+    **embedding** text for products whose raw `<name>` is genuinely
+    blank, but did not apply the same fallback when writing the
+    **display** title — so those products were embedded sensibly and
+    displayed as empty strings. Blast radius: **348 of 1,274,801
+    rows** in the NEW `titles.json` (345 of them "Bundle" pseudo-SKUs
+    that ship with blank names in BestBuy's own 2012 data, plus a
+    handful of real SKUs), and 0 in the OLD file — which had a
+    different, milder pre-existing bug of its own, silently leaking a
+    root category name such as "Best Buy" in place of the product
+    name. Fix: regenerate the affected rows as `"{manufacturer}
+    {categoryPath leaf}"`, or the leaf alone with a "Bundle" suffix
+    where accurate — SKU `1216428` → "Editions E.G. Records
+    Hardcore/Punk", and the `laptop` bug's SKU `9999173100050008` →
+    "PC Laptops Bundle". Verified: exactly 348 rows changed, all
+    other rows byte-identical, and zero empty or whitespace-only
+    strings across all 1,274,801 rows afterwards. Published as a
+    follow-up commit to the same HF dataset
+    (`dtunkelang/bag-of-documents-bestbuy`, `titles.json` only,
+    vectors untouched); for the record, the two dataset commits from
+    this session are **`e9505c1f`** (the Part F re-index) and
+    **`b2455091`** (this title fix). **The lesson is about what Part
+    F's validation did and did not cover.** It checked retrieval
+    quality — junk@10, R@10, nDCG@10, E@1, old-vs-new overlap — on
+    250 queries, every number of which was computed from vectors and
+    every one of which was correct. None of them can see a degenerate
+    *display* field, because the display field never enters the
+    metric. A minute of interactive use did. Any future re-index
+    pipeline should carry build-time assertions for this class of
+    defect — zero empty/whitespace titles, plus minimum-length and
+    duplicate-rate bounds — since they cost nothing and cover exactly
+    the failure mode an offline eval harness is structurally blind
+    to.
+
+    **Part I — confidence-based routing between base and BoD: a
+    clean, mechanistically explained negative
+    (`evaluation/eval_bestbuy_confidence_routing.py` and
+    `evaluation/eval_bestbuy_asymmetric_coherence_fallback.py`,
+    `evaluation/results/bestbuy_confidence_routing.json` and
+    `evaluation/results/bestbuy_asymmetric_coherence_fallback.json`,
+    **$0** — pure numpy re-analysis of Part G's already-judged
+    labels).** Part G says BoD wins broadly but loses in an
+    identifiable way, which invites the obvious follow-up: is there a
+    per-query signal, computable at serve time with no ground truth,
+    that predicts which model to trust — a cheap ensemble that beats
+    always-BoD? Four families of classic query-performance-prediction
+    signal were tested per model: top-1 similarity, mean top-10
+    similarity, score gap (rank 1 minus rank 2, and rank 1 minus the
+    top-10 mean), and result-set **coherence** — the mean off-diagonal
+    cosine among the top-10 *result vectors themselves*, a measure of
+    whether the model returned one coherent thing or a scatter.
+
+    **Coherence has real signal; absolute similarity has none.** On
+    the 95 divergent queries with a decided categorical winner,
+    diff-coherence correlates with BoD winning at r = **0.377**
+    (permutation p = 0.0005, 2,000 permutations; AUC **0.758**), and
+    centroid-similarity — a near-duplicate of the same construct —
+    tracks it at r = 0.369. Within BoD alone, mean coherence is
+    **0.723** on its 70 categorical wins vs. **0.628** on its 25
+    losses (Δ +0.095, CI [+0.0345,+0.1507], AUC 0.698): the model's
+    own result-set tightness genuinely knows something about whether
+    it got the query right. Top-1 similarity (r = 0.138–0.144, p =
+    0.16–0.18), mean top-10 similarity (r = 0.120–0.135, p ≈ 0.18–0.24)
+    and the rank1−rank2 gap (r ≈ 0.00, p = 0.93–0.99) show nothing.
+    Absolute score magnitude is not confidence; result-set geometry
+    is.
+
+    **And no routing rule built on it beats always-BoD.** Symmetric
+    "serve whichever model is more coherent" rules reroute 115–138 of
+    the 250 queries and are significantly **worse** on both metrics —
+    junk@10 +0.025 to +0.059 and hit@10 −0.024 to −0.084, CIs
+    excluding zero across all seven score-distribution features (the
+    media-share variant reroutes only 37 and is still +0.029 /
+    −0.040). A detector with AUC 0.70–0.76 misfires far too often
+    against a base rate where BoD wins or ties 74–80% of contested
+    queries. Tightening to a relative-difference threshold —
+    `zdiff_coherence < −1.488`, the **in-sample** optimum for the junk
+    objective — reroutes just 13 of 250 queries and lands on a
+    non-significant wash (junk Δ −0.0036, CI [−0.0140,+0.0052]; hit Δ
+    −0.008, CI [−0.020,0.000]), and 5-fold CV selects a different
+    feature in every fold and never beats always-BoD on any
+    objective. **The oracle ceiling explains why.** A perfect
+    per-query oracle — serve the true categorical winner, 34 queries
+    to base — buys junk@10 −0.0296 (CI [−0.0428,−0.0184]); the click
+    oracle buys hit@10 +0.056 (CI [+0.032,+0.084]). The entire prize
+    is ~3 points of junk and ~5.6 points of hit, so an AUC-0.76
+    detector structurally cannot pay for itself no matter how it is
+    thresholded.
+
+    **Follow-up: an asymmetric, one-sided policy, and a strictly
+    cleaner negative.** The symmetric rules can be blamed for
+    consulting a noisy comparison on every query, so the second
+    script tests the safest possible variant — default to BoD always,
+    and consider base *only* when BoD's OWN absolute coherence falls
+    below a threshold τ (never compared against base). 101 thresholds
+    swept from τ = 0.286 to 0.968 (intervention rates 1.2% to 99.6%),
+    with 5-fold CV. **Even the in-sample optimum finds no threshold
+    that improves either metric by so much as a point estimate**:
+    best junk Δ = exactly **0.0000** and best hit Δ = exactly
+    **0.0000**, both attained only at zero intervention — the sweep's
+    argmax is "do not intervene." That is strictly cleaner than the
+    symmetric rules, which at least had a negative in-sample point
+    estimate to overfit to. 80 of the 101 thresholds are
+    significantly worse on at least one metric, and the smallest
+    intervention rate that is already significantly worse is **6%**;
+    the best low-intervention operating point (τ = 0.491, 18 queries,
+    7.2%) is junk Δ 0.000 with hit Δ −0.016, CI excluding zero. CV
+    agrees: four of five folds decline to intervene at all on the
+    combined objective.
+
+    **Mechanistic explanation.** BoD's low-coherence tail is "hard for
+    everyone," not "base is better here." In BoD's lowest-coherence
+    decile (n = 25) BoD still *beats* base — junk 0.260 vs. 0.280,
+    hit 0.280 vs. 0.160. Switch precision against real BoD losses
+    peaks at **0.270** (and only at a 25% intervention rate, 63
+    queries switched); at the low intervention rates a serving policy
+    would actually use it sits at 0.12–0.17, against a BoD
+    categorical-loss base rate of 34/250 = 13.6%. Every fallback
+    therefore destroys several BoD wins for each loss it rescues.
+    **Conclusion: don't route.** Coherence is a legitimate
+    *diagnostic* — flag low-coherence queries for logging, error
+    triage, or human review, where a 0.76-AUC signal is genuinely
+    useful — but it is not a viable serving policy at this signal
+    quality against this much headroom.
+
+    **Framework implication.** Three structurally different levers
+    were tested against a single failure mode (categorical junk in
+    top-K): retrieval-side lexical fusion (Part B — disqualified, it
+    makes the metric it was meant to fix significantly worse),
+    query-side LLM classification (Part D-b — dead on taxonomy
+    mismatch, not on capability), and indexing-side text enrichment
+    (Part D-a — works in the closed pool, and works most for the
+    weaker base model, but does not hold up at full scale; see Part
+    F). The generalizable result is that when a catalog carries vendor
+    metadata, the cheapest fix is putting it in the indexed text, not
+    building a model to infer it. And for the query side, the cheapest
+    viable production path turned out to be nearest-centroid over the
+    embedding you already serve (Part E): zero added serving latency,
+    zero API cost, no LLM in the loop, no retraining — used as a
+    *soft* boost rather than the hard LLM-driven filter that was tried
+    and failed, since even the best classifier here carries a ~25-37%
+    top-3 category-recall risk. The caveat on Parts D and E turned out
+    to be the whole story: the re-index was built (Part F) and the
+    closed-pool junk win evaporated under genuine full-corpus
+    retrieval, while the only surviving effect was the pool's
+    *incidental* R@10 signal, and only for the weaker base model. The
+    transferable lesson is that a pool-reranking prototype measures
+    reordering of an already-retrieved candidate set, which is a
+    different problem from retrieval over 1.27M vectors — **validate a
+    fix at the retrieval depth it will actually run at before trusting
+    it**, because an effect with a CI cleanly excluding zero in the
+    pool (junk −0.068, CI [−0.0912,−0.0464]) can be a flat null at
+    scale (−0.0072, CI [−0.0372,+0.0212]). Part F also splits the
+    brand-name query failure into two modes that need *opposite*
+    fixes: a **semantic gap** (`apple tablet` — the disambiguating
+    word is absent from the correct title, so lexical matching cannot
+    help either and only better embeddings or training closes it)
+    versus a **brand-association gap** (`roomba` — the word is right
+    there in the correct title, so a lexical fallback wins trivially
+    while the dense/centroid path fails outright). Any future
+    query-routing work should distinguish the two rather than treating
+    "brand-name query" as a single bucket. Part I then answered that
+    routing question in the negative, and generalizably so: **a signal
+    can be statistically real and still not be worth acting on if the
+    base rate of the thing it is meant to fix is already low.** Result-
+    set coherence is a genuine predictor of BoD's own correctness (r =
+    0.377, p = 0.0005, AUC 0.758) and every routing policy built on it
+    — symmetric, thresholded, asymmetric one-sided, in-sample-optimal
+    or cross-validated — still loses to always-BoD, because the
+    perfect-oracle ceiling is only ~3pt of junk@10 and ~5.6pt of
+    hit@10. **Check the oracle ceiling before building a routing or
+    ensemble policy, not just the correlation:** the detector's AUC
+    only matters relative to how much a perfect detector would win,
+    and here the arithmetic rules out the whole family of policies
+    before any specific rule is tried. Part H adds the complementary
+    engineering lesson — Part F's full-corpus validation checked every
+    retrieval metric correctly and still shipped 348 blank display
+    titles, because a display field never enters a vector-computed
+    metric; degenerate-output assertions belong in the build, not the
+    eval. Cost: $0.0745 (A) + $0.034 (B) + $0 (C, inspection only) +
+    $0.0434 (D/E) + $0.0396 (F) + **$0 (G, H, I)** ≈ **$0.19 total**,
+    all gpt-4o-mini — and the $0 is worth stating explicitly: an
+    entire three-part follow-on investigation (query-level divergence
+    analysis, a production bug fix, and a two-script routing study
+    with bootstrap CIs, permutation tests and 5-fold CV) ran at zero
+    marginal API cost, because every (query, product) pair it needed
+    had already been judged in Parts A/B/F and the rest was numpy.
+
 ## How to add a new corpus to this table
 
 1. Acquire qrels in the standard format (one of):
