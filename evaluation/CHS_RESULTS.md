@@ -3101,7 +3101,7 @@ scale, not by cluster geometry.
     **Part G — base and BoD barely overlap at all, and the entire
     aggregate lift lives in the queries where they share nothing
     (`evaluation/eval_bestbuy_base_vs_bod_divergence.py`,
-    `evaluation/results/bestbuy_base_vs_bod_divergence.json`, **$0** —
+    `evaluation/results/bestbuy_base_vs_bod_divergence.json`, $0 —
     every (query, product) pair was already judged in Parts A/B and
     F, so the whole analysis is cache reuse).** Part F left BoD-NEW
     ahead of base-NEW in aggregate (junk@10 0.1456 vs. 0.2508, hit@10
@@ -3231,7 +3231,7 @@ scale, not by cluster geometry.
     `evaluation/eval_bestbuy_asymmetric_coherence_fallback.py`,
     `evaluation/results/bestbuy_confidence_routing.json` and
     `evaluation/results/bestbuy_asymmetric_coherence_fallback.json`,
-    **$0** — pure numpy re-analysis of Part G's already-judged
+    $0 — pure numpy re-analysis of Part G's already-judged
     labels).** Part G says BoD wins broadly but loses in an
     identifiable way, which invites the obvious follow-up: is there a
     per-query signal, computable at serve time with no ground truth,
@@ -3261,17 +3261,17 @@ scale, not by cluster geometry.
     **And no routing rule built on it beats always-BoD.** Symmetric
     "serve whichever model is more coherent" rules reroute 115–138 of
     the 250 queries and are significantly **worse** on both metrics —
-    junk@10 +0.025 to +0.059 and hit@10 −0.024 to −0.084, CIs
+    junk@10 +0.025 to +0.059 and hit@10 −0.064 to −0.084, CIs
     excluding zero across all seven score-distribution features (the
     media-share variant reroutes only 37 and is still +0.029 /
     −0.040). A detector with AUC 0.70–0.76 misfires far too often
-    against a base rate where BoD wins or ties 74–80% of contested
-    queries. Tightening to a relative-difference threshold —
+    against a base rate where BoD takes 74–80% of the decided
+    contests. Tightening to a relative-difference threshold —
     `zdiff_coherence < −1.488`, the **in-sample** optimum for the junk
     objective — reroutes just 13 of 250 queries and lands on a
     non-significant wash (junk Δ −0.0036, CI [−0.0140,+0.0052]; hit Δ
-    −0.008, CI [−0.020,0.000]), and 5-fold CV selects a different
-    feature in every fold and never beats always-BoD on any
+    −0.008, CI [−0.020,0.000]), and 5-fold CV picks a different
+    feature in almost every fold and never beats always-BoD on any
     objective. **The oracle ceiling explains why.** A perfect
     per-query oracle — serve the true categorical winner, 34 queries
     to base — buys junk@10 −0.0296 (CI [−0.0428,−0.0184]); the click
