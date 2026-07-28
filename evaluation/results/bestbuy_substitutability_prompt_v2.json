@@ -1,0 +1,843 @@
+{
+ "benchmark": "bestbuy substitutability judge prompt v2 validation",
+ "gold_set": "/Users/dtunkelang/bag-of-documents/evaluation/results/bestbuy_substitutability_audit_v2.json",
+ "n_pairs": 100,
+ "gold_distribution": {
+  "S": 46,
+  "E": 11,
+  "C": 14,
+  "I": 29
+ },
+ "conditions": {
+  "A_baseline_v1": {
+   "model": "gpt-4o-mini",
+   "prompt": "v1_original",
+   "cost_usd": 0.0,
+   "note": "labels reused from the original benchmark"
+  },
+  "B_revised_mini": {
+   "model": "gpt-4o-mini",
+   "prompt": "v2_revised",
+   "tokens_in": 47577,
+   "tokens_out": 100,
+   "errors": 0,
+   "cost_usd": 0.0072
+  },
+  "C_revised_strong": {
+   "model": "gpt-4.1",
+   "prompt": "v2_revised",
+   "tokens_in": 47577,
+   "tokens_out": 100,
+   "errors": 0,
+   "cost_usd": 0.09595
+  },
+  "D_v21_mini": {
+   "model": "gpt-4o-mini",
+   "prompt": "v2.1_media",
+   "tokens_in": 60277,
+   "tokens_out": 100,
+   "errors": 0,
+   "cost_usd": 0.0091
+  },
+  "E_v21_strong": {
+   "model": "gpt-4.1",
+   "prompt": "v2.1_media",
+   "tokens_in": 60277,
+   "tokens_out": 100,
+   "errors": 0,
+   "cost_usd": 0.12135
+  }
+ },
+ "prompt_v1": "Anchor product: {a_title}{a_cat}\nCandidate product: {c_title}{c_cat}\n\nLabel the candidate's relationship to the anchor with ONE letter:\nE = same core product, differing only in a trivial variant (color, storage size, bundle, refurbished) - a buyer would treat them as interchangeable\nS = a different product that could reasonably serve the SAME buying need as an alternative (different brand or generation of the same product type)\nC = used WITH the anchor, not instead of it (accessory, case, charger, cable, mount, warranty, add-on)\nI = different category or use case; neither a reasonable alternative nor a complement\n\nAn accessory for the anchor is always C, never S, even if it names the same brand. Answer with one letter only.",
+ "prompt_v2": "Anchor product: {a_title}{a_cat}\nCandidate product: {c_title}{c_cat}\n\nLabel the candidate's relationship to the anchor with ONE letter:\n\nE = same core product, differing only in a trivial variant (color, storage size, bundle, refurbished, connectivity option) - a buyer would treat them as interchangeable.\nS = a DIFFERENT product that serves the SAME buying need, i.e. a genuine alternative the buyer would weigh against the anchor.\nC = used WITH the anchor, not instead of it: an accessory, case, charger, cable, mount, dock, warranty or add-on that actually fits or works with THIS anchor product.\nI = different category or use case; neither a reasonable alternative nor a usable complement.\n\nTwo rules that are easy to get wrong:\n\n1. \"Different model\" does NOT mean Irrelevant. Two products of the same type that a buyer would genuinely cross-shop are S even when they are different models, sizes, capacities, generations, or trim levels, and even when they come from the same brand. Two different-sized LCD monitors from the same brand are S, not I. Two camcorders from one product line are S, not I. A tablet and a notebook from the same laptop family are S, not I. Reserve I for products that solve a genuinely different problem.\n\n2. A shared brand or manufacturer NEVER by itself makes something a Complement. Ask: can this candidate actually be attached to, installed on, or used together with THIS specific anchor? If the accessory is scoped to a different model or product line, the answer is no, and the label is I, not C. An accessory that does fit the anchor is always C, never S.\n\nExamples:\nAnchor: Samsung - 17\" LCD Flat-Panel Monitor / Candidate: Samsung - 19\" Widescreen LCD Monitor -> S\nAnchor: Sony - PlayStation2 / Candidate: Sony - Battery Adapter for Sony CLIE -> I\nAnchor: Apple - iPad 2 with Wi-Fi - 32GB / Candidate: Belkin - Folio Case for Apple iPad 2 -> C\n\nAnswer with one letter only.",
+ "prompt_v2_1": "Anchor product: {a_title}{a_cat}\nCandidate product: {c_title}{c_cat}\n\nLabel the candidate's relationship to the anchor with ONE letter:\n\nE = same core product, differing only in a trivial variant (color, storage size, bundle, refurbished, connectivity option) - a buyer would treat them as interchangeable.\nS = a DIFFERENT product that serves the SAME buying need, i.e. a genuine alternative the buyer would weigh against the anchor.\nC = used WITH the anchor, not instead of it: an accessory, case, charger, cable, mount, dock, warranty or add-on that actually fits or works with THIS anchor product.\nI = different category or use case; neither a reasonable alternative nor a usable complement.\n\nTwo rules that are easy to get wrong:\n\n1. \"Different model\" does NOT mean Irrelevant. Two products of the same type that a buyer would genuinely cross-shop are S even when they are different models, sizes, capacities, generations, or trim levels, and even when they come from the same brand. Two different-sized LCD monitors from the same brand are S, not I. Two camcorders from one product line are S, not I. A tablet and a notebook from the same laptop family are S, not I. Reserve I for products that solve a genuinely different problem.\n\n2. A shared brand or manufacturer NEVER by itself makes something a Complement. Ask: can this candidate actually be attached to, installed on, or used together with THIS specific anchor? If the accessory is scoped to a different model or product line, the answer is no, and the label is I, not C. An accessory that does fit the anchor is always C, never S.\n\n3. Media and content goods (music CDs, movies on DVD/VHS/Blu-ray, books, video game titles) are bought for their specific content, not for a product spec. Two of them are S only when they are the same title, the same series/franchise, or another edition of the same content. Two unrelated titles that merely share a format, platform, or genre are I, not S. Rule 1 above is about hardware specs and does not license calling unrelated titles substitutes.\n\nExamples:\nAnchor: Samsung - 17\" LCD Flat-Panel Monitor / Candidate: Samsung - 19\" Widescreen LCD Monitor -> S\nAnchor: Sony - PlayStation2 / Candidate: Sony - Battery Adapter for Sony CLIE -> I\nAnchor: Apple - iPad 2 with Wi-Fi - 32GB / Candidate: Belkin - Folio Case for Apple iPad 2 -> C\nAnchor: Sonic Generations - Xbox 360 / Candidate: F.E.A.R. 3 - Xbox 360 -> I\n\nAnswer with one letter only.",
+ "results": {
+  "A_baseline_v1": {
+   "overall_agreement": 0.46,
+   "n_scored": 100,
+   "by_stratum": {
+    "broad_mix": 0.65,
+    "error_prone_CI_highoverlap": 0.175
+   },
+   "by_gold_label": {
+    "C": 0.6429,
+    "E": 0.5455,
+    "I": 0.4828,
+    "S": 0.3696
+   },
+   "by_baseline_label": {
+    "C": 0.3,
+    "E": 0.4,
+    "I": 0.4,
+    "S": 0.85
+   },
+   "confusion_gold_to_pred": {
+    "C->C": 9,
+    "C->I": 4,
+    "C->S": 1,
+    "E->C": 3,
+    "E->E": 6,
+    "E->S": 2,
+    "I->C": 15,
+    "I->I": 14,
+    "S->C": 3,
+    "S->E": 9,
+    "S->I": 17,
+    "S->S": 17
+   },
+   "error_pattern_1_gold_S_baseline_I": {
+    "n": 17,
+    "recovered_to_S": 0
+   },
+   "error_pattern_2_gold_I_baseline_C": {
+    "n": 15,
+    "recovered_to_I": 0
+   }
+  },
+  "B_revised_mini": {
+   "overall_agreement": 0.63,
+   "n_scored": 100,
+   "by_stratum": {
+    "broad_mix": 0.65,
+    "error_prone_CI_highoverlap": 0.6
+   },
+   "by_gold_label": {
+    "C": 0.6429,
+    "E": 0.6364,
+    "I": 0.3448,
+    "S": 0.8043
+   },
+   "by_baseline_label": {
+    "C": 0.5333,
+    "E": 0.5333,
+    "I": 0.6,
+    "S": 0.9
+   },
+   "confusion_gold_to_pred": {
+    "C->C": 9,
+    "C->I": 1,
+    "C->S": 4,
+    "E->C": 2,
+    "E->E": 7,
+    "E->S": 2,
+    "I->C": 11,
+    "I->I": 10,
+    "I->S": 8,
+    "S->C": 1,
+    "S->E": 6,
+    "S->I": 2,
+    "S->S": 37
+   },
+   "error_pattern_1_gold_S_baseline_I": {
+    "n": 17,
+    "recovered_to_S": 15
+   },
+   "error_pattern_2_gold_I_baseline_C": {
+    "n": 15,
+    "recovered_to_I": 4
+   },
+   "vs_baseline": {
+    "baseline_correct_revised_correct": 37,
+    "baseline_correct_revised_wrong_REGRESSIONS": 9,
+    "baseline_wrong_revised_correct_FIXES": 26,
+    "baseline_wrong_revised_wrong": 28,
+    "net_gain": 17
+   },
+   "regression_examples": [
+    {
+     "idx": 27,
+     "anchor": "Marysia I Napoleon - Fullscreen Subtitle - DVD",
+     "candidate": "Napoleon and Samantha - DVD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 29,
+     "anchor": "The Most Terrible Time in My Life - B&W Subtitle - VHS",
+     "candidate": "Hard Times - Movie - VHS",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 40,
+     "anchor": "Knock One Back - CD",
+     "candidate": "Knock-Knock Who? - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 49,
+     "anchor": "HoMedics - brethe Refreshing Citrus Solution for brethe Air Revitalizers",
+     "candidate": "HoMedics - brethe Calming Lavender Solution for brethe Air Revitalizers",
+     "gold": "E",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 77,
+     "anchor": "Sonic Generations - Xbox 360",
+     "candidate": "Generator Rex: Agent of Providence - Xbox 360",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 79,
+     "anchor": "Sonic Generations - Xbox 360",
+     "candidate": "F.E.A.R. 3 - Xbox 360",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 88,
+     "anchor": "Nintendo, Namco - Game Boy Advance SP Bundle with Crash Nitro Kart and Namco Museum",
+     "candidate": "Crash Nitro Kart - Nintendo GameCube",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 89,
+     "anchor": "Memories/The Vogues Sing the Good Old Songs - CD",
+     "candidate": "Old Time Songs Recorded from 1925 to 1930 - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 96,
+     "anchor": "Nothing But the Truth - CD",
+     "candidate": "Have a Little Faith - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    }
+   ],
+   "fix_examples": [
+    {
+     "idx": 0,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 1,
+     "anchor": "Sony - Dual 5-1/4\" 2-Way Extended-Response",
+     "candidate": "Sony 920W 5.1-Channel XM-Ready Extended-Response Home Theater Audio System",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 5,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac Mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 7,
+     "anchor": "Samsung - 17\" Widescreen LCD Flat-Panel TV Monitor - Silver",
+     "candidate": "Samsung - 17\" LCD Flat-Panel HDTV Monitor",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 14,
+     "anchor": "Coleman - Party Cooler - Stainless-steel",
+     "candidate": "Coleman - RoadTrip 5' Propane Hose",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 15,
+     "anchor": "Polk Audio - Blackstone TL1 2-1/2\" Center-Channel Speaker",
+     "candidate": "Polk Audio - Blackstone TL1 2-1/2\" Satellite Speaker (Each) - White",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 24,
+     "anchor": "Acer - 13.3\" Aspire Laptop - 4GB Memory - 500GB Hard Drive - Cobalt Blue",
+     "candidate": "Acer - Aspire Desktop - 4GB Memory - 500GB Hard Drive",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 31,
+     "anchor": "Nintendo - Metroid Prime Bonus GameCube Bundle",
+     "candidate": "Metroid Prime: Hunters (Game Guide) - Nintendo DS",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 33,
+     "anchor": "Seagate - FreeAgent Go 500GB External USB 2.0 Portable Hard Drive - Black",
+     "candidate": "Seagate - FreeAgent GoFlex Pro 500GB External USB 2.0 Hard Drive - Black",
+     "gold": "S",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 42,
+     "anchor": "Sonic Generations - Xbox 360",
+     "candidate": "Sonic Riders - Xbox",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 50,
+     "anchor": "Coleman - Party Cooler - Stainless-steel",
+     "candidate": "Coleman - RoadTrip Accessory Grill",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 56,
+     "anchor": "Marvel Avengers: Battle for Earth - Xbox 360",
+     "candidate": "R.U.S.E. - Xbox 360",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    }
+   ]
+  },
+  "C_revised_strong": {
+   "overall_agreement": 0.71,
+   "n_scored": 100,
+   "by_stratum": {
+    "broad_mix": 0.7333,
+    "error_prone_CI_highoverlap": 0.675
+   },
+   "by_gold_label": {
+    "C": 0.7143,
+    "E": 0.9091,
+    "I": 0.5172,
+    "S": 0.7826
+   },
+   "by_baseline_label": {
+    "C": 0.7333,
+    "E": 0.8,
+    "I": 0.5143,
+    "S": 0.95
+   },
+   "confusion_gold_to_pred": {
+    "C->C": 10,
+    "C->E": 1,
+    "C->I": 3,
+    "E->C": 1,
+    "E->E": 10,
+    "I->C": 5,
+    "I->I": 15,
+    "I->S": 9,
+    "S->C": 1,
+    "S->E": 3,
+    "S->I": 6,
+    "S->S": 36
+   },
+   "error_pattern_1_gold_S_baseline_I": {
+    "n": 17,
+    "recovered_to_S": 12
+   },
+   "error_pattern_2_gold_I_baseline_C": {
+    "n": 15,
+    "recovered_to_I": 10
+   },
+   "vs_baseline": {
+    "baseline_correct_revised_correct": 37,
+    "baseline_correct_revised_wrong_REGRESSIONS": 9,
+    "baseline_wrong_revised_correct_FIXES": 34,
+    "baseline_wrong_revised_wrong": 20,
+    "net_gain": 25
+   },
+   "regression_examples": [
+    {
+     "idx": 27,
+     "anchor": "Marysia I Napoleon - Fullscreen Subtitle - DVD",
+     "candidate": "Napoleon and Samantha - DVD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 29,
+     "anchor": "The Most Terrible Time in My Life - B&W Subtitle - VHS",
+     "candidate": "Hard Times - Movie - VHS",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 40,
+     "anchor": "Knock One Back - CD",
+     "candidate": "Knock-Knock Who? - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 61,
+     "anchor": "Memories/The Vogues Sing the Good Old Songs - CD",
+     "candidate": "Good Old Music - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 72,
+     "anchor": "Eye II Eye - CD",
+     "candidate": "An Eye for an Eye - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 77,
+     "anchor": "Sonic Generations - Xbox 360",
+     "candidate": "Generator Rex: Agent of Providence - Xbox 360",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 79,
+     "anchor": "Sonic Generations - Xbox 360",
+     "candidate": "F.E.A.R. 3 - Xbox 360",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 89,
+     "anchor": "Memories/The Vogues Sing the Good Old Songs - CD",
+     "candidate": "Old Time Songs Recorded from 1925 to 1930 - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 96,
+     "anchor": "Nothing But the Truth - CD",
+     "candidate": "Have a Little Faith - CD",
+     "gold": "I",
+     "baseline": "I",
+     "revised": "S"
+    }
+   ],
+   "fix_examples": [
+    {
+     "idx": 0,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 1,
+     "anchor": "Sony - Dual 5-1/4\" 2-Way Extended-Response",
+     "candidate": "Sony 920W 5.1-Channel XM-Ready Extended-Response Home Theater Audio System",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 4,
+     "anchor": "Sony - Bloggie Duo 4GB HD Flash Memory Camcorder - Purple",
+     "candidate": "Sony - bloggie High-Definition Digital Camcorder with 2.4\" LCD Monitor - Blue",
+     "gold": "S",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 5,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac Mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 7,
+     "anchor": "Samsung - 17\" Widescreen LCD Flat-Panel TV Monitor - Silver",
+     "candidate": "Samsung - 17\" LCD Flat-Panel HDTV Monitor",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 12,
+     "anchor": "Lenovo - IdeaPad A1 Tablet with 16GB Memory - Black",
+     "candidate": "Lenovo - LS200 Sleeve for IdeaPad K1 Tablets - Black",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 14,
+     "anchor": "Coleman - Party Cooler - Stainless-steel",
+     "candidate": "Coleman - RoadTrip 5' Propane Hose",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 15,
+     "anchor": "Polk Audio - Blackstone TL1 2-1/2\" Center-Channel Speaker",
+     "candidate": "Polk Audio - Blackstone TL1 2-1/2\" Satellite Speaker (Each) - White",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 18,
+     "anchor": "Pelican Accessories - VG Pocket",
+     "candidate": "Pelican Accessories - S-Video/AV Cable",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 19,
+     "anchor": "Magellan - RoadMate 1412 Portable GPS - Black",
+     "candidate": "Magellan RoadMate 1412 GPS with Dash Pad and Case",
+     "gold": "E",
+     "baseline": "C",
+     "revised": "E"
+    },
+    {
+     "idx": 21,
+     "anchor": "Sony - PlayStation2",
+     "candidate": "Sony - Compact Keyboard for Sony CLI\u00c9",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 24,
+     "anchor": "Acer - 13.3\" Aspire Laptop - 4GB Memory - 500GB Hard Drive - Cobalt Blue",
+     "candidate": "Acer - Aspire Desktop - 4GB Memory - 500GB Hard Drive",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    }
+   ]
+  },
+  "D_v21_mini": {
+   "overall_agreement": 0.67,
+   "n_scored": 100,
+   "by_stratum": {
+    "broad_mix": 0.75,
+    "error_prone_CI_highoverlap": 0.55
+   },
+   "by_gold_label": {
+    "C": 0.6429,
+    "E": 0.6364,
+    "I": 0.5517,
+    "S": 0.7609
+   },
+   "by_baseline_label": {
+    "C": 0.4667,
+    "E": 0.5333,
+    "I": 0.7714,
+    "S": 0.9
+   },
+   "confusion_gold_to_pred": {
+    "C->C": 9,
+    "C->I": 3,
+    "C->S": 2,
+    "E->C": 2,
+    "E->E": 7,
+    "E->S": 2,
+    "I->C": 13,
+    "I->I": 16,
+    "S->C": 1,
+    "S->E": 6,
+    "S->I": 4,
+    "S->S": 35
+   },
+   "error_pattern_1_gold_S_baseline_I": {
+    "n": 17,
+    "recovered_to_S": 13
+   },
+   "error_pattern_2_gold_I_baseline_C": {
+    "n": 15,
+    "recovered_to_I": 2
+   },
+   "vs_baseline": {
+    "baseline_correct_revised_correct": 45,
+    "baseline_correct_revised_wrong_REGRESSIONS": 1,
+    "baseline_wrong_revised_correct_FIXES": 22,
+    "baseline_wrong_revised_wrong": 32,
+    "net_gain": 21
+   },
+   "regression_examples": [
+    {
+     "idx": 49,
+     "anchor": "HoMedics - brethe Refreshing Citrus Solution for brethe Air Revitalizers",
+     "candidate": "HoMedics - brethe Calming Lavender Solution for brethe Air Revitalizers",
+     "gold": "E",
+     "baseline": "E",
+     "revised": "S"
+    }
+   ],
+   "fix_examples": [
+    {
+     "idx": 0,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 1,
+     "anchor": "Sony - Dual 5-1/4\" 2-Way Extended-Response",
+     "candidate": "Sony 920W 5.1-Channel XM-Ready Extended-Response Home Theater Audio System",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 5,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac Mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 7,
+     "anchor": "Samsung - 17\" Widescreen LCD Flat-Panel TV Monitor - Silver",
+     "candidate": "Samsung - 17\" LCD Flat-Panel HDTV Monitor",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 15,
+     "anchor": "Polk Audio - Blackstone TL1 2-1/2\" Center-Channel Speaker",
+     "candidate": "Polk Audio - Blackstone TL1 2-1/2\" Satellite Speaker (Each) - White",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 24,
+     "anchor": "Acer - 13.3\" Aspire Laptop - 4GB Memory - 500GB Hard Drive - Cobalt Blue",
+     "candidate": "Acer - Aspire Desktop - 4GB Memory - 500GB Hard Drive",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 31,
+     "anchor": "Nintendo - Metroid Prime Bonus GameCube Bundle",
+     "candidate": "Metroid Prime: Hunters (Game Guide) - Nintendo DS",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 33,
+     "anchor": "Seagate - FreeAgent Go 500GB External USB 2.0 Portable Hard Drive - Black",
+     "candidate": "Seagate - FreeAgent GoFlex Pro 500GB External USB 2.0 Hard Drive - Black",
+     "gold": "S",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 39,
+     "anchor": "Lenovo - IdeaPad A1 Tablet with 16GB Memory - Black",
+     "candidate": "Lenovo - 15.6\" IdeaPad Laptop - 6GB Memory - 500GB Hard Drive - Dusk Black",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 58,
+     "anchor": "Gateway - 22\" Widescreen Flat-Panel LCD HD Monitor",
+     "candidate": "Gateway - 23\"  Widescreen Flat-Panel LCD HD Monitor",
+     "gold": "S",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 60,
+     "anchor": "Viewsonic - VG2236wm-LED 22\" LED LCD Monitor - 5 ms - Black",
+     "candidate": "Viewsonic - VG932M 19\" LCD Monitor - 4:3 - 5 ms - Black",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 62,
+     "anchor": "Samsung - 10.1MP Digital Camera - Black",
+     "candidate": "Samsung - 8.0MP Digital Camera - Black",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    }
+   ]
+  },
+  "E_v21_strong": {
+   "overall_agreement": 0.78,
+   "n_scored": 100,
+   "by_stratum": {
+    "broad_mix": 0.85,
+    "error_prone_CI_highoverlap": 0.675
+   },
+   "by_gold_label": {
+    "C": 0.7143,
+    "E": 0.9091,
+    "I": 0.8276,
+    "S": 0.7391
+   },
+   "by_baseline_label": {
+    "C": 0.7333,
+    "E": 0.8,
+    "I": 0.6857,
+    "S": 1.0
+   },
+   "confusion_gold_to_pred": {
+    "C->C": 10,
+    "C->I": 4,
+    "E->C": 1,
+    "E->E": 10,
+    "I->C": 5,
+    "I->I": 24,
+    "S->E": 3,
+    "S->I": 9,
+    "S->S": 34
+   },
+   "error_pattern_1_gold_S_baseline_I": {
+    "n": 17,
+    "recovered_to_S": 10
+   },
+   "error_pattern_2_gold_I_baseline_C": {
+    "n": 15,
+    "recovered_to_I": 10
+   },
+   "vs_baseline": {
+    "baseline_correct_revised_correct": 46,
+    "baseline_correct_revised_wrong_REGRESSIONS": 0,
+    "baseline_wrong_revised_correct_FIXES": 32,
+    "baseline_wrong_revised_wrong": 22,
+    "net_gain": 32
+   },
+   "regression_examples": [],
+   "fix_examples": [
+    {
+     "idx": 0,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 1,
+     "anchor": "Sony - Dual 5-1/4\" 2-Way Extended-Response",
+     "candidate": "Sony 920W 5.1-Channel XM-Ready Extended-Response Home Theater Audio System",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 4,
+     "anchor": "Sony - Bloggie Duo 4GB HD Flash Memory Camcorder - Purple",
+     "candidate": "Sony - bloggie High-Definition Digital Camcorder with 2.4\" LCD Monitor - Blue",
+     "gold": "S",
+     "baseline": "E",
+     "revised": "S"
+    },
+    {
+     "idx": 5,
+     "anchor": "Apple\u00ae - Mac Pro 2.26GHz",
+     "candidate": "Apple\u00ae - Mac Mini 2.0GHz",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 7,
+     "anchor": "Samsung - 17\" Widescreen LCD Flat-Panel TV Monitor - Silver",
+     "candidate": "Samsung - 17\" LCD Flat-Panel HDTV Monitor",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 12,
+     "anchor": "Lenovo - IdeaPad A1 Tablet with 16GB Memory - Black",
+     "candidate": "Lenovo - LS200 Sleeve for IdeaPad K1 Tablets - Black",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 14,
+     "anchor": "Coleman - Party Cooler - Stainless-steel",
+     "candidate": "Coleman - RoadTrip 5' Propane Hose",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 18,
+     "anchor": "Pelican Accessories - VG Pocket",
+     "candidate": "Pelican Accessories - S-Video/AV Cable",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 19,
+     "anchor": "Magellan - RoadMate 1412 Portable GPS - Black",
+     "candidate": "Magellan RoadMate 1412 GPS with Dash Pad and Case",
+     "gold": "E",
+     "baseline": "C",
+     "revised": "E"
+    },
+    {
+     "idx": 21,
+     "anchor": "Sony - PlayStation2",
+     "candidate": "Sony - Compact Keyboard for Sony CLI\u00c9",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    },
+    {
+     "idx": 24,
+     "anchor": "Acer - 13.3\" Aspire Laptop - 4GB Memory - 500GB Hard Drive - Cobalt Blue",
+     "candidate": "Acer - Aspire Desktop - 4GB Memory - 500GB Hard Drive",
+     "gold": "S",
+     "baseline": "I",
+     "revised": "S"
+    },
+    {
+     "idx": 26,
+     "anchor": "Pelican Accessories - VG Pocket",
+     "candidate": "Pelican Accessories - Starter Kit (Black) - Black",
+     "gold": "I",
+     "baseline": "C",
+     "revised": "I"
+    }
+   ]
+  }
+ }
+}

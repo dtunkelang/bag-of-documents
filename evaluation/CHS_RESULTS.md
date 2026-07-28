@@ -2242,7 +2242,8 @@ scale, not by cluster geometry.
     - Learned per-query router: refuted
     - Multi-vector / ColBERT: refuted (Pattern 25)
     - Negation parsing: refuted (Pattern 5 entry)
-    - Richer product text (BM25 side): refuted; semantic side queued
+    - Richer product text (BM25 side): refuted; semantic side now
+      also refuted (2026-07-28 addendum below)
     - Long-context: refuted (Pattern 24)
 
     The framework's compound architectures (CC5 on ESCI-US, BoD-as-
@@ -2261,6 +2262,81 @@ scale, not by cluster geometry.
     --max-queries 100 --top-k 100`. Throughput on MPS: 1.2-3.5 q/s
     depending on doc length (short titles fast, 800-char docs slow);
     full 22k ESCI-US would take ~3-5h but the n=100 result is decisive.
+
+    **Addendum, 2026-07-28 — the queued semantic side is now closed,
+    and it is REFUTED too (`evaluation/eval_esci_embedding_enrichment.py`,
+    `evaluation/results/esci_embedding_enrichment.json`, $0 — ESCI's
+    native graded labels, no LLM judge).** The list above left one
+    lever open: richer product text was refuted on the BM25 side, but
+    the *embedding* side was never tested, and Pattern 30 Part D-a then
+    made it look promising on BestBuy. This runs the same idea on ESCI
+    at full scale. The already-built-but-never-wired
+    `download/build_enriched_titles.py` produces
+    `esci_us_data/titles_enriched.json` — `"{title}. {brand}. {color}.
+    {bullet}"`, capped at 400 chars, which takes the median product
+    text from **99 to 400 characters** (mean 108 → 325; 4.9% of
+    products are unchanged because they have no extra fields). The
+    enriched string is an **embedding-only** field: display titles and
+    the qrels are untouched. Both arms re-embed all **360,873**
+    products and run genuine full-corpus exact-cosine retrieval —
+    **not** a closed pool — over all **22,458** test queries, on two
+    models: off-the-shelf `all-MiniLM-L6-v2` and the deployed
+    `dtunkelang/bag-of-documents-minilm-6m-mnrl`.
+
+    | Model | Metric | plain | enriched | Δ |
+    |---|---|---:|---:|---|
+    | base | R@10 | 0.2340 | 0.2369 | +0.29pp, CI [+0.16,+0.42] |
+    | base | nDCG@10 | 0.3880 | 0.3919 | +0.39pp, CI [+0.19,+0.59] |
+    | base | E@1 | 0.4577 | 0.4510 | **−0.68pp**, CI [−1.26,−0.11] |
+    | base | E@3 | 0.4173 | 0.4198 | +0.24pp (ns) |
+    | BoD | R@10 | 0.2639 | 0.2620 | **−0.19pp**, CI [−0.30,−0.08] |
+    | BoD | nDCG@10 | 0.4387 | 0.4350 | **−0.37pp**, CI [−0.55,−0.20] |
+    | BoD | E@1 | 0.5014 | 0.4968 | −0.47pp (ns) |
+    | BoD | E@3 | 0.4692 | 0.4640 | **−0.52pp**, CI [−0.84,−0.22] |
+
+    **A much smaller and mixed effect than on BestBuy, and outright
+    negative for the deployed model.** For the base model the top-K
+    metrics move up by a fraction of a point while **E@1 significantly
+    regresses**; for the fine-tuned model every metric moves down,
+    three of the four significantly. **This is not a no-op mistaken for
+    a null:** mean top-10 overlap between plain and enriched is
+    **0.52** (base) / **0.63** (BoD), and only 1.5% / 2.7% of queries
+    keep an identical result set. Enrichment churns roughly half the
+    results — the wins and losses simply cancel.
+
+    **Mechanism, from the per-query spot-check** (`evaluation/work/
+    esci_embedding_enrichment/inspect.json`): appending ~300 characters
+    of bullet-point marketing text **dilutes short, discriminative
+    titles under mean pooling**. Short exact-match queries collapse —
+    `hanukkah hats` goes nDCG 1.000 → 0.047 and `leather face tie`
+    1.000 → 0.000 on the BoD arm, because the matching product's title
+    tokens are now a small fraction of a 400-char blob dominated by
+    boilerplate. Long, spec-heavy queries are rescued by exactly the
+    same change — `duratrax six pack st 2.8` 0.029 → 0.957 and
+    `kid crochet scarf with pom pom ball` 0.009 → 0.930 on the base
+    arm, where the discriminating spec only ever appeared in the
+    bullets. **So this is a dilution failure of flat concatenation, not
+    evidence that brand/color/bullet carry no signal** — the same
+    fields that destroy one query class rescue another.
+
+    **Verdict: flat-concatenation enrichment is refuted for ESCI on
+    both sides — lexical (already known) and now semantic. Match this
+    result rather than repeating this specific approach.** Note the
+    contrast with Pattern 30 Part J, where the same idea gave BestBuy's
+    base model +3.73pp R@10: BestBuy's added text is *short structured
+    vendor metadata* (manufacturer, category path, class — a handful of
+    tokens), while ESCI's is *long unstructured marketing copy*. The
+    transferable rule is about the ratio, not the fields: **enrichment
+    helps when it adds discriminative tokens and hurts when it adds
+    length faster than it adds discrimination.** One genuine follow-up
+    is named here without being pursued: **query-dependent routing
+    between the plain and enriched vectors** (both are cheap to store),
+    since query length/specificity visibly predicts which
+    representation wins. That is a mechanistically better-founded
+    routing question than the base-vs-BoD routing that came up empty in
+    Pattern 30 Part I — there the oracle ceiling itself was tiny,
+    whereas here the two arms disagree on half their results and each
+    owns an identifiable query class.
 
 26. **OpenAI `text-embedding-3-large` @ 1024-dim is the new English
     drop-in Pareto champion across three calibration corpora; closed
@@ -3316,6 +3392,45 @@ scale, not by cluster geometry.
     useful — but it is not a viable serving policy at this signal
     quality against this much headroom.
 
+    **Part J — the re-index revalidated at full 12,128-query holdout
+    scale, on the project's original headline metrics, and shipped
+    live (`evaluation/eval_bestbuy_full_holdout_new_index.py`,
+    `evaluation/results/bestbuy_full_holdout_new_index.json`, $0 — no
+    judge, click ground truth only).** Parts D through I all ran on the
+    250-query judged sample and on a *fraction*-based R@10. This closes
+    the loop on the two numbers the README and the public Space
+    actually publish: **binary hit-rate R@10** (≥1 gold in the top-10)
+    and **E@1**, with the metric definitions reused verbatim from
+    `eval_bestbuy_bod_full.py` / `eval_bestbuy_bod_full_e1.py`, run
+    over the full 12,128-query holdout against all 1,274,801
+    re-indexed products as exact cosine top-10 for both models
+    (248s end-to-end, ~10s encode + ~2min search per arm).
+
+    | Metric | OLD index | NEW index | Δ |
+    |---|---:|---:|---:|
+    | base R@10 (binary) | 0.3238 | **0.3611** | **+3.73pp** |
+    | BoD R@10 (binary) | 0.5013 | **0.5038** | +0.25pp |
+    | base E@1 | 0.0926 | **0.1050** | **+1.24pp** |
+    | BoD E@1 | 0.1589 | **0.1707** | +1.18pp |
+
+    **The re-index is a clear no-regression win at full scale, and the
+    headline BoD-vs-base story compresses because of it.** The
+    published lift narrows from Δ R@10 +17.75pp to **+14.26pp**, while
+    ΔE@1 is essentially unmoved (+6.63pp → **+6.57pp**). Enrichment
+    helps the off-the-shelf base model roughly 15× more than the
+    already-adapted BoD model on R@10 (+3.73pp vs. +0.25pp) — the same
+    asymmetry Part D-a found in the closed pool and Part F found on
+    junk-rate, now confirmed on the real headline metric at the real
+    scale: **the enriched text supplies category/brand signal that BoD
+    had already learned from clicks, so it is worth much more to the
+    model that never saw the click data.** Both
+    `space_demo_bestbuy/README.md` and the header text rendered by
+    `app.py` were updated to these recomputed numbers and pushed to
+    the HuggingFace Space,
+    verified serving live — so the published claim now matches the
+    artifacts actually being served, which it did not between the
+    Part F/H dataset commits and this recompute.
+
     **Framework implication.** Three structurally different levers
     were tested against a single failure mode (categorical junk in
     top-K): retrieval-side lexical fusion (Part B — disqualified, it
@@ -3371,13 +3486,501 @@ scale, not by cluster geometry.
     titles, because a display field never enters a vector-computed
     metric; degenerate-output assertions belong in the build, not the
     eval. Cost: $0.0745 (A) + $0.034 (B) + $0 (C, inspection only) +
-    $0.0434 (D/E) + $0.0396 (F) + **$0 (G, H, I)** ≈ **$0.19 total**,
+    $0.0434 (D/E) + $0.0396 (F) + **$0 (G, H, I, J)** ≈ **$0.19 total**,
     all gpt-4o-mini — and the $0 is worth stating explicitly: an
     entire three-part follow-on investigation (query-level divergence
     analysis, a production bug fix, and a two-script routing study
     with bootstrap CIs, permutation tests and 5-fold CV) ran at zero
     marginal API cost, because every (query, product) pair it needed
     had already been judged in Parts A/B/F and the rest was numpy.
+
+31. **A product-product substitutability benchmark that measures
+    embedding GEOMETRY instead of query relevance — and a two-stage
+    validation in which the headline finding survives an adversarial
+    re-labeling, one secondary claim is retracted, and another is
+    strengthened.** Every other metric in this repo scores query →
+    product relevance. This one asks a question about the vector space
+    itself: for an anchor PRODUCT, do its cosine neighbours respect a
+    substitutability hierarchy? It is the natural instrument for
+    Pattern 30's `apple tablet` pathology, which is precisely an index
+    that places an iPad *case* where an iPad *alternative* belongs, and
+    it needs no queries and no qrels at all.
+
+    **Part A — benchmark design and first result
+    (`evaluation/eval_bestbuy_substitutability_benchmark.py`,
+    `evaluation/results/bestbuy_substitutability_benchmark.json`,
+    $0.078).** Labels use the real ESCI 4-class scheme applied to
+    product pairs: **E** = same core product, trivial variant only
+    (color, storage, bundle, refurb); **S** = a different product
+    serving the same buying need; **C** = used WITH the anchor, not
+    instead of it (accessory, case, charger, warranty); **I** =
+    different category or use case. **C and I are scored identically —
+    both mean "not a valid substitute"** — so the required ordering is
+    **E > S > {C, I}**, and an accessory is C, never S, which is the
+    whole point. Two design choices matter. First, **candidates come
+    from three independent sources per anchor**: dense top-10 under the
+    OLD vectors, dense top-10 under the Part F re-indexed vectors, and
+    BM25 top-10 over the full 1.27M catalog using the anchor title as a
+    pseudo-query. Sampling only an embedding's own neighbours cannot
+    surface the substitutes that embedding is blind to; the BM25 leg
+    and the cross-model legs break that circularity (1,440 pairs from
+    each source, union 2,504 unique). Second, the anchor sample is
+    stratified over the raw-catalog `class` field — 144 anchors across
+    20 classes, 128 HardGood electronics and 16 media — so the media
+    long tail that dominated Pattern 30's junk is represented but does
+    not dominate. All 2,504 pairs judged once by gpt-4o-mini and reused
+    across both embedding arms. Initial labels: **E 893 / S 1,156 /
+    C 103 / I 352**. Initial macro concordance, OLD → NEW:
+
+    | Ordering | OLD | NEW | Δ (paired bootstrap) | anchors |
+    |---|---:|---:|---|---:|
+    | E > S | 0.729 | 0.768 | +0.039, CI [+0.0005,+0.0794] | 118 |
+    | E > {C,I} | 0.875 | 0.912 | +0.037, CI [−0.0263,+0.1067] | 56 |
+    | S > {C,I} | 0.672 | 0.788 | **+0.116, CI [+0.0586,+0.1759]** | 65 |
+
+    **(Read these as superseded — Part C re-derives all three from
+    cleaner labels; the trustworthy versions are the Part C numbers.)**
+    The bias check, however, is **label-independent and did hold up**:
+    lexical/brand surface overlap between anchor and candidate predicts
+    the true label far better than cosine similarity does — Spearman
+    0.570 for token coverage vs. gain, against only 0.214 (OLD) / 0.307
+    (NEW) for cosine vs. gain. The embedding is, in the aggregate, a
+    worse substitutability signal than a bag-of-words overlap count.
+
+    **Part B — an audit finds the judge unreliable (pure judgment, no
+    script, and — the point of recording it — no saved artifact).** An
+    independent Claude re-labeling of 61 of the judged pairs agreed
+    with gpt-4o-mini on only **59% raw / 70% class-reweighted**. The
+    disagreement is very unevenly distributed: **S is reliable
+    (89.5%)** while **E, C and I run 40-60%**. The dominant error is
+    one specific confusion: **genuine same-brand substitutes labeled I
+    instead of S** — two different Samsung monitors, two Panasonic
+    camcorders, a ThinkPad tablet against a ThinkPad notebook — as if
+    the judge read "not the identical model" as "not substitutable." A
+    second, smaller error runs the other way: **shared brand token
+    alone manufacturing false C labels**, e.g. a "Sony PlayStation2"
+    anchor paired with an unrelated "Sony CLIÉ" PDA accessory, labeled
+    Complement purely on the brand. Instructively, those particular
+    pairs sit at near-zero cosine — **the embedding correctly ignored
+    the spurious brand link even though the label did not**, which is
+    the reverse of the pathology under study and would have biased the
+    bias check *against* the embedding. This audit was run as
+    in-context judgment and never written to disk, so it cannot be
+    re-scored, diffed, or reused; that is exactly why
+    [[feedback_save_computed_labels]] now exists as a standing rule,
+    and Part C's gold set is persisted.
+
+    **Part C — prompt revision, regression-tested, then re-run at full
+    scale (`evaluation/eval_bestbuy_substitutability_prompt_v2.py` +
+    `evaluation/results/bestbuy_substitutability_prompt_v2.json`, gold
+    set persisted at
+    `evaluation/results/bestbuy_substitutability_audit_v2.json`, $0.23;
+    full re-judge `evaluation/eval_bestbuy_substitutability_rejudge.py`
+    + `evaluation/results/bestbuy_substitutability_benchmark_v2.json`,
+    $3.06).** A fresh **100-pair gold set** was labeled from titles
+    only, before revealing the original label (gold distribution S 46 /
+    I 29 / C 14 / E 11). It is deliberately **two-stratum**: 40 pairs
+    from the error-prone high-lexical-overlap C/I population Part B
+    implicated, plus 60 from a broad sample weighted toward S — the
+    broad stratum exists **to catch regressions, not to measure fixes**,
+    which turned out to be the decisive design choice. Five conditions
+    (model × prompt) scored against it:
+
+    | Condition | Overall | error-prone stratum | fixes | regressions |
+    |---|---:|---:|---:|---:|
+    | A gpt-4o-mini / v1 (baseline) | 0.46 | 0.175 | — | — |
+    | B gpt-4o-mini / v2 | 0.63 | 0.600 | 26 | 9 |
+    | C gpt-4.1 / v2 | 0.71 | 0.675 | 34 | 9 |
+    | D gpt-4o-mini / v2.1 | 0.67 | 0.550 | 22 | 1 |
+    | **E gpt-4.1 / v2.1 (winner)** | **0.78** | 0.675 | **32** | **0** |
+
+    Prompt **v2** added two explicit rules — *"different model ≠
+    irrelevant"* and *"shared brand alone ≠ complement"* — plus
+    few-shot examples, and it fixed the real errors (15 of the 17
+    gold-S/baseline-I cases recovered under B, 10 of 15 gold-I/
+    baseline-C under C). **It also introduced a brand-new regression
+    the broad stratum caught: overgeneralization to unrelated media.**
+    All nine of C's regressions are the same shape — *Sonic
+    Generations* vs. *F.E.A.R. 3* on Xbox 360, two unrelated CDs, two
+    unrelated DVDs — flipped I → S because "same product type, would be
+    cross-shopped" reads as true for two console games if you ignore
+    that content goods are bought for their content. **v2.1** adds a
+    media/content carve-out (media pairs are S only when same title,
+    series/franchise, or another edition) and takes regressions to
+    **zero** while keeping 32 of the baseline's errors fixed.
+
+    **The full 2,504-pair re-judge with gpt-4.1/v2.1 is a real
+    correction, not noise reduction — and it does not correct what the
+    audit predicted.** Overall v1↔v2 label agreement is 0.762, and the
+    distribution moves **E 893→600, S 1,156→1,414, C 103→57,
+    I 352→433**. But the S increase comes overwhelmingly from
+    **correcting v1's over-called E (315 E→S flips)**, not from the
+    I→S rescues Part B's 61-pair sample pointed at (only **74** I→S).
+    And I *rose*, driven by the media carve-out correctly demoting
+    **115 S→I** and **43 C→I**. A 61-pair audit identified a genuine
+    defect and mis-estimated both its magnitude and its direction at
+    the population level — worth remembering before extrapolating any
+    small audit into a correction factor.
+
+    | Ordering | OLD | NEW | Δ, clean labels | Δ, v1 labels |
+    |---|---:|---:|---|---|
+    | E > S | 0.787 | 0.800 | +0.013, CI [−0.026,+0.054] | +0.039 |
+    | E > {C,I} | 0.939 | 0.967 | **+0.027, CI [+0.0074,+0.0505]** | +0.037 (ns) |
+    | S > {C,I} | 0.655 | 0.757 | **+0.102, CI [+0.0283,+0.1824]** | +0.116 |
+
+    **One claim is retracted:** the apparent re-index gain in E > S
+    concordance does **not** survive cleaner labels (+0.039 → +0.013,
+    CI now comfortably spanning zero). It was an artifact of v1
+    over-calling E. **One claim strengthens:** E > {C,I}, previously
+    +0.037 with a CI including zero, is now +0.027 with a CI excluding
+    it. **And the headline holds essentially unchanged:** the re-index
+    buys **+0.102** on S > {C,I} against +0.116 under the original
+    labels — the real, robust geometric benefit of enriched indexing
+    text is that genuine substitutes now outrank accessories and
+    irrelevancies, which is exactly the `apple tablet` complaint.
+
+    **The bias-check re-test is the sharpest methodological result
+    here.** Naively comparing the bias magnitude before and after
+    relabeling looks like a collapse: the rate at which a non-substitute
+    beats a true substitute, high-overlap minus low-overlap, goes from
+    **+0.221 to +0.030** under the OLD embeddings. That is an
+    **anchor-set artifact**. Relabeling changes which anchors have
+    enough of both strata to qualify at all — 19 anchors under v1, 14
+    under v2, with only **9 in common** — so the two gaps are computed
+    over largely different products. Restricted to those 9 anchors
+    (the matched, correct comparison), the picture inverts: under the
+    NEW embeddings the bias gap **grows**, +0.117 → **+0.168**, and
+    under the OLD embeddings it only softens, +0.248 → +0.208.
+    **Conclusion: the lexical-overlap pathology is structural and
+    survives the re-index — confirmed, not weakened, by adversarial
+    re-labeling.** A high-lexical-overlap non-substitute still beats a
+    genuine substitute about 22% of the time under the NEW vectors
+    versus 5% for low-overlap non-substitutes. This corroborates
+    Pattern 30 Part I's bias finding through a completely independent,
+    higher-quality labeling pass — and it is a general trap worth
+    naming: **when a relabeling changes the population eligible for a
+    stratified comparison, compare on the intersection or you will
+    measure the population change and call it an effect.**
+
+    **Part D — framework implication: two-stage validation discipline.**
+    The value of this pattern is less the benchmark than the shape of
+    its outcome. An initial LLM-judged result (Part A) went through one
+    round of adversarial scrutiny and came out **partially intact and
+    partially not** — one claim retracted, one strengthened, the
+    headline unchanged, and the bias finding sharpened. That is
+    precisely the outcome that justifies the scrutiny: had everything
+    survived, the audit would have been ceremony; had everything
+    collapsed, the original result was never worth reporting. Neither
+    of the two cheap alternatives — blindly trusting a gpt-4o-mini
+    label set, or blindly discarding it once an audit found 59%
+    agreement — would have produced the right answer, since the
+    correction that mattered (E over-calling) was not the one the audit
+    found and the finding that mattered most (the bias gap) was
+    label-independent all along. The reusable protocol: **judge cheap
+    at full scale → audit a small sample → build a persisted gold set
+    stratified to include a regression-catching control population →
+    A/B prompt and model together → re-judge at full scale with the
+    winner → report the deltas against the original claims explicitly,
+    including the ones you have to withdraw.**
+
+    **Design refinement for any future run: drop C entirely and judge
+    3 classes, E / S / not-a-substitute.** An accessory does not
+    substitute for the product it accompanies, so for this metric's
+    purpose there is nothing to gain from distinguishing Complement
+    from Irrelevant — and the metric already scored them identically,
+    so today's 4-class data stands as-is and nothing needs
+    re-deriving. Folding C into "not a substitute" at judging time
+    simplifies the prompt (one of v2's two hard-won rules exists only
+    to police the C/I boundary) and dissolves the C-sparsity
+    limitation of this first pass — C is only 103 of 2,504 candidates
+    under v1 and 57 after the re-judge, too thin to support its own
+    ordering claim, and it would otherwise take dedicated
+    accessory-surfacing candidate generation to give it power.
+
+    Cost: **$0.078** (A,
+    gpt-4o-mini × 2,504) + **$0.23** (C, five conditions × 100) +
+    **$3.06** (C, gpt-4.1 × 2,504) = **$3.37** for the full four-stage
+    arc. The re-judge is 39× the original judge's cost and still less
+    than a single engineer-hour — when a conclusion is going into a
+    results document, the strong model on the full set is the cheap
+    option.
+
+    **Part E — opening up the residual S > {C,I} gap case by case: the
+    dominant failure is same-class near-miss (accessory / component /
+    bundle-part vs. the whole product), NOT brand confusion
+    (`evaluation/analyze_bestbuy_substitutability_violations.py`,
+    `evaluation/results/bestbuy_substitutability_violations.json`, $0 —
+    pure re-analysis of the persisted gpt-4.1/v2.1 labels and the
+    cached cosines, no new inference).** Part C reports that the NEW
+    vectors satisfy S > {C,I} on 0.757 of anchors. This part enumerates
+    the other 0.243: every individual (anchor, non-substitute,
+    substitute) inversion, plus what those inversions have in common.
+    It runs on the 3-class collapse Part D recommends — C folded into
+    "not a substitute" (NS) — so it is already the shape a future run
+    would use. A violation is an NS candidate whose cosine to the
+    anchor **strictly** exceeds that of at least one S candidate of the
+    same anchor; ties are excluded from the violation set and scored
+    0.5 in the pairwise rate, so the count is conservative.
+
+    **Sanity check first, because the whole part is a re-derivation.**
+    Recomputing the concordance from the raw per-pair cosines
+    reproduces the stored benchmark numbers **exactly** — macro
+    0.7568763 NEW / 0.6547087 OLD, micro 0.7930 / 0.6239, 1,889 pairs
+    over 44 qualifying anchors, absolute difference 0.0 on every one.
+    The enumeration is therefore describing the same object the
+    headline metric scores, not a parallel computation that happens to
+    look similar.
+
+    **135 of the 375 NS candidates — 36.0% of the NS pool — beat at
+    least one true substitute of their own anchor**, spread over **29
+    of the 44 qualifying anchors (65.9%)**. This is not a thin tail of
+    near-ties: **47 of the 135 beat *every* substitute their anchor
+    has** (they are the anchor's top-ranked plausible neighbour, and
+    the correct answer is nowhere above them), and **59 win by more
+    than 0.05 cosine** over the best substitute they displace. The
+    label mix is 115 I / 20 C, and C is mildly over-represented (40.8%
+    of C candidates violate vs. 35.3% of I), which is the first hint at
+    the mechanism.
+
+    **The mechanism is category adjacency, and only secondarily
+    brand.** Going in, Part A's bias check and Part B's audit both
+    pointed at brand-token overlap as the driver — the expectation was
+    that violations would be mostly "same brand, wrong thing." They are
+    not:
+
+    | Feature of the NS candidate | share among violations | base rate in NS pool | lift | Fisher OR | p |
+    |---|---:|---:|---:|---:|---|
+    | same `class` as anchor | 0.578 (78/135) | 0.397 | **1.45×** | 3.26 | **1.1e-07** |
+    | shares a brand token | 0.533 (72/135) | 0.448 | 1.19× | 1.71 | 0.013 |
+
+    Same-class is the strong, highly significant signal. Brand-sharing
+    is real but weak — and the decisive framing is the third column the
+    table above omits: **the base rate of brand-sharing across *all*
+    candidates (E and S included) is 0.625, so a violating
+    non-substitute actually shares a brand with its anchor LESS often
+    than a randomly drawn candidate does.** Brand overlap is elevated
+    only against the NS sub-pool, and even there at 1.19× with
+    p = 0.013. The crosstab makes the split explicit: 46 violations are
+    same-class-only, 40 are shared-brand-only, 32 are both, 17 are
+    neither. **This overturns the Part A/C expectation.** Lexical
+    overlap still separates violations from the NS pool in the
+    direction Part C's bias check predicted, but modestly — mean token
+    coverage 0.454 vs. 0.409, mean Jaccard 0.348 vs. 0.289. What
+    actually characterizes a violation is that it lives in, or right
+    next to, the anchor's own product class: a part, an accessory, a
+    bundle component, or an adjacent edition of the same content.
+
+    **The concrete cases make the mechanism unmistakable.** Six,
+    covering the range:
+
+    - **Garmin — Chartplotter GPS** (`GPS NAVIGATION`) vs. an item with
+      the **byte-identical title** `Garmin - Chartplotter GPS` filed
+      under `GPS ACCESSORIES` (labeled C). The accessory scores
+      **0.9394 and beats all 11** of the anchor's real substitutes,
+      including `Garmin - GPSMAP 5012 Chartplotter GPS` at 0.9206. No
+      text-only model can win this one — the two titles are the same
+      string, and the only thing that distinguishes them is the
+      catalog's `class` field.
+    - **Motorola — DECT 6.0 Expandable Cordless Phone System** vs. its
+      **own expansion handset**, `Motorola - DECT 6.0 Cordless
+      Expansion Handset` (C), at **0.9253** — beating the genuine
+      competing system `AT&T - DECT 6.0 Expandable Cordless Phone
+      System` at **0.7886**, a 0.137 margin. The embedding prefers the
+      part of the product over the alternative to the product.
+    - **Nintendo — Metroid Prime Bonus GameCube Bundle**
+      (`VIDEO GAME HARDWARE`) vs. the standalone game `Metroid Prime
+      (Player's Choice) - Nintendo GameCube` (C) at **0.8521**, beating
+      the real substitute `Metroid Prime Trilogy - Nintendo Wii` at
+      **0.7126**. Bundle → its own contents, the same shape as the
+      accessory case.
+    - **Nintendo, Namco — Game Boy Advance SP Bundle with Crash Nitro
+      Kart and Namco Museum** vs. the standalone `Namco Museum - Game
+      Boy Advance` (I) at 0.7802, beating **all four** of its
+      hardware-bundle substitutes.
+    - **Olympus — m:robe 500 20GB MP3 Player and Digital Camera**
+      (`MP-3 DEVICES`) vs. `Olympus - Camedia 3.2MP Digital Camera`
+      (`DIGITAL CAMERAS`, I) at **0.5584**, beating **10 of the
+      anchor's 14** real MP3-player substitutes including `Sony -
+      Walkman 512MB MP3 Player` at 0.5520. Brand pull straight across a
+      category boundary — one of the few genuinely brand-driven cases,
+      and it is a dual-function product where the brand and the wrong
+      half of the description reinforce each other.
+    - **Strawberry Shortcake: Strawberryland Games - Nintendo DS** vs.
+      **Strawberry Shortcake: The Four Seasons Cake - Nintendo DS** (a
+      *different game*, I) at **0.9385**, beating the anchor's only
+      substitute by 0.279. Same franchise, same platform, same title
+      prefix, different content — the media pathology in miniature.
+
+    **By anchor class, violations are overwhelmingly a media problem in
+    absolute count, and a phone problem in rate.** Violations per
+    qualifying anchor: `COMPACT DISC` 10.0, `DVD SOFTWARE` 9.0,
+    `MP-3 DEVICES` 6.5, `BLU RAY MOVIES` 5.67, then a long drop to
+    `VIDEO GAME HARDWARE` 2.86 and below. The four **content** classes
+    — `COMPACT DISC` (20), `DVD SOFTWARE` (27), `BLU RAY MOVIES` (17),
+    `VIDEO GAME SOFTWARE` (11) — account for **75 of the 135
+    violations, 55.6%**, off a minority of the sampled anchors (12 of
+    44). Meanwhile the *worst concordance rate* belongs to `PHONES` at
+    **0.216** over 3 anchors, where all 5 of its NS candidates violate
+    — a catastrophic rate on a tiny absolute count, and exactly the
+    accessory/handset confusion the Motorola case shows. Four classes
+    (`COMPUTER PRINTERS`, `HEADPHONES-MP3 SPKRS`, `HARD DRIVES`,
+    `DESK TOP COMPUTERS`) are at a perfect 1.0 with zero violations
+    between them. The aggregate metric is averaging over classes whose failure
+    modes have nothing in common — which is the seed of Part F.
+
+    **OLD vs. NEW: the re-index genuinely helped, but what survived is
+    harder.** OLD had **231 violations (61.6% of the same 375-candidate
+    NS pool, 34.5% macro discordance) against NEW's 135 (36.0%, 24.3%
+    macro discordance)** — 117 old-only violations fixed against only
+    21 newly introduced, 114 shared, Jaccard 0.452 between the two
+    violation sets, and anchors-with-violations down 32 → 29. That is a
+    real, one-directional improvement, and it is the same effect the
+    +0.102 headline reports, now visible as individual cases. **But the
+    residual profile shifted toward the harder mode.** Under OLD,
+    shared-brand was 39.0% of violations against a 44.8% NS-pool base
+    rate — a lift of **0.87×**, i.e. brand overlap was *protective*,
+    with the violations skewing random and diffuse (65 of 231 shared
+    neither brand nor class, vs. 17 of 135 under NEW). Under NEW it is
+    53.3%, a 1.19× lift. Same-class rose 45.9% → 57.8% on the same
+    comparison. **Re-indexing cleaned out the diffuse, arbitrary
+    failures and concentrated what remains into the brand-plus-category
+    confusable cases** — which is what you would want, and also why the
+    next increment will be harder than the last one.
+
+    **Hard-negative training feasibility: a clear no for direct use.**
+    The obvious next move is to turn these into training signal, and
+    the analysis costs it out explicitly: **391 (anchor, hard-negative,
+    hard-positive) triplets** — 135 unique negatives, 114 unique
+    positives, mean 13.5 triplets per anchor — drawn from **only 29
+    distinct anchors**. Against the existing BestBuy BoD MNRL training
+    set of **~242,580 triplets (48,516 bags × 5)**, that is **0.16%**.
+    Three independent reasons not to use them directly, any one of
+    which would be sufficient:
+    **(a) Scale.** 29 anchors cannot move a 48,516-bag fine-tune. The
+    only way 391 triplets change the model is by over-weighting them,
+    which overfits to these specific Garmin and Motorola SKUs rather
+    than teaching the general accessory-vs-product distinction.
+    **(b) Label noise, and of a particularly bad kind.** **61 of the
+    135 negatives (45.2%) changed label between the v1 and v2.1
+    judging rounds** — 50 S→I, 7 C→I, 2 S→C, 2 E→C. The violation set
+    sits almost exactly on the judge's own decision boundary; it is
+    where the labels are *least* reliable, not most. Training a model
+    to push apart pairs that the two best available judges disagreed
+    about half the time is a good way to learn the judge's noise.
+    **(c) Test-set leakage.** These pairs *are* the benchmark. Training
+    on them and then re-running the benchmark to see whether the fix
+    worked measures memorization, and permanently destroys the only
+    instrument available for answering the question.
+
+    **Part F — proposed next steps (a plan, not a result: nothing in
+    this part has been run, and no numbers here are measurements).**
+    Part E leaves two distinct problems — one with how this is
+    *measured*, one with how it could be *acted on* — and each has a
+    concrete next step that has not been taken yet.
+
+    **Measurement: media and hardware are two different constructs and
+    should stop being pooled.** The 55.6% media share of violations is
+    the tell. Content goods do not have a substitutability gradient the
+    way hardware does: a buyer who wants *this* album, film, or game
+    essentially never accepts a different one, so for media the S class
+    is nearly always a category error, and what looks like a genuine
+    "alternative" is really a format or edition variant of the **same
+    work** — which the E label and the v2.1 media carve-out already
+    partly capture. The Strawberry Shortcake case above is not an
+    indexing defect in the sense the Garmin case is; two games in one
+    franchise on one platform *should* be neighbours in a vector space,
+    and calling that a violation is a statement about the label scheme,
+    not about the index. Pooling the two populations into one
+    concordance number therefore averages two different phenomena, and
+    because media is a large share of the catalog and an outsized share
+    of raw violation counts, it can dominate and distort the aggregate
+    in a direction that says nothing about hardware substitutability.
+    **The proposal is to report concordance stratified by category type
+    — hardware/electronics vs. media/content — rather than pooled**,
+    and to treat the two strata as answering different questions rather
+    than as a decomposition of one. For media specifically, the useful
+    question would be reframed as *"does the embedding cluster
+    same-title / same-franchise / same-work edition variants together
+    and separate everything else?"* — much closer to near-duplicate
+    detection than to a substitutability gradient — instead of forcing
+    a 3-way E/S/not-a-substitute hierarchy onto a domain where the
+    middle class barely exists. **A lower-effort fallback, if stratified
+    reporting is more bookkeeping than it is worth: exclude
+    media/content classes from substitutability benchmarks entirely**,
+    on the grounds that "substitutable" is not a coherent buyer concept
+    there. That would cost the 16 media anchors of the current 144 and
+    would make the remaining number mean one thing instead of two.
+
+    **Action: scale the pattern, not the sample.** Part E's own
+    conclusion is that the 391 triplets are unusable but the *pattern*
+    they exhibit — same brand, adjacent class, accessory or component
+    or bundle-part beating the whole product — generalizes. Turning
+    that pattern into training data without inheriting the 29-anchor
+    overfitting risk would take five steps, in order:
+
+    1. **Mine hard negatives from the catalog TAXONOMY, not from the
+       LLM judge.** Pattern 30 Part C established that the raw BestBuy
+       XML carries `class` (224 distinct values), `subclass` (1,407),
+       and `categoryPath`, 100% populated for HardGoods, and that the
+       core-vs-accessory distinction already exists there as vendor
+       ground truth (`TABLET` vs. `TABLET ACCESSORIES`,
+       `GPS NAVIGATION` vs. `GPS ACCESSORIES`). Pattern 30 Part E
+       independently found the corresponding geometric defect —
+       `TABLET ACCESSORIES` is the *modal* nearest-other class for
+       `TABLET` at 0.62–0.71 cosine, the one place the taxonomy fails
+       to separate. The step would be to enumerate same-brand,
+       core-class ↔ accessory-class pairs **programmatically across the
+       full 1.27M catalog**, not just the 144 anchors this benchmark
+       happened to sample. Because it is rules-based generation off a
+       structured field, it is decoupled from any particular small
+       labeled sample and scales to whatever the catalog supports.
+    2. **Validate the mining rule's precision on a judged sample before
+       trusting it.** A few hundred mined pairs judged with the
+       now-trusted gpt-4.1 / v2.1 configuration (Part C's winner,
+       0 regressions on the gold set) — not the full mined set — would
+       establish the false-positive rate of the heuristic. The
+       assumption that a rule extracted from 29 examples transfers
+       cleanly to a million products is exactly the kind of assumption
+       Part B and Part C were built to distrust; at Part C's observed
+       rate this validation would cost on the order of $0.3–0.5.
+    3. **Cap per-anchor and per-class contribution when assembling the
+       final training set.** Once the pool is large, what prevents
+       overfitting is diversity, not size — a mined pool that is 60%
+       `GPS NAVIGATION` would reproduce the 29-anchor problem at
+       greater expense. A hard cap on triplets per anchor and per class
+       would be part of the construction, not a post-hoc check.
+    4. **Hold the benchmark out — a hard requirement, not a nicety.**
+       The 144 benchmark anchors, and every product appearing as a
+       candidate against them (2,504 pairs' worth), would be excluded
+       from the mining pool outright. The entire value of this
+       benchmark is that it can independently answer "did the retrain
+       actually fix this?", and that value is destroyed the first time
+       a training pair leaks in. This constraint is cheap to enforce
+       now and impossible to repair later.
+    5. **Test a training-free fix before paying for a retrain.** An
+       MNRL retrain is real infrastructure cost, and the failure mode
+       is now well enough characterized to admit a cheap rule-based
+       probe first: demote candidates whose `class` is a known
+       accessory class when the signal indicates the core product is
+       wanted, and re-measure S > {C,I}. If a rule captures most of the
+       available gain, the retrain is unnecessary; if it captures none,
+       that is itself evidence about whether the defect is
+       representational or merely a ranking-time filter problem. This
+       matches the discipline the rest of Pattern 30 was run under —
+       though it is worth stating plainly that the two comparable
+       cheap-first probes there, the BM25 junk gate (Part B,
+       disqualified) and query-side category routing (Part D-b, dead on
+       taxonomy ignorance), were both **negative** for their respective
+       failure modes. A cheap check being cheap is the argument for
+       running it first; it is not an argument that it will work.
+
+    **Framework implication, if this is carried out:** the substitutability
+    benchmark would move from a single pooled number to a pair of
+    stratified ones measuring different constructs, and the violation
+    enumeration would shift from being a *result* to being a
+    *specification* — the thing that tells a taxonomy-based miner what
+    to look for at catalog scale, while itself staying out of the
+    training set so it can keep grading the work.
 
 ## How to add a new corpus to this table
 

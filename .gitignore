@@ -88,6 +88,8 @@ memory/
 .claude/
 evaluation/diagnose_*.tsv
 evaluation/llm_judge_outputs/
+# Scratch embedding/top-k caches written by eval scripts (regenerable, GBs of .npy)
+evaluation/work/
 
 # Logs and temp files
 *.log

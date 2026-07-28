@@ -23,11 +23,11 @@ Evaluated against the full 1.27M-product catalog on the 12,128-query holdout:
 
 | Model | R@10 (binary hit-rate) | E@1 |
 |---|---:|---:|
-| `all-MiniLM-L6-v2` (base) | 0.3238 | 0.0926 |
-| BoD-trained (this work) | **0.5013** | **0.1589** |
-| **Δ** | **+17.75pp** | **+6.63pp** |
+| `all-MiniLM-L6-v2` (base) | 0.3611 | 0.1050 |
+| BoD-trained (this work) | **0.5038** | **0.1707** |
+| **Δ** | **+14.26pp** | **+6.57pp** |
 
-The +17.75pp R@10 lift is preserved when scaled from the original 53K-subset evaluation (where it was +17.49pp) to the full 1.27M catalog. E@1 lift shrinks (was +11.80pp on subset) because the top-1 spot is much harder to win against ~24× more competing documents. CHS predicted GREEN (SCHS=0.525) before training; this is the empirical confirmation.
+The +14.26pp R@10 lift holds up at full 1.27M-catalog scale (it was +17.49pp on the original 53K-subset evaluation). The gap narrowed slightly because the catalog is now indexed on richer product text (name + manufacturer + category path + class rather than name alone), which helps the off-the-shelf base model more than it helps the already-adapted BoD model — base R@10 rose from 0.3238 to 0.3611 while BoD held at ~0.50. E@1 lift is essentially unchanged (+6.57pp vs +6.63pp), and is smaller than on the subset (+11.80pp) because the top-1 spot is much harder to win against ~24× more competing documents. CHS predicted GREEN (SCHS=0.525) before training; this is the empirical confirmation.
 
 ## How to read the demo
 

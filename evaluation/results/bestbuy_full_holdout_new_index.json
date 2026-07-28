@@ -1,0 +1,39 @@
+{
+  "description": "Headline BestBuy metrics recomputed on the RE-INDEXED 1.27M catalog (name+manufacturer+categoryPath+class embedding text), full 12,128-query holdout. Metric definitions match evaluation/eval_bestbuy_bod_full.py and eval_bestbuy_bod_full_e1.py.",
+  "catalog_size": 1274801,
+  "n_holdout_queries": 12128,
+  "k": 10,
+  "artifacts_dir": "/tmp/bestbuy_reindex_output/artifacts",
+  "dataset_repo": "dtunkelang/bag-of-documents-bestbuy",
+  "old_index_numbers": {
+    "base_r_at_10_binary": 0.3238,
+    "bod_r_at_10_binary": 0.5013,
+    "base_e_at_1": 0.0926,
+    "bod_e_at_1": 0.1589
+  },
+  "new_index_numbers": {
+    "base": {
+      "model": "all-MiniLM-L6-v2",
+      "n_eval": 12128,
+      "r_at_10_binary": 0.3611477572559367,
+      "e_at_1": 0.1049637203166227,
+      "r_at_10_fraction_recovered": 0.17472274728693898,
+      "encode_seconds": 9.0,
+      "search_seconds": 124.2
+    },
+    "bod": {
+      "model": "dtunkelang/bag-of-documents-bestbuy-minilm",
+      "n_eval": 12128,
+      "r_at_10_binary": 0.5037928759894459,
+      "e_at_1": 0.17067941952506596,
+      "r_at_10_fraction_recovered": 0.26065686604773514,
+      "encode_seconds": 8.1,
+      "search_seconds": 103.7
+    }
+  },
+  "deltas_new_index": {
+    "r_at_10_binary_pp": 14.26,
+    "e_at_1_pp": 6.57
+  },
+  "total_wall_clock_seconds": 248.1
+}
